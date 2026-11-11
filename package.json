@@ -1,0 +1,13 @@
+{
+  "name": "rufo-boardgame-arena",
+  "version": "1.0.0",
+  "description": "Rufo BoardGame Arena with server-authoritative WebSocket multiplayer",
+  "type": "module",
+  "main": "ProgramFiles/System/Server/ServerMain.js",
+  "scripts": {
+    "start": "node ProgramFiles/System/Server/ServerMain.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

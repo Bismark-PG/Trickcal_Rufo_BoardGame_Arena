@@ -1,0 +1,19 @@
+body {
+    margin: 0; padding: 0; width: 100vw; height: 100vh;
+    background-color: #F5F5DC; color: #000;
+    /* 기본 폰트를 고딕 계열로 설정 */
+    font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+    overflow: hidden;
+}
+
+/* 굴림 폰트 적용 클래스 */
+body.gulim-font {
+    font-family: 'Gulim', 'Dotum', sans-serif !important;
+}
+
+#app {
+    width: 1920px; height: 1080px; position: absolute; top: 50%; left: 50%;
+    transform-origin: center center;
+}
+
+::-webkit-scrollbar { width: 0px; background: transparent; }

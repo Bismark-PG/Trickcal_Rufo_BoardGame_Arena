@@ -1,0 +1,20 @@
+# Dependency directories
+node_modules/
+
+# Environment & local secrets
+.env
+.env.*
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS & editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+
+# Note: Resource/는 Private 서브모듈(.gitmodules)로 분리 연결하므로 여기에 적지 않습니다.
+# (여기에 Resource/를 적으면 git submodule add 실행 시 차단되며,
+#  서브모듈로 연결하면 Public 레포에는 파일이 전혀 올라가지 않고 버전 번호표만 올라갑니다.)
