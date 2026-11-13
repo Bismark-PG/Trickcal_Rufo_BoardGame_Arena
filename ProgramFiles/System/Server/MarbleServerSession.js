@@ -4,11 +4,12 @@
 import { MarbleGameEngine } from '../../Marble/MarbleEngine.js';
 
 export class MarbleServerSession {
-    constructor({ room, broadcastToPlayer, broadcastToRoom, onGameFinished }) {
+    constructor({ room, broadcastToPlayer, broadcastToRoom, onGameFinished, onPlayerAfkKick }) {
         this.room = room;
         this.broadcastToPlayer = broadcastToPlayer;
         this.broadcastToRoom = broadcastToRoom;
         this.onGameFinished = onGameFinished;
+        this.onPlayerAfkKick = onPlayerAfkKick;
 
         this.engine = new MarbleGameEngine({
             room,
@@ -16,13 +17,18 @@ export class MarbleServerSession {
             callbacks: {
                 onStateChange: () => this.pushStateToAll(),
                 onEvent: (event) => {
-                    this.broadcastToRoom({
+                    const payload = {
                         type: 'GAME_EVENT',
                         roomId: this.room.id,
                         event
-                    });
+                    };
+                    if (event?.targetPlayerId) {
+                        this.broadcastToPlayer(event.targetPlayerId, payload);
+                    } else {
+                        this.broadcastToRoom(payload);
+                    }
                     if (event?.type === 'GAME_OVER' && typeof this.onGameFinished === 'function') {
-                        this.onGameFinished(event.results);
+                        this.onGameFinished(event.results, event.matchLogData || this.engine?.lastMatchLogInput || null);
                     }
                 },
                 onTimerTick: (tick) => {
@@ -31,6 +37,11 @@ export class MarbleServerSession {
                         roomId: this.room.id,
                         ...tick
                     });
+                },
+                onPlayerAfkKick: (info) => {
+                    if (typeof this.onPlayerAfkKick === 'function') {
+                        this.onPlayerAfkKick(info);
+                    }
                 }
             }
         });

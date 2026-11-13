@@ -17,7 +17,7 @@ function hasSpecialTerritoryImmunity(player, tileId) {
 
 // 특수 영토(요충지)의 정산 1인당 수금액 산출 헬퍼:
 // 정산 시에는 특수 영토 배율(+0.2)을 적용하지 않고 매입가의 왕국 배율(1.2배)을 산정한 뒤, 3명으로 나눈 금액(12만 / 20만 / 24만 / 28만)을 각 대상에게서 수금
-function getSpecialTerritoryVillageToll(tile) {
+export function getSpecialTerritoryVillageToll(tile) {
     const totalKingdomToll = Math.round(tile.basePrice * MULTIPLIERS.BUILDING[3]); // 매입가 * 1.2 (36만, 60만, 72만, 84만)
     return Math.round(totalKingdomToll / 3); // 1인당 수금액 (12만, 20만, 24만, 28만)
 }
@@ -39,15 +39,20 @@ export function processFinalSettlement(allPlayers, tiles) {
         player: p,
         baseCash: p.isBankrupt ? 0 : p.money,
         totalAsset: p.isBankrupt ? 0 : p.money,
-        totalLoan: p.isBankrupt ? 0 : (p.loanPrincipal + p.loanInterest),
+        totalLoan: p.isBankrupt ? 0 : (p.getTotalLoanDebt ? p.getTotalLoanDebt() : Math.round((p.loanPrincipal || 0) + (p.loanInterestPrincipal || 0) + (p.loanInterest || 0))),
+        specialTerritoryCollectTotal: 0,
         specialTerritoryPaidTotal: 0,
         specialTerritoryPaidCount: 0,
         stateStealPaidTotal: 0,
         stateStealPaidCount: 0,
         kimWorkerCollectCount: 0,
         kimWorkerCollectTotal: 0,
+        kimWorkerPaidTotal: 0,
+        lakeReward: 0,
         moonFlowerCollectCount: 0,
         moonFlowerCollectTotal: 0,
+        lapLeaderReward: 0,
+        isLapLeaderWinner: false,
         netWorth: 0,
         isBankruptFinal: p.isBankrupt,
         categories: []
@@ -73,6 +78,7 @@ export function processFinalSettlement(allPlayers, tiles) {
                 const collectTotal = unitToll * collectCount;
 
                 res.totalAsset += collectTotal;
+                res.specialTerritoryCollectTotal += collectTotal;
                 targets.forEach(targetRes => {
                     targetRes.totalAsset -= unitToll;
                     targetRes.specialTerritoryPaidTotal += unitToll;
@@ -120,6 +126,7 @@ export function processFinalSettlement(allPlayers, tiles) {
                 lakeOwnerRes.totalAsset -= collectAmt;
                 lakeOwnerRes.stateStealPaidTotal += collectAmt;
                 lakeOwnerRes.stateStealPaidCount += fbVisits;
+                lakeOwnerRes.kimWorkerPaidTotal += collectAmt;
             }
         }
 
@@ -146,6 +153,21 @@ export function processFinalSettlement(allPlayers, tiles) {
             }
         }
     });
+
+    // 1-3단계: 최다 순회자 보너스 (생존자 중 순회 횟수 최다, 동률 시 보드 순회점 0번 칸에 시계방향으로 가장 근접한 pos 최대자, 동일 pos 동률 시 균등 분배)
+    const maxSurvivingLaps = survivingResults.reduce((mx, r) => Math.max(mx, r.player.tracker?.lapPassCount || 0), 0);
+    if (maxSurvivingLaps > 0) {
+        const lapCandidates = survivingResults.filter(r => (r.player.tracker?.lapPassCount || 0) === maxSurvivingLaps);
+        const maxClosestPos = lapCandidates.reduce((mx, r) => Math.max(mx, Number(r.player.pos) || 0), -1);
+        const lapWinners = lapCandidates.filter(r => (Number(r.player.pos) || 0) === maxClosestPos);
+        const totalLapBonus = maxSurvivingLaps * (GAME_CONSTANTS.SETTLE_LAP_LEADER_UNIT || 150000);
+        const eachLapBonus = lapWinners.length > 0 ? Math.round(totalLapBonus / lapWinners.length) : 0;
+        lapWinners.forEach(wRes => {
+            wRes.isLapLeaderWinner = true;
+            wRes.lapLeaderReward = eachLapBonus;
+            wRes.totalAsset += eachLapBonus;
+        });
+    }
 
     // 2단계: 선두 플레이어부터 순서대로 전체 정산 항목 구축 및 합산
     results.forEach(res => {
@@ -248,6 +270,7 @@ export function processFinalSettlement(allPlayers, tiles) {
         const ownsLake = !p.isBankrupt && tiles[BOARD_TILES.LAKE].owner === p;
         const lakeCount = ownsLake ? totalLakeRests : 0;
         const lakeReward = lakeCount * lakeUnitReward;
+        res.lakeReward = lakeReward;
         res.totalAsset += lakeReward;
 
         // 4-4. 마녀 도서관 (모든 플레이어의 총 카드 칸 도착 횟수 * 10만)
@@ -299,8 +322,8 @@ export function processFinalSettlement(allPlayers, tiles) {
         };
 
         // (5) 보유 및 상태 정산 (빵주 정비반장, 김씨노동기, 달바라기 한 송이, 태초의 엘리프)
-        const bbangjuBase = GAME_CONSTANTS.SETTLE_BBANGJU_BASE; // 100만
-        const bbangjuUnit = GAME_CONSTANTS.SETTLE_BBANGJU_UNIT; // 10만
+        const bbangjuBase = GAME_CONSTANTS.SETTLE_BBANGJU_BASE; // 150만
+        const bbangjuUnit = GAME_CONSTANTS.SETTLE_BBANGJU_UNIT; // 20만
         const isChief = !p.isBankrupt && p.isBbangjuChief;
         const bbangjuCount = isChief ? getGlobalBbangjuVisits() : 0;
         const bbangjuReward = isChief ? Math.round((bbangjuBase + bbangjuCount * bbangjuUnit) / totalBbangjuChiefs) : 0;
@@ -350,6 +373,12 @@ export function processFinalSettlement(allPlayers, tiles) {
                     isActive: hasOriginElif && originTurns > 0
                 },
                 {
+                    label: sText.ITEM_LAP_LEADER,
+                    formula: `${formatMoney(GAME_CONSTANTS.SETTLE_LAP_LEADER_UNIT || 150000)} * ${res.isLapLeaderWinner ? (p.tracker?.lapPassCount || 0) : 0} = ${res.lapLeaderReward > 0 ? '+' : ''}${formatMoney(res.lapLeaderReward)}`,
+                    amount: res.lapLeaderReward,
+                    isActive: res.isLapLeaderWinner && res.lapLeaderReward > 0
+                },
+                {
                     label: sText.ITEM_STATE_STEAL_PAID,
                     formula: `* ${statePaidActive ? res.stateStealPaidCount : 0} = ${statePaidActive ? '-' : ''}${formatMoney(res.stateStealPaidTotal)}`,
                     amount: -res.stateStealPaidTotal,
@@ -360,8 +389,8 @@ export function processFinalSettlement(allPlayers, tiles) {
         };
 
         // (6) 대출 원금 및 이자 청산
-        const loanPrincipal = p.isBankrupt ? 0 : p.loanPrincipal;
-        const loanInterest = p.isBankrupt ? 0 : p.loanInterest;
+        const loanPrincipal = p.isBankrupt ? 0 : (p.getTotalPrincipalBalance ? p.getTotalPrincipalBalance() : ((p.loanPrincipal || 0) + (p.loanInterestPrincipal || 0)));
+        const loanInterest = p.isBankrupt ? 0 : Math.round(p.loanInterest || 0);
         const hasLoan = !p.isBankrupt && p.loanCount > 0;
 
         const loanCategory = {
@@ -420,6 +449,8 @@ export function serializeSettlementResults(rankedResults) {
         baseCash: res.baseCash,
         totalAsset: res.totalAsset,
         totalLoan: res.totalLoan,
+        specialTerritoryCollectTotal: res.specialTerritoryCollectTotal || 0,
+        specialTerritoryPaidTotal: res.specialTerritoryPaidTotal || 0,
         netWorth: res.netWorth,
         isBankruptFinal: Boolean(res.isBankruptFinal),
         categories: res.categories

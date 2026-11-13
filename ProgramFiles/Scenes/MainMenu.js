@@ -3,6 +3,8 @@ import { AudioManager, SettingsManager } from '../System/System.js';
 import { LangState } from '../System/LanguageManager.js';
 import { MenuLang } from '../System/Index/MainMenuIndex.js';
 import { getAllRegisteredGames } from '../System/GameRegistry.js';
+import { RoomManager } from '../Lobby/RoomManager.js';
+import { openQuickJoinModal } from '../Lobby/QuickJoinUI.js';
 import { showLobbyToast, escapeHtml } from '../Lobby/LobbyUI.js';
 
 export function initMenu(container) {
@@ -12,7 +14,7 @@ export function initMenu(container) {
         const emptyCount = Math.max(0, 9 - games.length);
 
         const gameCardsHtml = games.map(g => {
-            const isActive = g.status === 'active';
+            const isActive = g.lobbyEnabled || g.status === 'active';
             const title = text[g.nameKey] || g.id;
             const desc = text[g.descKey] || '';
             const bg = isActive ? '#165b7a' : 'rgba(22, 91, 122, 0.72)';
@@ -28,6 +30,7 @@ export function initMenu(container) {
         container.innerHTML = `
             <div style="width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; position: relative; padding-top: 50px;">
                 <div style="position: absolute; top: 50px; right: 50px; display: flex; gap: 20px;">
+                    <button id="btn-quick-join" style="font-family: inherit; padding: 15px 28px; font-size: 24px; font-weight: bold; background: #f39c12; color: #fff; border: none; border-radius: 10px; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.18);">${escapeHtml(text.QUICK_JOIN)}</button>
                     <button id="btn-settings" style="font-family: inherit; padding: 15px 30px; font-size: 24px; background: #165b7a; color: #fff; border: none; border-radius: 10px; cursor: pointer;">${text.SETTINGS}</button>
                     <button id="btn-info" style="font-family: inherit; padding: 15px 30px; font-size: 24px; background: #165b7a; color: #fff; border: none; border-radius: 10px; cursor: pointer;">${text.INFO}</button>
                 </div>
@@ -70,12 +73,21 @@ export function initMenu(container) {
             </div>
         `;
 
+        if (!RoomManager.isOnline()) {
+            RoomManager.initNetwork();
+        }
+
+        const quickJoinBtn = container.querySelector('#btn-quick-join');
+        if (quickJoinBtn) {
+            quickJoinBtn.onclick = () => openQuickJoinModal(container);
+        }
+
         container.querySelectorAll('.game-select-btn').forEach(btn => {
             btn.onclick = () => {
                 const gameId = btn.dataset.gameId;
                 const meta = games.find(g => g.id === gameId);
                 if (!meta) return;
-                if (meta.status === 'active') {
+                if (meta.lobbyEnabled || meta.status === 'active') {
                     changeScene(meta.sceneMain);
                 } else {
                     showLobbyToast(container, text.UNOS_PREPARING_MSG);

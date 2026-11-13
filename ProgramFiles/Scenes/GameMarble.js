@@ -10,6 +10,7 @@ import {
     createTurnIndicator,
     createDiceButton,
     createDiceOverlay,
+    createTurnOrderOverlay,
     createPopupOverlay,
     renderBoardState,
     showSettlementPopup,
@@ -22,7 +23,18 @@ import { MarbleLang } from '../System/Index/Marble/MarbleUIIndex.js';
 import { LobbyLang } from '../System/Index/LobbyIndex.js';
 import { getGameMeta } from '../System/GameRegistry.js';
 
-const DICE_PATH = './Resource/Texture/Marble/Dice/Dice_N_';
+const DICE_NORMAL_PATH = './Resource/Texture/Marble/Dice/Dice_N_';
+const DICE_ERPIN_PATH = './Resource/Texture/Marble/Dice/Dice_E_';
+
+function getLeftDicePath(diceState) {
+    return diceState?.useErpin ? DICE_ERPIN_PATH : DICE_NORMAL_PATH;
+}
+
+function applyDiceFrames(diceImg1, diceImg2, diceImg3, diceState, d1Val, d2Val) {
+    if (diceImg1) diceImg1.src = `${getLeftDicePath(diceState)}${d1Val}.png`;
+    if (diceState?.diceCount >= 2 && diceImg2) diceImg2.src = `${DICE_NORMAL_PATH}${d2Val}.png`;
+    if (diceState?.useRufo && diceImg3) diceImg3.src = `${DICE_NORMAL_PATH}6.png`;
+}
 
 export function initMarble(container, sceneParams = null) {
     container.innerHTML = `
@@ -35,7 +47,15 @@ export function initMarble(container, sceneParams = null) {
             <div id="dice-btn-container"></div>
             <button id="btn-exit-match" style="position: absolute; bottom: 145px; right: 40px; font-family: inherit; padding: 10px 18px; font-size: 18px; font-weight: bold; background: rgba(192, 57, 43, 0.85); color: #fff; border: 2px solid rgba(255,255,255,0.4); border-radius: 10px; cursor: pointer; z-index: 5;">나가기</button>
             ${createDiceOverlay()}
+            ${createTurnOrderOverlay()}
             ${createPopupOverlay()}
+            <div id="afk-warning-overlay" style="display: none; position: absolute; inset: 0; background: rgba(0, 0, 0, 0.52); z-index: 9500; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.35s ease;">
+                <div style="width: 600px; max-width: 90vw; background: #165b7a; border: 4px solid #f39c12; border-radius: 24px; padding: 38px 42px; box-shadow: 0 22px 52px rgba(0,0,0,0.6); color: #fff; text-align: center;">
+                    <h2 id="afk-warn-title" style="margin: 0 0 18px 0; font-size: 32px; color: #f1c40f;"></h2>
+                    <p id="afk-warn-desc" style="margin: 0 0 28px 0; font-size: 20px; line-height: 1.65; color: #ecf0f1; white-space: pre-line;"></p>
+                    <button id="btn-afk-return" type="button" style="font-family: inherit; padding: 14px 48px; font-size: 22px; font-weight: bold; background: #27ae60; color: #fff; border: none; border-radius: 12px; cursor: pointer;"></button>
+                </div>
+            </div>
         </div>
     `;
 
@@ -52,6 +72,50 @@ export function initMarble(container, sceneParams = null) {
     let settlementShown = false;
     let exitConfirmPending = false;
     let exitConfirmTimer = null;
+    let isAfkWarnVisible = false;
+
+    const syncAfkWarningOverlay = (snapshot) => {
+        const overlay = container.querySelector('#afk-warning-overlay');
+        if (!overlay) return;
+        const shouldShow = Boolean(snapshot?.afkAutoAlert) && snapshot?.phase !== 'GAME_OVER';
+        if (!shouldShow) {
+            isAfkWarnVisible = false;
+            overlay.style.opacity = '0';
+            overlay.style.display = 'none';
+            return;
+        }
+
+        const mText = pickLangDict(MarbleLang, LangState.current);
+        const titleEl = container.querySelector('#afk-warn-title');
+        const descEl = container.querySelector('#afk-warn-desc');
+        const btnEl = container.querySelector('#btn-afk-return');
+        if (titleEl) titleEl.innerText = mText.AFK_WARN_TITLE || '';
+        if (descEl) descEl.innerText = mText.AFK_WARN_DESC || '';
+        if (btnEl) {
+            btnEl.innerText = mText.AFK_WARN_BTN || '확인';
+            btnEl.disabled = false;
+            btnEl.onclick = async () => {
+                btnEl.disabled = true;
+                const res = await RoomManager.sendGameAction({ type: 'AFK_RETURN' });
+                if (!res?.ok && !isCleanedUp) {
+                    btnEl.disabled = false;
+                }
+            };
+        }
+
+        if (!isAfkWarnVisible) {
+            isAfkWarnVisible = true;
+            overlay.style.display = 'flex';
+            overlay.style.opacity = '0';
+            if (typeof requestAnimationFrame === 'function') {
+                requestAnimationFrame(() => {
+                    if (!isCleanedUp && isAfkWarnVisible) overlay.style.opacity = '1';
+                });
+            } else {
+                overlay.style.opacity = '1';
+            }
+        }
+    };
 
     const stopDiceAnimation = () => {
         if (diceAnimInterval) {
@@ -66,13 +130,174 @@ export function initMarble(container, sceneParams = null) {
         const currentText = pickLangDict(MarbleLang, LangState.current);
         const safeSec = Math.max(0, Number(timeLeft) || 0);
         const timeStr = `${currentText.REMAIN_TIME} ${safeSec}${currentText.SEC}`;
-        ['turn-timer', 'event-timer', 'portal-timer', 'target-timer'].forEach(id => {
+        ['turn-timer', 'event-timer', 'portal-timer', 'target-timer', 'void-timer'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.innerText = timeStr;
         });
         const closeBtn = document.getElementById('close-btn');
         if (closeBtn && closeBtn.parentElement && closeBtn.parentElement.style.display !== 'none') {
             closeBtn.innerText = `${currentText.CLOSE} (${safeSec})`;
+        }
+    };
+
+    const syncTurnOrderOverlay = (snapshot) => {
+        const overlay = document.getElementById('turn-order-overlay');
+        if (!overlay) return;
+        const state = snapshot?.turnOrderState;
+        if (!state || !state.visible || snapshot?.phase !== 'TURN_ORDER') {
+            overlay.style.display = 'none';
+            return;
+        }
+
+        const currentText = pickLangDict(MarbleLang, LangState.current);
+        overlay.style.display = 'flex';
+
+        const titleEl = document.getElementById('turn-order-title');
+        const descEl = document.getElementById('turn-order-desc');
+        const tieBannerEl = document.getElementById('turn-order-tie-banner');
+        const rollViewEl = document.getElementById('turn-order-roll-view');
+        const resultViewEl = document.getElementById('turn-order-result-view');
+
+        if (tieBannerEl) {
+            if (state.tieNotice) {
+                tieBannerEl.style.display = 'block';
+                const rerollSec = Math.max(0, Number(state.rerollSecondsLeft) || 0);
+                tieBannerEl.innerText = (state.stage === 'TIE_REROLL' && rerollSec > 0)
+                    ? `${state.tieNotice} (${rerollSec}${currentText.SEC || '초'} 후 재굴림)`
+                    : state.tieNotice;
+            } else {
+                tieBannerEl.style.display = 'none';
+            }
+        }
+
+        const players = Array.isArray(state.players) ? state.players : [];
+
+        if (state.stage === 'RESULT') {
+            if (titleEl) titleEl.innerText = currentText.TURN_ORDER_RESULT_TITLE || '최종 순번 결정 완료!';
+            if (descEl) descEl.innerText = currentText.TURN_ORDER_RESULT_DESC || '';
+            if (rollViewEl) rollViewEl.style.display = 'none';
+            if (resultViewEl) resultViewEl.style.display = 'block';
+
+            const countdownEl = document.getElementById('turn-order-countdown');
+            if (countdownEl) {
+                const sec = Math.max(0, Number(state.resultSecondsLeft) || 0);
+                countdownEl.innerText = `${currentText.TURN_ORDER_AUTO_START_PREFIX || '자동 시작까지'} ${sec}${currentText.SEC || '초'}`;
+            }
+
+            const grid = document.getElementById('turn-order-result-grid');
+            if (grid) {
+                const cards = players.map(p => {
+                    const card = document.createElement('div');
+                    const isMe = p.id === snapshot.myPlayerId;
+                    card.style.cssText = `background: ${isMe ? 'rgba(241, 196, 15, 0.14)' : 'rgba(255, 255, 255, 0.06)'}; border: 2px solid ${p.rank === 1 ? '#f1c40f' : (isMe ? '#ffd86b' : 'rgba(255,255,255,0.16)')}; border-radius: 12px; padding: 12px 8px; display: flex; flex-direction: column; align-items: center; gap: 8px;`;
+
+                    // 1) 위쪽: 플레이어 이름
+                    const nameEl = document.createElement('div');
+                    nameEl.style.cssText = `font-size: 14px; font-weight: 800; color: ${p.color || '#ffffff'}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;`;
+                    nameEl.innerText = p.name || '';
+                    card.appendChild(nameEl);
+
+                    // 2) 이름 밑: 주사위의 합
+                    const sumEl = document.createElement('div');
+                    sumEl.style.cssText = 'font-size: 13px; font-weight: 700; color: #e8eef7;';
+                    sumEl.innerText = `${currentText.TURN_ORDER_SUM_LABEL || '주사위 합:'} ${p.sum ?? 0}`;
+                    card.appendChild(sumEl);
+
+                    // 3) 주사위 두 개 그림
+                    const diceRow = document.createElement('div');
+                    diceRow.style.cssText = 'display: flex; justify-content: center; align-items: center; gap: 6px;';
+                    const d1Img = document.createElement('img');
+                    d1Img.src = `${DICE_NORMAL_PATH}${Math.min(6, Math.max(1, Number(p.d1) || 1))}.png`;
+                    d1Img.style.cssText = 'width: 46px; height: 46px; object-fit: contain;';
+                    const d2Img = document.createElement('img');
+                    d2Img.src = `${DICE_NORMAL_PATH}${Math.min(6, Math.max(1, Number(p.d2) || 1))}.png`;
+                    d2Img.style.cssText = 'width: 46px; height: 46px; object-fit: contain;';
+                    diceRow.appendChild(d1Img);
+                    diceRow.appendChild(d2Img);
+                    card.appendChild(diceRow);
+
+                    // 4) 주사위 아래: 등수
+                    const rankEl = document.createElement('div');
+                    rankEl.style.cssText = `margin-top: 2px; padding: 4px 12px; border-radius: 999px; font-size: 14px; font-weight: 900; background: ${p.rank === 1 ? '#f1c40f' : 'rgba(255,255,255,0.12)'}; color: ${p.rank === 1 ? '#1a1f2e' : '#ffffff'};`;
+                    rankEl.innerText = `${p.rank || '-'}${currentText.TURN_ORDER_RANK_SUFFIX || '등'}`;
+                    card.appendChild(rankEl);
+
+                    return card;
+                });
+                grid.replaceChildren(...cards);
+            }
+            return;
+        }
+
+        if (titleEl) titleEl.innerText = currentText.TURN_ORDER_TITLE || '플레이 순번 결정';
+        if (descEl) descEl.innerText = currentText.TURN_ORDER_DESC || '';
+        if (rollViewEl) rollViewEl.style.display = 'block';
+        if (resultViewEl) resultViewEl.style.display = 'none';
+
+        const myEntry = players.find(p => p.id === snapshot.myPlayerId) || players[0];
+        const myD1 = document.getElementById('turn-order-my-d1');
+        const myD2 = document.getElementById('turn-order-my-d2');
+        const myStatusEl = document.getElementById('turn-order-my-status');
+        const rollBtn = document.getElementById('turn-order-roll-btn');
+
+        if (myEntry) {
+            if (myD1) myD1.src = `${DICE_NORMAL_PATH}${Math.min(6, Math.max(1, Number(myEntry.d1) || 1))}.png`;
+            if (myD2) myD2.src = `${DICE_NORMAL_PATH}${Math.min(6, Math.max(1, Number(myEntry.d2) || 1))}.png`;
+
+            const canClick = !myEntry.isAi && !myEntry.rolled && state.stage === 'ROLLING';
+            if (rollBtn) {
+                rollBtn.innerText = currentText.TURN_ORDER_ROLL_BTN || '주사위 굴리기';
+                rollBtn.style.display = canClick ? 'inline-flex' : 'none';
+                rollBtn.disabled = false;
+                rollBtn.onclick = async () => {
+                    if (isCleanedUp) return;
+                    rollBtn.disabled = true;
+                    const res = await RoomManager.sendGameAction({ type: 'TURN_ORDER_ROLL' });
+                    if (res && res.ok === false && !isCleanedUp) {
+                        rollBtn.disabled = false;
+                    }
+                };
+            }
+            if (myStatusEl) {
+                if (myEntry.tied && !myEntry.rolled) {
+                    const prevSumPrefix = (myEntry.sum > 0)
+                        ? `${currentText.TURN_ORDER_SUM_LABEL || '주사위 합:'} ${myEntry.sum} — `
+                        : '';
+                    myStatusEl.innerText = `${prevSumPrefix}${currentText.TURN_ORDER_REROLL_TAG || '(동률 재굴림)'}`;
+                } else if (myEntry.rolled) {
+                    myStatusEl.innerText = `${currentText.TURN_ORDER_SUM_LABEL || '주사위 합:'} ${myEntry.sum} — ${currentText.TURN_ORDER_WAIT_OTHERS || '대기중'}`;
+                } else {
+                    myStatusEl.innerText = '';
+                }
+            }
+        }
+
+        const waitList = document.getElementById('turn-order-wait-list');
+        if (waitList) {
+            const pills = players.map(p => {
+                const pill = document.createElement('div');
+                pill.style.cssText = 'background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); border-radius: 10px; padding: 8px 6px; font-size: 12px;';
+                const nm = document.createElement('div');
+                nm.style.cssText = `font-weight: 800; color: ${p.color || '#ffffff'}; margin-bottom: 4px;`;
+                nm.innerText = p.name || '';
+                const st = document.createElement('div');
+                if (p.tied && !p.rolled) {
+                    st.style.color = '#ff7675';
+                    st.innerText = p.sum > 0
+                        ? `${p.sum} ${currentText.TURN_ORDER_REROLL_TAG || '(동률 재굴림)'}`
+                        : (currentText.TURN_ORDER_REROLL_TAG || '(동률 재굴림)');
+                } else if (p.rolled) {
+                    st.style.color = '#7bed9f';
+                    st.innerText = `${p.sum} (${currentText.TURN_ORDER_ROLLED_TAG || '완료'})`;
+                } else {
+                    st.style.color = '#95a5a6';
+                    st.innerText = currentText.TURN_ORDER_WAITING_TAG || '대기중';
+                }
+                pill.appendChild(nm);
+                pill.appendChild(st);
+                return pill;
+            });
+            waitList.replaceChildren(...pills);
         }
     };
 
@@ -99,21 +324,22 @@ export function initMarble(container, sceneParams = null) {
         if (diceState.phase === 'SPINNING') {
             if (!isDiceSpinning) {
                 isDiceSpinning = true;
-                diceAnimInterval = setInterval(() => {
+                const spinTick = () => {
                     if (isCleanedUp) {
                         stopDiceAnimation();
                         return;
                     }
-                    if (diceImg1) diceImg1.src = `${DICE_PATH}${Math.floor(Math.random() * 6) + 1}.png`;
-                    if (diceState.diceCount >= 2 && diceImg2) diceImg2.src = `${DICE_PATH}${Math.floor(Math.random() * 6) + 1}.png`;
-                    if (diceState.useRufo && diceImg3) diceImg3.src = `${DICE_PATH}6.png`;
-                }, 50);
+                    const r1 = Math.floor(Math.random() * 6) + 1;
+                    const r2 = Math.floor(Math.random() * 6) + 1;
+                    applyDiceFrames(diceImg1, diceImg2, diceImg3, diceState, r1, r2);
+                };
+                // 첫 프레임에서도 에르핀/일반 주사위 텍스쳐가 즉시 반영되도록 1회 바로 갱신한다.
+                spinTick();
+                diceAnimInterval = setInterval(spinTick, 50);
             }
         } else {
             stopDiceAnimation();
-            if (diceImg1) diceImg1.src = `${DICE_PATH}${diceState.d1 || 1}.png`;
-            if (diceState.diceCount >= 2 && diceImg2) diceImg2.src = `${DICE_PATH}${diceState.d2 || 1}.png`;
-            if (diceState.useRufo && diceImg3) diceImg3.src = `${DICE_PATH}6.png`;
+            applyDiceFrames(diceImg1, diceImg2, diceImg3, diceState, diceState.d1 || 1, diceState.d2 || 1);
         }
     };
 
@@ -150,6 +376,9 @@ export function initMarble(container, sceneParams = null) {
                     (prompt.buttons || []).map(btn => ({
                         text: btn.text,
                         color: btn.color,
+                        row: btn.row,
+                        align: btn.align,
+                        disabled: btn.disabled,
                         action: () => respond({ buttonIndex: btn.index })
                     }))
                 );
@@ -230,6 +459,13 @@ export function initMarble(container, sceneParams = null) {
                 );
                 break;
             }
+
+            case 'VOID_GAME':
+                PopupManager.showVoidGamePopup(
+                    { target: prompt.target, direction: prompt.direction },
+                    () => respond({})
+                );
+                break;
         }
         updateTimerDom(snapshot.timerLeft);
     };
@@ -289,12 +525,17 @@ export function initMarble(container, sceneParams = null) {
                 createNpcUIList(others, snapshot.world);
         }
 
+        const waitingTargetId = snapshot.waitingFor?.playerId || null;
+        const waitingPlayer = (waitingTargetId && waitingTargetId !== viewerId)
+            ? (playerById.get(waitingTargetId) || null)
+            : null;
         if (activePlayer) {
             document.getElementById('turn-ui-container').innerHTML = createTurnIndicator(
                 activePlayer,
                 snapshot.world?.currentTurn || 1,
                 snapshot.world,
-                snapshot.timerLeft
+                snapshot.timerLeft,
+                waitingPlayer
             );
         }
 
@@ -328,7 +569,9 @@ export function initMarble(container, sceneParams = null) {
         }
 
         syncDiceOverlay(snapshot.diceState);
+        syncTurnOrderOverlay(snapshot);
         syncPrompt(snapshot.pendingPrompt, viewTiles, snapshot);
+        syncAfkWarningOverlay(snapshot);
         updateTimerDom(snapshot.timerLeft);
 
         if (snapshot.phase === 'GAME_OVER' && snapshot.settlementResults) {
@@ -373,14 +616,19 @@ export function initMarble(container, sceneParams = null) {
             updateTimerDom(payload?.timeLeft);
         } else if (evtName === 'EVENT') {
             if (payload?.type === 'TOAST' && payload.message) {
-                PopupManager.showToast(payload.message, payload.duration || 2000);
+                PopupManager.showToast(payload.message, payload.duration || 3200);
             } else if (payload?.type === 'GAME_OVER' && payload.results) {
                 handleSettlement(payload.results);
             }
         } else if (evtName === 'RETURNED_TO_ROOM') {
             changeScene('room');
         } else if (evtName === 'KICKED') {
-            changeScene('menu');
+            const meta = getGameMeta(payload?.gameId || 'marble');
+            if (payload?.reason === 'AFK_KICKED') {
+                changeScene(meta?.sceneMain || 'marble_main', { afkPenalty: true });
+            } else {
+                changeScene(meta?.sceneMain || 'menu');
+            }
         }
     });
 
@@ -396,6 +644,7 @@ export function initMarble(container, sceneParams = null) {
         isCleanedUp = true;
         if (exitConfirmTimer) clearTimeout(exitConfirmTimer);
         stopDiceAnimation();
+        PopupManager.clearToasts?.();
         unsubscribeGame();
         document.removeEventListener('languageChanged', langHandler);
         RoomManager.stopLocalGameSession();

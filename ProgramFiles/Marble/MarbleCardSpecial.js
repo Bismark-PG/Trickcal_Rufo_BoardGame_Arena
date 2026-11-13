@@ -1,23 +1,59 @@
 // ProgramFiles/Marble/MarbleCardSpecial.js
 import {
     RuntimePopup,
-    formatMoney,
     getTileName,
     scheduleGameTask,
     getCardUIText,
-    getGimmickText
+    getGimmickText,
+    getActiveWorld
 } from './MarbleRuntime.js';
 import { CARD_IDS, treasureCards } from '../System/Index/Marble/MarbleCardIndex.js';
 import { BOARD_TILES } from '../System/Index/Marble/MarbleBoardIndex.js';
 import { GAME_CONSTANTS } from '../System/Index/Marble/MarblePriceIndex.js';
-import { WorldGimmickManager } from './MarbleWorldGimmick.js';
-import { checkAndDestroyRank2Privilege, getStartPassBonus } from './MarbleCardNormal.js';
+import { WorldGimmickManager, syncFurryBeachFeeMultiplier } from './MarbleWorldGimmick.js';
+import { checkAndDestroyRank2Privilege, applyLapPassBonus } from './MarbleCardNormal.js';
 import { acquireTreasureCard, stealTreasureCardFromPlayer, getAvailableTreasureCards } from './MarbleCardTreasure.js';
 import { AIManager } from './MarbleAI.js';
 
 // ==========================================
 // 1. 특수 카드 (100번대 & 200번대) 발동/보유/저장 실행기
 // ==========================================
+function recordMetricCount(mapName, key) {
+    const wm = getActiveWorld()?.metrics;
+    if (!wm || !wm[mapName]) return wm;
+    wm[mapName][key] = (wm[mapName][key] || 0) + 1;
+    return wm;
+}
+
+export function openFurryBeachState(ctx, ownerPlayer, source = 'card', cardId = CARD_IDS.SPEC_FURRY_OPEN) {
+    const wasClosed = !WorldGimmickManager.isFurryBeach;
+    WorldGimmickManager.isFurryBeach = true;
+    const feeMult = syncFurryBeachFeeMultiplier(ctx.allPlayers || []);
+    const wm = source === 'card' ? recordMetricCount('furryCardUseCounts', cardId) : (getActiveWorld()?.metrics || null);
+    if (wm && wasClosed) {
+        wm.furryOpenCount = (wm.furryOpenCount || 0) + 1;
+        if (source === 'manual') {
+            wm.furryManualOpenCount = (wm.furryManualOpenCount || 0) + 1;
+        }
+        const totalBaseline = Number(wm.furryBaselineRestCount) || 0;
+        const accountedBaseline = Number(wm.furryAccountedBaselineRests) || 0;
+        const newBaselineRests = Math.max(0, totalBaseline - accountedBaseline);
+        const unitUplift = (GAME_CONSTANTS.SETTLE_FURRY_BEACH_UNIT || 150000) - (GAME_CONSTANTS.SETTLE_SPECIAL_TILE_UNIT || 100000);
+        if (newBaselineRests > 0) {
+            wm.furryExpectedGainSum += newBaselineRests * unitUplift;
+            wm.furryAccountedBaselineRests = totalBaseline;
+        }
+        const globalTurn = ctx.turnManager ? ctx.turnManager.globalTurn : 1;
+        const aliveOthers = ctx.allPlayers ? ctx.allPlayers.filter(o => o !== ownerPlayer && !o.isBankrupt).length : 0;
+        // 현재 턴의 남은 상대 + 이후 잔여 턴 기대 도착
+        const remOppTurns = (Math.max(0, GAME_CONSTANTS.MAX_TURN - globalTurn) + 0.5) * aliveOthers;
+        wm.furryExpectedGainSum += remOppTurns * (1 / 40) * (
+            Math.round(GAME_CONSTANTS.FURRY_BEACH_FEE * feeMult) + aliveOthers * GAME_CONSTANTS.SETTLE_FURRY_BEACH_UNIT
+        );
+    }
+    return wasClosed;
+}
+
 export function executeSpecialCard(ctx, card, onComplete = null) {
     const p = ctx.player;
     const uiText = getCardUIText();
@@ -28,9 +64,9 @@ export function executeSpecialCard(ctx, card, onComplete = null) {
         // [101] 밑장빼기: 다음번 뽑을 차원 이동 카드가 2장이 됨
         case "spec_double_draw": {
             p.nextCardDoubleDraw = true;
-            RuntimePopup.showToast(uiText.SPEC_DOUBLE_DRAW_TOAST, 2500);
+            RuntimePopup.showToast(`[${p.name}] ${uiText.SPEC_DOUBLE_DRAW_TOAST}`, 3400);
             ctx.refreshUI();
-            scheduleGameTask(finish, 1800);
+            scheduleGameTask(finish, 2000);
             break;
         }
 
@@ -39,9 +75,9 @@ export function executeSpecialCard(ctx, card, onComplete = null) {
             if (ctx.reshuffleUsedCards) {
                 ctx.reshuffleUsedCards();
             }
-            RuntimePopup.showToast(uiText.SPEC_SHUFFLE_TOAST, 2500);
+            RuntimePopup.showToast(`[${p.name}] ${uiText.SPEC_SHUFFLE_TOAST}`, 3400);
             ctx.refreshUI();
-            scheduleGameTask(finish, 1800);
+            scheduleGameTask(finish, 2000);
             break;
         }
 
@@ -59,17 +95,17 @@ export function executeSpecialCard(ctx, card, onComplete = null) {
             checkAndDestroyRank2Privilege(p, ctx.tiles);
             ctx.updateRender();
             ctx.refreshUI();
-            RuntimePopup.showToast(uiText.SPEC_TAKE_DAYA_TOAST, 2500);
-            scheduleGameTask(finish, 1800);
+            RuntimePopup.showToast(`[${p.name}] ${uiText.SPEC_TAKE_DAYA_TOAST}`, 3600);
+            scheduleGameTask(finish, 2000);
             break;
         }
 
         // [104] 에르핀의 주사위: 주사위 중 한 개가 에르핀 주사위로 변화
         case "spec_erpin_dice": {
             p.hasErpinDiceBuff = true;
-            RuntimePopup.showToast(uiText.ERPIN_DICE_USE || gText.ERPIN_DICE_TITLE, 2500);
+            RuntimePopup.showToast(uiText.ERPIN_DICE_USE || gText.ERPIN_DICE_TITLE, 3200, p.id);
             ctx.refreshUI();
-            scheduleGameTask(finish, 1800);
+            scheduleGameTask(finish, 2000);
             break;
         }
 
@@ -78,16 +114,12 @@ export function executeSpecialCard(ctx, card, onComplete = null) {
             const validTiles = ctx.tiles.filter(t => t.type !== 'card' && t.id !== p.pos);
             const moveToTarget = (targetId) => {
                 if ((targetId < p.pos || targetId === BOARD_TILES.START) && targetId !== p.pos) {
-                    const startBonus = getStartPassBonus(p);
-                    if (startBonus > 0) {
-                        p.money += startBonus;
-                        RuntimePopup.showToast(`${uiText.MOVE_START_BONUS} (+${formatMoney(startBonus)})`, 2000);
-                    }
+                    applyLapPassBonus(p, { showBlockedToast: true });
                 }
                 p.pos = targetId;
                 ctx.updateRender();
                 ctx.refreshUI();
-                scheduleGameTask(() => ctx.handleTileArrival(p), 1000);
+                scheduleGameTask(() => ctx.handleTileArrival(p), 1200);
             };
 
             if (p.isAi()) {
@@ -125,9 +157,9 @@ export function executeSpecialCard(ctx, card, onComplete = null) {
         case "hold_start_buff": {
             if (!p.buffs[card.actionType]) p.buffs[card.actionType] = [];
             p.buffs[card.actionType].push(card);
-            RuntimePopup.showToast(`[${card.name}] ${uiText.CARD_BUFF_APPLIED}`, 2000);
+            RuntimePopup.showToast(`[${card.name}] ${uiText.CARD_BUFF_APPLIED}`, 3200, p.id);
             ctx.refreshUI();
-            scheduleGameTask(finish, 1500);
+            scheduleGameTask(finish, 1800);
             break;
         }
 
@@ -139,13 +171,13 @@ export function executeSpecialCard(ctx, card, onComplete = null) {
                 p.timeAccelBuffPhase = activeType;
                 p.timeAccelExtraRollAvailable = true;
                 ctx.refreshUI();
-                RuntimePopup.showToast(uiText.SPEC_TIME_ACCEL_TOAST, 2500);
-                scheduleGameTask(finish, 1800);
+                RuntimePopup.showToast(`[${p.name}] ${uiText.SPEC_TIME_ACCEL_TOAST}`, 3600);
+                scheduleGameTask(finish, 2000);
             } else {
                 p.inventory.push(card);
-                RuntimePopup.showToast(`[${card.name}] ${uiText.CARD_STORED}`, 2000);
+                RuntimePopup.showToast(`[${card.name}] ${uiText.CARD_STORED}`, 3200, p.id);
                 ctx.refreshUI();
-                scheduleGameTask(finish, 1500);
+                scheduleGameTask(finish, 1800);
             }
             break;
         }
@@ -154,13 +186,17 @@ export function executeSpecialCard(ctx, card, onComplete = null) {
         case "spec_get_treasure": {
             const avail = getAvailableTreasureCards(treasureCards);
             if (!p.hasVisitedAltar || avail.length === 0) {
-                RuntimePopup.showToast(uiText.SPEC_ODYSSEY_FAIL, 2000);
-                scheduleGameTask(finish, 1500);
+                RuntimePopup.showToast(uiText.SPEC_ODYSSEY_FAIL, 2800, p.id);
+                scheduleGameTask(finish, 1800);
                 return;
             }
+            const worldMetrics = recordMetricCount('treasureSpecialCardUseCounts', card.id);
+            if (worldMetrics) worldMetrics.drawnViaOdysseyCount++;
             const pickedTreasure = avail[Math.floor(Math.random() * avail.length)];
-            acquireTreasureCard(ctx, pickedTreasure);
-            scheduleGameTask(finish, 1800);
+            const climaxTriggered = acquireTreasureCard(ctx, pickedTreasure);
+            if (!climaxTriggered) {
+                scheduleGameTask(finish, 2000);
+            }
             break;
         }
 
@@ -168,17 +204,18 @@ export function executeSpecialCard(ctx, card, onComplete = null) {
         case "spec_steal_treasure": {
             const holders = ctx.allPlayers.filter(other => other !== p && !other.isBankrupt && other.treasureCards.length > 0);
             if (holders.length === 0) {
-                RuntimePopup.showToast(uiText.CANT_USE_NOW, 2000);
-                scheduleGameTask(finish, 1500);
+                RuntimePopup.showToast(uiText.CANT_USE_NOW, 2800, p.id);
+                scheduleGameTask(finish, 1800);
                 return;
             }
             const executeSteal = (targetPlayer) => {
                 const stolen = stealTreasureCardFromPlayer(ctx, p, targetPlayer);
                 if (stolen) {
-                    RuntimePopup.showToast(`${uiText.SPEC_WOLF_DONE} [${stolen.name}]`, 2500);
+                    recordMetricCount('treasureSpecialCardUseCounts', card.id);
+                    RuntimePopup.showToast(`[${p.name} ← ${targetPlayer.name}] ${uiText.SPEC_WOLF_DONE} [${stolen.name}]`, 3800);
                 }
                 ctx.refreshUI();
-                scheduleGameTask(finish, 1800);
+                scheduleGameTask(finish, 2000);
             };
 
             if (p.isAi()) {
@@ -213,6 +250,7 @@ export function executeSpecialCard(ctx, card, onComplete = null) {
         // [113] 심판의 시간 / [114] 교주의 염원: 그을음 -> 빛무리 변화 + 몽환살이/염원살이 획득 + 주사위 추가 1회 굴림
         case "spec_judgment":
         case "spec_wish": {
+            recordMetricCount('treasureSpecialCardUseCounts', card.id);
             const isJudgment = card.id === CARD_IDS.SPEC_JUDGMENT;
             if (isJudgment) {
                 p.hasDreamState = true;
@@ -220,53 +258,64 @@ export function executeSpecialCard(ctx, card, onComplete = null) {
                 p.hasWishState = true;
             }
             if (WorldGimmickManager.triggerHaloByCard) {
-                WorldGimmickManager.triggerHaloByCard(ctx.allPlayers, p, isJudgment ? 'dream' : 'wish');
+                WorldGimmickManager.triggerHaloByCard(ctx.allPlayers, p, isJudgment ? 'dream' : 'wish', ctx);
             }
-            RuntimePopup.showToast(isJudgment ? uiText.SPEC_JUDGMENT_TOAST : uiText.SPEC_WISH_TOAST, 3000);
+            RuntimePopup.showToast(
+                `[${p.name}] ${isJudgment ? uiText.SPEC_JUDGMENT_TOAST : uiText.SPEC_WISH_TOAST}`,
+                3800
+            );
             ctx.updateRender();
             ctx.refreshUI();
             scheduleGameTask(() => {
                 if (ctx.setWaitingAction) ctx.setWaitingAction(false);
                 ctx.executeRoll();
-            }, 1800);
+            }, 2000);
             break;
         }
 
         // [201] 퍼리비이치 개장 (정령 호수 소유자 전용)
         case "spec_furry_open": {
             if (ctx.tiles[BOARD_TILES.LAKE].owner === p) {
-                WorldGimmickManager.isFurryBeach = true;
-                RuntimePopup.showToast(gText.FURRY_OPEN, 2500);
+                openFurryBeachState(ctx, p, 'card', card.id);
+                RuntimePopup.showToast(`[${p.name}] ${gText.FURRY_OPEN}`, 3400);
             } else {
-                RuntimePopup.showToast(gText.CARD_INVALID_NOT_OWNER, 2000);
+                RuntimePopup.showToast(gText.CARD_INVALID_NOT_OWNER, 2800, p.id);
             }
             ctx.updateRender();
             ctx.refreshUI();
-            scheduleGameTask(finish, 1800);
+            scheduleGameTask(finish, 2000);
             break;
         }
 
-        // [202] 코미주스 한잔해 (퍼리비이치 입장료 1.5배 상승)
+        // [203] 코미주스 한잔해 (보유형: 퍼리비이치 상태일 때 입장료 1.5배 상승, 재개장 시에도 자동 재적용)
+        case "hold_komi":
         case "spec_komi_juice": {
-            WorldGimmickManager.furryBeachFeeMultiplier = 1.5;
-            RuntimePopup.showToast(gText.KOMI_JUICE, 2500);
+            if (!p.buffs['hold_komi']) p.buffs['hold_komi'] = [];
+            p.buffs['hold_komi'].push(card);
+            syncFurryBeachFeeMultiplier(ctx.allPlayers || []);
+            const wm = recordMetricCount('furryCardUseCounts', card.id);
+            if (wm) wm.furryKomiJuiceCount = (wm.furryKomiJuiceCount || 0) + 1;
+            RuntimePopup.showToast(`[${p.name}] ${gText.KOMI_JUICE}`, 3400);
             ctx.refreshUI();
-            scheduleGameTask(finish, 1800);
+            scheduleGameTask(finish, 2000);
             break;
         }
 
-        // [203] 디아나의 꿀밤 (퍼리비이치 -> 정령 호수 복구, 비소유자 전용)
+        // [202] 디아나의 꿀밤 (퍼리비이치 -> 정령 호수 복구, 비소유자 전용)
         case "spec_diana": {
             if (ctx.tiles[BOARD_TILES.LAKE].owner !== p) {
+                const wasOpen = Boolean(WorldGimmickManager.isFurryBeach);
                 WorldGimmickManager.isFurryBeach = false;
-                WorldGimmickManager.furryBeachFeeMultiplier = 1.0;
-                RuntimePopup.showToast(gText.DIANA_PUNCH, 2500);
+                syncFurryBeachFeeMultiplier(ctx.allPlayers || []);
+                const wm = recordMetricCount('furryCardUseCounts', card.id);
+                if (wm && wasOpen) wm.furryDianaRevertCount = (wm.furryDianaRevertCount || 0) + 1;
+                RuntimePopup.showToast(`[${p.name}] ${gText.DIANA_PUNCH}`, 3400);
             } else {
-                RuntimePopup.showToast(gText.CARD_INVALID_OWNER, 2000);
+                RuntimePopup.showToast(gText.CARD_INVALID_OWNER, 2800, p.id);
             }
             ctx.updateRender();
             ctx.refreshUI();
-            scheduleGameTask(finish, 1800);
+            scheduleGameTask(finish, 2000);
             break;
         }
 
@@ -274,9 +323,11 @@ export function executeSpecialCard(ctx, card, onComplete = null) {
         case "hold_worker": {
             if (!p.buffs['hold_worker']) p.buffs['hold_worker'] = [];
             p.buffs['hold_worker'].push(card);
-            RuntimePopup.showToast(`[${card.name}] ${uiText.CARD_BUFF_APPLIED}`, 2000);
+            const wm = recordMetricCount('furryCardUseCounts', card.id);
+            if (wm) wm.furryKimWorkerCount = (wm.furryKimWorkerCount || 0) + 1;
+            RuntimePopup.showToast(`[${card.name}] ${uiText.CARD_BUFF_APPLIED}`, 3200, p.id);
             ctx.refreshUI();
-            scheduleGameTask(finish, 1500);
+            scheduleGameTask(finish, 1800);
             break;
         }
 
@@ -287,9 +338,16 @@ export function executeSpecialCard(ctx, card, onComplete = null) {
             if (!p.hasOriginElif) {
                 p.hasMountainBuff = false;
             }
-            RuntimePopup.showToast(`[${card.name}] ${uiText.CARD_BUFF_APPLIED}`, 2000);
+            if (!p.hasRecoveredMemory) {
+                p._forgetSurvProb = 1.0;
+            }
+            const wm = getActiveWorld()?.metrics;
+            if (wm) {
+                wm.forgottenAcquiredCount = (wm.forgottenAcquiredCount || 0) + 1;
+            }
+            RuntimePopup.showToast(`[${card.name}] ${uiText.CARD_BUFF_APPLIED}`, 3200, p.id);
             ctx.refreshUI();
-            scheduleGameTask(finish, 1500);
+            scheduleGameTask(finish, 1800);
             break;
         }
 
@@ -305,9 +363,11 @@ export function executeSpecialCard(ctx, card, onComplete = null) {
             if (p.recordMountainBuffTurn) {
                 p.recordMountainBuffTurn(ctx.turnManager ? ctx.turnManager.globalTurn : null);
             }
-            RuntimePopup.showToast(uiText.ORIGIN_ELIF_ACQUIRED, 2500);
+            const wm = getActiveWorld()?.metrics;
+            if (wm) wm.originElifDrawnCount = (wm.originElifDrawnCount || 0) + 1;
+            RuntimePopup.showToast(`[${p.name}] ${uiText.ORIGIN_ELIF_ACQUIRED}`, 3800);
             ctx.refreshUI();
-            scheduleGameTask(finish, 1800);
+            scheduleGameTask(finish, 2000);
             break;
         }
     }
@@ -322,7 +382,7 @@ export function useSpecialActiveCard(ctx, card, finalizeUse, onCancel = null) {
 
     if (card.id === CARD_IDS.SPEC_TIME_ACCEL) {
         if (activeType !== 'day' && activeType !== 'night') {
-            RuntimePopup.showToast(uiText.SPEC_TIME_ACCEL_FAIL, 2000);
+            RuntimePopup.showToast(uiText.SPEC_TIME_ACCEL_FAIL, 2800, ctx.player?.id || null);
             if (onCancel) onCancel();
             return;
         }
@@ -333,6 +393,7 @@ export function useSpecialActiveCard(ctx, card, finalizeUse, onCancel = null) {
         }
         RuntimePopup.closeAll();
         finalizeUse();
-        RuntimePopup.showToast(uiText.SPEC_TIME_ACCEL_TOAST, 2500);
+        const actorPrefix = ctx.player?.name ? `[${ctx.player.name}] ` : '';
+        RuntimePopup.showToast(`${actorPrefix}${uiText.SPEC_TIME_ACCEL_TOAST}`, 3600);
     }
 }

@@ -108,7 +108,7 @@ function tryParseWsFrame(buffer) {
     };
 }
 
-export function createRealtimeServer({ publicDir, onConnection, onHealthCheck }) {
+export function createRealtimeServer({ publicDir, onConnection, onHealthCheck, onHttpRequest = null }) {
     const publicRoot = path.resolve(publicDir);
     const clients = new Set();
     let connSeq = 0;
@@ -129,6 +129,11 @@ export function createRealtimeServer({ publicDir, onConnection, onHealthCheck })
                 res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
                 res.end(JSON.stringify(payload));
                 return;
+            }
+
+            if (typeof onHttpRequest === 'function') {
+                const handled = await onHttpRequest(req, res, urlObj);
+                if (handled) return;
             }
 
             if (req.method !== 'GET' && req.method !== 'HEAD') {

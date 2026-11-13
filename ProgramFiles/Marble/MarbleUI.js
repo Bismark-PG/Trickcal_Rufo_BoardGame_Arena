@@ -177,7 +177,7 @@ export function createNpcUIList(npcs, worldState = null) {
     return html + `</div>`;
 }
 
-export function createTurnIndicator(player, currentTurn, worldState = null, remainSec = null) {
+export function createTurnIndicator(player, currentTurn, worldState = null, remainSec = null, waitingPlayer = null) {
     const text = pickLangDict(MarbleLang, LangState.current);
     const gText = pickLangDict(GimmickLang, LangState.current);
     const world = resolveRenderWorld(worldState);
@@ -196,11 +196,16 @@ export function createTurnIndicator(player, currentTurn, worldState = null, rema
     }
 
     const thinkTime = remainSec !== null && remainSec !== undefined ? remainSec : getPlayerThinkTime(player);
+    const waitingHtml = waitingPlayer
+        ? `<div id="turn-waiting-indicator" style="font-size: 20px; color: #f1c40f; margin-bottom: 8px; font-weight: bold;">⏳ ${escapeHtml(waitingPlayer.name)} 선택 대기 중...</div>`
+        : '';
+
     return `
         <div id="turn-indicator" style="position: absolute; top: 40px; right: 40px; background-color: rgba(0,0,0,0.9); border: 4px solid ${player.color}; border-radius: 15px; padding: 20px 40px; text-align: center; box-shadow: 5px 5px 15px rgba(0,0,0,0.5); color: #fff;">
             <div style="font-size: 20px; margin-bottom: 5px; color: #bdc3c7; font-weight: bold;">${currentTurn} / ${maxTurn} Turn</div>
             ${timeStatusHtml}
             <div style="font-size: 32px; margin-bottom: 10px;">${text.CURRENT_TURN} <span id="turn-text" style="color: ${player.color}; font-weight: bold;">${escapeHtml(player.name)}</span></div>
+            ${waitingHtml}
             <div id="turn-timer" style="font-size: 28px; color: #e74c3c; font-weight: bold;">${text.REMAIN_TIME} ${thinkTime}${text.SEC}</div>
         </div>
     `;
@@ -241,10 +246,37 @@ export function createDiceOverlay() {
     `;
 }
 
+export function createTurnOrderOverlay() {
+    return `
+        <div id="turn-order-overlay" style="display: none; position: absolute; inset: 0; background: rgba(10, 14, 24, 0.82); backdrop-filter: blur(4px); z-index: 950; justify-content: center; align-items: center; padding: 20px;">
+            <div style="width: 100%; max-width: 720px; background: linear-gradient(160deg, #1b2236 0%, #121726 100%); border: 2px solid rgba(241, 196, 15, 0.72); border-radius: 18px; padding: 26px 28px; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.65); color: #f4f6fb; text-align: center;">
+                <h2 id="turn-order-title" style="margin: 0 0 8px 0; font-size: 24px; font-weight: 800; color: #f1c40f;"></h2>
+                <p id="turn-order-desc" style="margin: 0 0 14px 0; font-size: 14px; color: #cfd8e3; line-height: 1.5;"></p>
+                <div id="turn-order-tie-banner" style="display: none; margin: 0 auto 14px auto; padding: 8px 14px; border-radius: 10px; background: rgba(231, 76, 60, 0.2); border: 1px solid rgba(231, 76, 60, 0.7); color: #ffd2cc; font-size: 13px; font-weight: 700;"></div>
+
+                <div id="turn-order-roll-view" style="display: none;">
+                    <div style="display: flex; justify-content: center; align-items: center; gap: 18px; margin: 16px 0;">
+                        <img id="turn-order-my-d1" src="./Resource/Texture/Marble/Dice/Dice_N_1.png" style="width: 84px; height: 84px; object-fit: contain; filter: drop-shadow(0 6px 12px rgba(0,0,0,0.45));" />
+                        <img id="turn-order-my-d2" src="./Resource/Texture/Marble/Dice/Dice_N_1.png" style="width: 84px; height: 84px; object-fit: contain; filter: drop-shadow(0 6px 12px rgba(0,0,0,0.45));" />
+                    </div>
+                    <div id="turn-order-my-status" style="min-height: 24px; margin-bottom: 14px; font-size: 15px; font-weight: 700; color: #f1c40f;"></div>
+                    <button id="turn-order-roll-btn" type="button" style="display: inline-flex; align-items: center; justify-content: center; padding: 12px 30px; font-size: 16px; font-weight: 800; color: #1a1f2e; background: linear-gradient(135deg, #f7d348, #e6a817); border: none; border-radius: 12px; cursor: pointer; box-shadow: 0 6px 18px rgba(241, 196, 15, 0.35);"></button>
+                    <div id="turn-order-wait-list" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 18px;"></div>
+                </div>
+
+                <div id="turn-order-result-view" style="display: none;">
+                    <div id="turn-order-countdown" style="margin-bottom: 16px; font-size: 14px; font-weight: 700; color: #7bed9f;"></div>
+                    <div id="turn-order-result-grid" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px;"></div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
 export function createPopupOverlay() {
     const text = pickLangDict(MarbleLang, LangState.current);
     return `
-        <div id="toast-popup" style="display: none; position: absolute; top: 15%; left: 50%; transform: translateX(-50%); background-color: rgba(0, 0, 0, 0.85); color: #f1c40f; padding: 20px 40px; border-radius: 15px; font-size: 32px; font-weight: bold; z-index: 100; box-shadow: 0 10px 20px rgba(0,0,0,0.5); pointer-events: none;"></div>
+        <div id="toast-popup" style="display: none; position: absolute; top: 10%; left: 50%; transform: translateX(-50%); flex-direction: column; align-items: center; gap: 10px; max-width: 72%; z-index: 100; pointer-events: none;"></div>
         <div id="event-popup" style="display: none; font-family: inherit; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: rgba(44, 62, 80, 0.95); border: 5px solid #fff; padding: 40px; border-radius: 20px; text-align: center; box-shadow: 0 20px 50px rgba(0,0,0,0.7); z-index: 20; min-width: 400px; color: #fff;">
             <h2 id="event-title" style="margin: 0 0 20px 0; font-size: 40px; color: #f1c40f;"></h2>
             <p id="event-desc" style="font-size: 24px; margin-bottom: 30px; line-height: 1.4;"></p>
@@ -284,25 +316,60 @@ export function createPopupOverlay() {
             <div id="target-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; max-height: 400px; overflow-y: auto; padding-right: 10px; margin-bottom: 20px;"></div>
             <button id="target-cancel-btn" style="font-family: inherit; padding: 15px; font-size: 24px; background: #e74c3c; color: white; width: 100%; border: none; border-radius: 10px; cursor: pointer;"></button>
         </div>
+        <div id="void-game-popup" style="display: none; font-family: inherit; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: linear-gradient(160deg, #1e1836 0%, #121024 100%); border: 5px solid #9b59b6; padding: 38px 44px; border-radius: 22px; text-align: center; box-shadow: 0 22px 54px rgba(0,0,0,0.78); z-index: 35; min-width: 480px; max-width: 90vw; color: #fff;">
+            <h2 id="void-game-title" style="margin: 0 0 10px 0; font-size: 38px; color: #f1c40f;"></h2>
+            <p id="void-game-subtitle" style="margin: 0 0 22px 0; font-size: 20px; color: #d8c8f5;"></p>
+            <div id="void-game-target-box" style="margin: 0 auto 20px auto; padding: 18px 28px; border-radius: 14px; background: rgba(155, 89, 182, 0.2); border: 2px solid rgba(155, 89, 182, 0.75); display: inline-flex; align-items: center; justify-content: center; gap: 14px;">
+                <span id="void-game-number" style="font-size: 52px; font-weight: 900; color: #fff; line-height: 1;"></span>
+                <span id="void-game-dir" style="font-size: 36px; font-weight: 800; line-height: 1;"></span>
+            </div>
+            <p id="void-game-desc" style="margin: 0 0 18px 0; font-size: 20px; color: #ecf0f1; line-height: 1.5;"></p>
+            <div id="void-timer" style="font-size: 22px; color: #e74c3c; margin-bottom: 22px;">${text.REMAIN_TIME} ${GAME_CONSTANTS.THINK_TIME}${text.SEC}</div>
+            <button id="void-game-roll-btn" type="button" style="font-family: inherit; padding: 15px 46px; font-size: 24px; font-weight: 800; background: linear-gradient(135deg, #f39c12, #e67e22); color: #fff; border: none; border-radius: 12px; cursor: pointer; box-shadow: 0 8px 22px rgba(243, 156, 18, 0.35);"></button>
+        </div>
     `;
 }
 
 export const PopupManager = {
-    _toastTimer: null,
-    showToast(msg, duration = 2000) {
-        const toast = document.getElementById('toast-popup');
-        if (!toast) return;
-        if (this._toastTimer) {
-            clearTimeout(this._toastTimer);
-            this._toastTimer = null;
+    _toastTimers: new Set(),
+    showToast(msg, duration = 3200) {
+        const container = document.getElementById('toast-popup');
+        if (!container) return;
+
+        const item = document.createElement('div');
+        item.className = 'toast-item';
+        item.innerText = msg;
+        item.style.cssText = 'background-color: rgba(0, 0, 0, 0.88); color: #f1c40f; border: 2px solid rgba(241, 196, 15, 0.45); padding: 14px 32px; border-radius: 14px; font-size: 28px; font-weight: bold; box-shadow: 0 10px 20px rgba(0,0,0,0.5); text-align: center; pointer-events: none;';
+        container.appendChild(item);
+
+        // 동시에 너무 많은 토스트가 화면을 가리지 않도록 최대 4개까지만 유지
+        while (container.children && container.children.length > 4) {
+            const oldest = container.children[0];
+            if (oldest.parentNode) oldest.parentNode.removeChild(oldest);
+            else if (oldest.remove) oldest.remove();
+            else break;
         }
-        toast.innerText = msg;
-        toast.style.display = 'block';
-        this._toastTimer = setTimeout(() => {
-            const el = document.getElementById('toast-popup');
-            if (el) el.style.display = 'none';
-            this._toastTimer = null;
+
+        container.style.display = 'flex';
+        const timerId = setTimeout(() => {
+            this._toastTimers.delete(timerId);
+            if (item.parentNode) item.parentNode.removeChild(item);
+            else if (item.remove) item.remove();
+            const current = document.getElementById('toast-popup');
+            if (current && (!current.children || current.children.length === 0)) {
+                current.style.display = 'none';
+            }
         }, duration);
+        this._toastTimers.add(timerId);
+    },
+    clearToasts() {
+        this._toastTimers.forEach(id => clearTimeout(id));
+        this._toastTimers.clear();
+        const container = document.getElementById('toast-popup');
+        if (container) {
+            container.innerHTML = '';
+            container.style.display = 'none';
+        }
     },
     showChoicePopup(title, desc, buttonsConfig) {
         this.closeAll();
@@ -316,13 +383,45 @@ export const PopupManager = {
         const btnContainer = document.getElementById('buy-buttons');
         btnContainer.style.display = 'flex';
         btnContainer.innerHTML = '';
-        buttonsConfig.forEach(cfg => {
+
+        const makeChoiceBtn = (cfg) => {
             const btn = document.createElement('button');
             btn.innerText = cfg.text;
-            btn.style.cssText = `font-family: inherit; padding: 15px; background: ${cfg.color}; color: #fff; border: none; border-radius: 8px; font-size: 20px; cursor: pointer;`;
-            btn.onclick = cfg.action;
-            btnContainer.appendChild(btn);
-        });
+            const isDisabled = Boolean(cfg.disabled);
+            btn.disabled = isDisabled;
+            btn.style.cssText = `font-family: inherit; padding: 12px 14px; background: ${cfg.color}; color: #fff; border: none; border-radius: 8px; font-size: 16px; cursor: ${isDisabled ? 'not-allowed' : 'pointer'}; opacity: ${isDisabled ? '0.45' : '1'};`;
+            if (!isDisabled && typeof cfg.action === 'function') {
+                btn.onclick = cfg.action;
+            }
+            return btn;
+        };
+
+        const hasRowLayout = Array.isArray(buttonsConfig) && buttonsConfig.some(cfg => cfg && cfg.row !== undefined);
+        if (hasRowLayout) {
+            btnContainer.style.flexDirection = 'column';
+            btnContainer.style.gap = '10px';
+            btnContainer.style.width = '100%';
+            const rows = [...new Set(buttonsConfig.map(c => c.row ?? 1))].sort((a, b) => a - b);
+            rows.forEach(rowId => {
+                const rowItems = buttonsConfig.filter(c => (c.row ?? 1) === rowId);
+                const rowDiv = document.createElement('div');
+                const hasLeftRight = rowItems.some(c => c.align === 'left' || c.align === 'right');
+                rowDiv.style.cssText = `display: flex; width: 100%; gap: 8px; flex-wrap: wrap; justify-content: ${hasLeftRight ? 'space-between' : 'center'}; align-items: stretch;`;
+                rowItems.forEach(cfg => {
+                    const btn = makeChoiceBtn(cfg);
+                    if (cfg.align === 'right') btn.style.marginLeft = 'auto';
+                    rowDiv.appendChild(btn);
+                });
+                btnContainer.appendChild(rowDiv);
+            });
+        } else {
+            btnContainer.style.flexDirection = 'row';
+            btnContainer.style.flexWrap = 'wrap';
+            btnContainer.style.gap = '10px';
+            buttonsConfig.forEach(cfg => {
+                btnContainer.appendChild(makeChoiceBtn(cfg));
+            });
+        }
     },
     showNormalPopup(title, desc, showCloseBtn, onEndCallback) {
         this.closeAll();
@@ -511,8 +610,45 @@ export const PopupManager = {
         });
         document.getElementById('portal-cancel-btn').onclick = onCancelCallback;
     },
+    showVoidGamePopup(challenge, onRollCallback) {
+        this.closeAll();
+        const cText = pickLangDict(CardUILang, LangState.current);
+        const popup = document.getElementById('void-game-popup');
+        if (!popup) return;
+        const targetNum = Number(challenge?.target) || 7;
+        const isUp = challenge?.direction !== 'down';
+
+        popup.style.display = 'block';
+        const titleEl = document.getElementById('void-game-title');
+        const subEl = document.getElementById('void-game-subtitle');
+        const numEl = document.getElementById('void-game-number');
+        const dirEl = document.getElementById('void-game-dir');
+        const descEl = document.getElementById('void-game-desc');
+        const rollBtn = document.getElementById('void-game-roll-btn');
+
+        if (titleEl) titleEl.innerText = cText.SHAYDI_GAME_TITLE || '셰이디의 장난';
+        if (subEl) subEl.innerText = cText.SHAYDI_GAME_SUBTITLE || '심심한데 나랑 게임하나 하고갈래?';
+        if (numEl) numEl.innerText = `${targetNum}`;
+        if (dirEl) {
+            dirEl.innerText = isUp ? (cText.SHAYDI_GAME_UP || '업') : (cText.SHAYDI_GAME_DOWN || '다운');
+            dirEl.style.color = isUp ? '#2ecc71' : '#ff7675';
+        }
+        if (descEl) {
+            descEl.innerText = isUp
+                ? (cText.SHAYDI_GAME_DESC_UP || '주사위를 굴려서 제시된 숫자보다 큰 숫자를 띄우면 즉시 탈출!')
+                : (cText.SHAYDI_GAME_DESC_DOWN || '주사위를 굴려서 제시된 숫자보다 작은 숫자를 띄우면 즉시 탈출!');
+        }
+        if (rollBtn) {
+            rollBtn.innerText = cText.SHAYDI_GAME_ROLL_BTN || '주사위 굴리기';
+            rollBtn.disabled = false;
+            rollBtn.onclick = () => {
+                rollBtn.disabled = true;
+                if (typeof onRollCallback === 'function') onRollCallback();
+            };
+        }
+    },
     closeAll() {
-        ['event-popup', 'portal-popup', 'sell-popup', 'target-popup'].forEach(id => {
+        ['event-popup', 'portal-popup', 'sell-popup', 'target-popup', 'void-game-popup'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.style.display = 'none';
         });

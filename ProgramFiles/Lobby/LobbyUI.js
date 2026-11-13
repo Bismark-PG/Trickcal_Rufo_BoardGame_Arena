@@ -40,10 +40,13 @@ export function renderGameMainPage(container, config) {
         titleKey,
         badgeKey,
         rulesKey,
-        defaultRoomTitleKey
+        defaultRoomTitleKey,
+        sceneParams = null
     } = config;
 
     const meta = getGameMeta(gameId);
+    let showAfkPenalty = Boolean(sceneParams?.afkPenalty);
+    let afkPenaltyFaded = false;
 
     const render = () => {
         const text = LobbyLang[LangState.current] || LobbyLang.ko;
@@ -197,7 +200,7 @@ export function renderGameMainPage(container, config) {
 
                         <div style="margin-bottom: 14px;">
                             <label style="display: block; font-size: 20px; font-weight: bold; margin-bottom: 10px;">${escapeHtml(text.JOIN_CODE_LABEL)}</label>
-                            <input id="input-join-code" type="text" maxlength="10" placeholder="${escapeHtml(text.JOIN_CODE_PLACEHOLDER)}" style="font-family: monospace; width: 100%; box-sizing: border-box; padding: 14px 18px; font-size: 28px; text-transform: uppercase; text-align: center; letter-spacing: 3px; border: 2px solid #cbd5e0; border-radius: 12px;">
+                            <input id="input-join-code" type="text" maxlength="16" placeholder="${escapeHtml(text.JOIN_CODE_PLACEHOLDER)}" style="font-family: monospace; width: 100%; box-sizing: border-box; padding: 14px 18px; font-size: 28px; text-transform: uppercase; text-align: center; letter-spacing: 3px; border: 2px solid #cbd5e0; border-radius: 12px;">
                         </div>
 
                         <div style="margin-bottom: 14px;">
@@ -212,8 +215,36 @@ export function renderGameMainPage(container, config) {
                         </div>
                     </div>
                 </div>
+                ${showAfkPenalty ? `
+                <div id="modal-afk-penalty" style="position: absolute; inset: 0; background: rgba(0,0,0,0.58); z-index: 9600; display: flex; align-items: center; justify-content: center; opacity: ${afkPenaltyFaded ? 1 : 0}; transition: opacity 0.35s ease;">
+                    <div style="width: 580px; max-width: 90vw; background: #165b7a; border: 4px solid #e74c3c; border-radius: 24px; padding: 38px 40px; box-shadow: 0 20px 50px rgba(0,0,0,0.55); color: #fff; text-align: center;">
+                        <h2 style="margin: 0 0 18px 0; font-size: 32px; color: #ff7675;">⚠️ ${escapeHtml(text.AFK_PENALTY_TITLE)}</h2>
+                        <p style="margin: 0 0 28px 0; font-size: 20px; line-height: 1.65; color: #ecf0f1; white-space: pre-line;">${escapeHtml(text.AFK_PENALTY_DESC)}</p>
+                        <button id="btn-afk-penalty-confirm" type="button" style="font-family: inherit; padding: 14px 44px; font-size: 21px; font-weight: bold; background: #e74c3c; color: #fff; border: none; border-radius: 12px; cursor: pointer;">${escapeHtml(text.AFK_PENALTY_BTN)}</button>
+                    </div>
+                </div>
+                ` : ''}
             </div>
         `;
+
+        if (showAfkPenalty) {
+            const penaltyModal = container.querySelector('#modal-afk-penalty');
+            const confirmPenaltyBtn = container.querySelector('#btn-afk-penalty-confirm');
+            if (penaltyModal && !afkPenaltyFaded) {
+                afkPenaltyFaded = true;
+                if (typeof requestAnimationFrame === 'function') {
+                    requestAnimationFrame(() => { penaltyModal.style.opacity = '1'; });
+                } else {
+                    penaltyModal.style.opacity = '1';
+                }
+            }
+            if (confirmPenaltyBtn) {
+                confirmPenaltyBtn.onclick = () => {
+                    showAfkPenalty = false;
+                    if (penaltyModal && penaltyModal.parentNode) penaltyModal.remove();
+                };
+            }
+        }
 
         // 이벤트 바인딩
         container.querySelector('#btn-back-arena').onclick = () => changeScene('menu');

@@ -12,9 +12,9 @@ export const MarbleLang = {
         TOLL_TITLE: "통행료 지불", TOLL_DESC: "의 영토입니다.", NOT_ENOUGH_MONEY: "비용이 부족합니다!",
         
         // 토스트 UI 및 시스템 메시지
-        TOAST_START: "시작 지점 통과! 50만 달러 획득!",
+        TOAST_START: "시작 지점 통과! 순회 보상 획득!",
         TOAST_MOON: "달바라기 정원 도착! 50만 달러 획득!",
-        TOAST_VOID: "아공간으로 빨려들어갑니다... (1턴 강제휴식)",
+        TOAST_VOID: "아공간으로 빨려들어갑니다... (다음 턴 탈출 미니게임)",
         TOAST_ESCAPE_SUCCESS: "주사위 더블! 휴가지에서 탈출합니다!",
         TOAST_ESCAPE_FAIL: "탈출 실패! 푹 쉬다 가세요...",
         TOAST_NO_MONEY_BUY: "자금이 부족하여 토지를 매입할 수 없습니다.",
@@ -51,6 +51,13 @@ export const MarbleLang = {
         BTN_CRISIS_SELL: "영토 매각",
         BTN_CRISIS_LOAN: "대출 받기",
         BTN_REPAY_LOAN: "대출 상환",
+        LOAN_REPAY_TITLE: "대출 중도 상환",
+        LOAN_REPAY_DESC: "이번 턴 주사위를 굴리기 전에 대출금을 상환할 수 있습니다.\n(원금 완납 후 남은 이자는 이자 없는 새 원금으로 전환되며, 피라의 대부업명함 보유 시 0.5배·5% 이자가 적용됩니다)",
+        LOAN_REPAY_ALL_BTN: "모두 갚기 (원금+이자)",
+        LOAN_REPAY_SKIP_BTN: "갚지 않음",
+        LOAN_REPAY_TOAST: "대출 상환 완료:",
+        LOAN_REPAY_CONVERT_TOAST: "(원금 완납 후 잔여 이자가 새 원금으로 전환됨)",
+        LOAN_REPAY_FULL_TOAST: "대출 전액 상환 완료!",
         LOAN_EXECUTE: "긴급 대출 실행!",
         LOAN_DONE: "실행 후 지불 완료",
         ALREADY_LOAN: "이미 대출이 있어 불가능합니다.",
@@ -64,7 +71,27 @@ export const MarbleLang = {
         SETTLE_DEBT: "대출 청산:",
         SETTLE_FINAL: "최종 자산:",
         SETTLE_BANKRUPT: "(파산)",
-        BTN_MAINMENU: "메인 메뉴로 돌아가기"
+        BTN_MAINMENU: "메인 메뉴로 돌아가기",
+
+        // 잠수(자리비움) 자동 AI 전환 경고 오버레이
+        AFK_WARN_TITLE: "자리비움 자동 진행 안내",
+        AFK_WARN_DESC: "자리비움으로 인해 자동으로 플레이가 되고있습니다.\n한번 더 자리를 비울 시에는 의도적 방해로 간주되며, 원활한 게임의 진행을 위해 퇴장조치됩니다.\n게임으로 돌아가려면 확인을 눌러주세요.",
+        AFK_WARN_BTN: "확인",
+
+        // 시작 전 주사위 순번 결정 팝업
+        TURN_ORDER_TITLE: "플레이 순번 결정",
+        TURN_ORDER_DESC: "두 개의 주사위를 굴려 게임 시작 순번을 결정합니다. (주사위 합이 높을수록 1번에 배정)",
+        TURN_ORDER_ROLL_BTN: "주사위 굴리기 🎲",
+        TURN_ORDER_WAIT_OTHERS: "다른 플레이어가 주사위를 굴리기를 기다리는 중...",
+        TURN_ORDER_TIE_NOTICE: "동률이 발생하여 동률 플레이어의 주사위를 자동으로 재굴림합니다!",
+        TURN_ORDER_RESULT_TITLE: "최종 순번 결정 완료!",
+        TURN_ORDER_RESULT_DESC: "잠시 후 새롭게 배정된 1번 플레이어부터 게임을 시작합니다.",
+        TURN_ORDER_SUM_LABEL: "주사위 합:",
+        TURN_ORDER_REROLL_TAG: "(동률 재굴림)",
+        TURN_ORDER_RANK_SUFFIX: "등",
+        TURN_ORDER_ROLLED_TAG: "완료",
+        TURN_ORDER_WAITING_TAG: "대기중",
+        TURN_ORDER_AUTO_START_PREFIX: "자동 시작까지"
     },
     
     en: { /* 생략 - 추후 로컬라이징 적용 */ },

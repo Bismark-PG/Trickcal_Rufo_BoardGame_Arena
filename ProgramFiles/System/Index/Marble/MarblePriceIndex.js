@@ -25,10 +25,20 @@ export const BUILDING_COSTS = [
 
 // 경제 관련
 export const GAME_CONSTANTS = {
-    // 기본 게임 설정
+    // 기본 게임 설정 (진행 순서 1~4번 기준 차등 시작금 & 첫 바퀴 순회보상)
     INITIAL_MONEY: 5000000, 
+    INITIAL_MONEY_BY_ORDER: [5000000, 5250000, 5500000, 5750000],
     MAX_TURN: 20,           
-    START_BONUS: 500000,    
+    START_BONUS: 750000,    
+    FIRST_LAP_BONUS_BY_ORDER: [500000, 600000, 700000, 800000],
+    // 누적 순회 횟수 기준 속도 순회 콤보 보상: 2회 75만 -> 3회 85만 -> 4회 100만 -> 5회+ (100만 + (순회횟수-4)*10만)
+    LAP_COMBO_TIERS: [
+        { minNextLap: 4, bonus: 1000000 }, // 4회째 (100만)
+        { minNextLap: 3, bonus: 850000 }    // 3회째 (85만)
+    ],
+    LAP_COMBO_STEP_START_LAP: 5,
+    LAP_COMBO_STEP_BASE: 1000000,
+    LAP_COMBO_STEP_INCREMENT: 100000,
     THINK_TIME: 10,         // 기본 고민 시간 (굴리기 전 10초 / 굴리기 후 10초)
 
     // 월드 기믹 (시간대) 턴 설정
@@ -42,6 +52,8 @@ export const GAME_CONSTANTS = {
     BBANGJU_BASE_FEE: 100000,            
     BBANGJU_CHIEF_FEE: 200000,           
     BBANGJU_DIVIDE: { 1: 200000, 2: 100000, 3: 65000 }, 
+    BBANGJU_TURN_INCOME: { 1: 150000, 2: 75000, 3: 50000 },
+    BBANGJU_ALL_VACANT_REFUND: 750000, // 4인 전원 완납 공석 무산 시 참여자 각자 위로금 환급 (75만)
     
     // 매입 및 인수 비용
     THEATER_BUY: 150000,
@@ -66,6 +78,7 @@ export const GAME_CONSTANTS = {
     LAKE_ROLL_FEE: 600000,  
     LAKE_SUMMON_FEE: 900000,
     FURRY_BEACH_FEE: 500000,
+    FURRY_MANUAL_OPEN_FEE: 500000,
     
     PORTAL_FEE: 150000,
     PORTAL_BONUS: 300000,
@@ -78,8 +91,9 @@ export const GAME_CONSTANTS = {
     // 정산 관련 보너스 상수
     SETTLE_SPECIAL_TILE_UNIT: 100000, // 극장/모나티엄25/정령호수/도서관/태초의엘리프 정산 단위 (10만)
     SETTLE_FURRY_BEACH_UNIT: 150000,  // 퍼리비이치 상태일 때 호수 정산 단위 (15만)
-    SETTLE_BBANGJU_BASE: 1000000,     // 빵주 정비반장 기본 고정 정산 수당 (100만)
-    SETTLE_BBANGJU_UNIT: 100000,      // 빵주 정비반장 이용 횟수당 정산 단위 (10만)
+    SETTLE_LAP_LEADER_UNIT: 150000,   // 정산 최다 순회자 보너스 단위 (순회 횟수 * 15만)
+    SETTLE_BBANGJU_BASE: 1500000,     // 빵주 정비반장 기본 고정 정산 수당 (150만)
+    SETTLE_BBANGJU_UNIT: 200000,      // 빵주 정비반장 이용 횟수당 정산 단위 (20만)
     SETTLE_STEAL_UNIT: 250000,        // 김씨노동기 / 달바라기 한 송이 횟수당 수금 단위 (25만)   
 
     // 카드 및 파산 관련 비용
@@ -87,9 +101,43 @@ export const GAME_CONSTANTS = {
     
     // 대출 관련 상수
     LOAN_MAX_COUNT: 2,         // 최대 대출 횟수
-    LOAN_CRISIS_BONUS: 500000, // 대출 시 추가 지급되는 1순회 보너스 고정값
-    LOAN_INTEREST_RATE: 0.05   // 턴당 이자율 5%
+    LOAN_CRISIS_BONUS: 750000, // 대출 시 추가 지급되는 1순회 보너스 고정값 (START_BONUS 동일)
+    LOAN_INTEREST_RATE: 0.025, // 기본 턴당 이자율 2.5%
+    LOAN_PIRA_INTEREST_RATE: 0.05, // 피라의 대부업명함 보유 시 턴당 이자율 5%
+    LOAN_PIRA_AMOUNT_MULT: 0.5,    // 피라의 대부업명함 보유 시 대출 원금 배율 0.5배
+    LOAN_REPAY_PERCENTS: [10, 25, 50, 75, 100], // 턴 시작 중도 상환 선택 비율(%) (원금 기준)
+
+    // 그을음/윤회·빛무리 기본 파라미터
+    REINCARNATION_SKILL_COST_RATE: 0.10,
+    HALO_CARD_PRECHECK_PROB: 0.50, // 그을음 비윤회자 [113/114] 최상위 선판정 확률
+    HALO_POSITIVE_MULT: 2.0        // 빛무리 수혜자 긍정 효과 배율
 };
+
+/**
+ * 진행 순서·첫 바퀴 여부·직전 누적 순회 횟수(priorLaps)에 따른 기본 순회 보상을 산출한다.
+ * @param {number} playerOrderIdx 0-based 좌석 인덱스
+ * @param {boolean} hasFirstLapPassed 첫 바퀴 통과 완료 여부
+ * @param {number} priorLaps 이번 통과 직전까지의 누적 순회 횟수
+ * @returns {number}
+ */
+export function resolveLapBaseBonus(playerOrderIdx = 0, hasFirstLapPassed = false, priorLaps = 0) {
+    if (!hasFirstLapPassed) {
+        return GAME_CONSTANTS.FIRST_LAP_BONUS_BY_ORDER?.[playerOrderIdx] ?? GAME_CONSTANTS.START_BONUS;
+    }
+    const nextLap = Math.max(1, (Number(priorLaps) || 0) + 1);
+    const stepStart = GAME_CONSTANTS.LAP_COMBO_STEP_START_LAP || 5;
+    if (nextLap >= stepStart) {
+        const base = GAME_CONSTANTS.LAP_COMBO_STEP_BASE || 1000000;
+        const inc = GAME_CONSTANTS.LAP_COMBO_STEP_INCREMENT || 100000;
+        return base + (nextLap - (stepStart - 1)) * inc;
+    }
+    for (const tier of GAME_CONSTANTS.LAP_COMBO_TIERS || []) {
+        if (nextLap >= tier.minNextLap) {
+            return tier.bonus;
+        }
+    }
+    return GAME_CONSTANTS.START_BONUS;
+}
 
 // 산정배율 관련
 export const MULTIPLIERS = {

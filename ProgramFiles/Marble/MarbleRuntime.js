@@ -11,6 +11,7 @@ import { CardUILang } from '../System/Index/Marble/MarbleCardUIIndex.js';
 import { GimmickLang } from '../System/Index/Marble/MarbleGimmickIndex.js';
 import { SettlementLang } from '../System/Index/Marble/MarbleSettlementIndex.js';
 import { CardIndex } from '../System/Index/Marble/MarbleCardIndex.js';
+import { GAME_CONSTANTS } from '../System/Index/Marble/MarblePriceIndex.js';
 
 export function pickLangDict(langMap, lang = LangState.current) {
     if (!langMap) return {};
@@ -41,6 +42,115 @@ export function getCardDeck(lang = LangState.current) {
     return pickLangDict(CardIndex, lang);
 }
 
+export function createMarbleWorldMetrics() {
+    return {
+        postAltarEligibleDraws: 0,
+        stepTreasureExpectationSum: 0,
+        drawnViaProbTableCount: 0,
+        drawnViaOdysseyCount: 0,
+        drawnViaAltarPortalCount: 0,
+        altarFirstVisits: 0,
+        altarVisitTotal: 0,
+        altarCardArrivals: 0,
+        altarExpectedVisits: 0,
+        altarPortalUses: 0,
+        altarTradeCount: 0,
+        altarTradeCardsTotal: 0,
+        voidVisitTotal: 0,
+        voidTrappedCount: 0,
+        voidPulledCount: 0,
+        voidRimEvadedCount: 0,
+        voidChallengeCount: 0,
+        voidEscapeSuccessCount: 0,
+        voidEscapeFailCount: 0,
+        voidCardArrivals: 0,
+        voidExpectedVisits: 0,
+        voidExpectedCardVisits: 0,
+        voidDamageTotal: 0,
+        voidLapLossTotal: 0,
+        voidUpkeepLossTotal: 0,
+        sootTriggerCount: 0,
+        sootBranch: null,
+        reincarnatedPlayerName: null,
+        haloNaturalCount: 0,
+        haloCardCount: 0,
+        gradeDrawCounts: {
+            normal: 0,
+            special: 0,
+            treasure: 0
+        },
+        cardDrawHistogram: {},
+        treasureAcquireHistogram: {},
+        cardDuplicateAnomalies: 0,
+        deckReshuffleCount: 0,
+        gimmickTurnCounts: {
+            none: 0,
+            day: 0,
+            night: 0,
+            soot: 0,
+            halo: 0
+        },
+        furryCardUseCounts: { 201: 0, 202: 0, 203: 0, 204: 0 },
+        furryOpenCount: 0,
+        furryManualOpenCount: 0,
+        furryKomiJuiceCount: 0,
+        furryDianaRevertCount: 0,
+        furryKimWorkerCount: 0,
+        furryEntryTollTotal: 0,
+        furryExtraRestCount: 0,
+        furryBaselineRestCount: 0,
+        furryLakeOwnedFirstTurn: null,
+        furryExpectedGainSum: 0,
+        treasureSpecialCardUseCounts: { 111: 0, 112: 0, 113: 0, 114: 0 },
+        treasureActiveUseCount: 0,
+        mountainBuyCount: 0,
+        mountainInvestmentTotal: 0,
+        mountainTollExtraTotal: 0,
+        mountainExpectedGainSum: 0,
+        forgottenAcquiredCount: 0,
+        forgottenRecoveredCount: 0,
+        forgottenExpectedProbSum: 0,
+        originElifEligibleRolls: 0,
+        originElifCoinFlipWins: 0,
+        originElifDrawnCount: 0,
+        sootMakashaTotal: 0,
+        sootDiscountSavedTotal: 0,
+        sootExtraTollTotal: 0,
+        sootLapBlockedLossTotal: 0,
+        sootSkillCostTotal: 0,
+        sootDestroyValueTotal: 0,
+        sootBossTollTotal: 0,
+        sootExpectedBossToll: 0,
+        sootExpectedDestroyLoss: 0,
+        sootExpectedNetSum: 0,
+        sootExpectedBranch1Sum: 0,
+        sootExpectedBossNet: 0,
+        sootExpectedOpposedNet: 0,
+        sootHaloCardDrawAttempts: 0,
+        sootHaloCardExpectedDraws: 0,
+        sootHaloCardActualDraws: 0,
+        sootPlayerPnl: {},
+        haloBranchMode: null,
+        haloDebuffType: null,
+        haloDebuffedPlayerId: null,
+        haloDebuffedPlayerName: null,
+        haloCardPrecheckProbUsed: GAME_CONSTANTS.HALO_CARD_PRECHECK_PROB ?? 0.50,
+        haloPositiveMultUsed: GAME_CONSTANTS.HALO_POSITIVE_MULT ?? 2.0,
+        haloTollGainTotal: 0,
+        haloPositiveGainTotal: 0,
+        haloLapBlockedLossTotal: 0,
+        haloPayerTollDiffTotal: 0,
+        haloExpectedDebuffedNet: 0,
+        haloExpectedOpposedNet: 0,
+        haloExpectedTotalNet: 0,
+        haloPlayerPnl: {},
+        dayNightTollExtraTotal: { day: 0, night: 0 },
+        dayNightPlayerPnl: {},
+        dayNightExpectedTollSum: 0,
+        dayNightActiveTurns: { day: 0, night: 0 }
+    };
+}
+
 export function createMarbleWorldState() {
     return {
         currentTurn: 1,
@@ -56,6 +166,7 @@ export function createMarbleWorldState() {
         bbangjuChiefs: [],
         globalBbangjuVisits: 0,
         isFurryBeach: false,
+        furryManualOpenUsed: false,
         furryBeachFeeMultiplier: 1.0,
         requiem: {
             hasSootEverTriggered: false,
@@ -70,14 +181,18 @@ export function createMarbleWorldState() {
             reincarnatedPlayer: null
         },
         usedCardIds: new Set(),
+        currentShoeDrawnIds: new Set(),
         globalDrawnTreasures: new Set(),
-        altarTradedCards: []
+        altarTradedCards: [],
+        haloCardPrecheckProb: GAME_CONSTANTS.HALO_CARD_PRECHECK_PROB ?? 0.50,
+        haloPositiveMult: GAME_CONSTANTS.HALO_POSITIVE_MULT ?? 2.0,
+        metrics: createMarbleWorldMetrics()
     };
 }
 
 function createNoopPort() {
     return {
-        showToast() {},
+        showToast(_msg, _duration = 3200, _targetPlayerId = null) {},
         closeAll() {},
         showChoicePopup() {},
         showNormalPopup() {},
@@ -87,6 +202,7 @@ function createNoopPort() {
         showInventoryPopup() {},
         showTargetPopup() {},
         showPortalPopup() {},
+        showVoidGamePopup() {},
         schedule(fn, delay) {
             return setTimeout(fn, delay);
         },
@@ -156,8 +272,8 @@ export function scheduleGameTask(fn, delay) {
 }
 
 export const RuntimePopup = {
-    showToast(msg, duration = 2000) {
-        getRuntimePort().showToast(msg, duration);
+    showToast(msg, duration = 3200, targetPlayerId = null) {
+        getRuntimePort().showToast(msg, duration, targetPlayerId);
     },
     closeAll() {
         getRuntimePort().closeAll();
@@ -185,5 +301,10 @@ export const RuntimePopup = {
     },
     showPortalPopup(tiles, onSelectCallback, onCancelCallback, reqFee = 0, isFree = false) {
         getRuntimePort().showPortalPopup(tiles, onSelectCallback, onCancelCallback, reqFee, isFree);
+    },
+    showVoidGamePopup(challenge, onRollCallback) {
+        if (typeof getRuntimePort().showVoidGamePopup === 'function') {
+            getRuntimePort().showVoidGamePopup(challenge, onRollCallback);
+        }
     }
 };

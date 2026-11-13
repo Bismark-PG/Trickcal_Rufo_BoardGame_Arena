@@ -1,6 +1,7 @@
 import { initMenu } from './Scenes/MainMenu.js';
 import { initMarbleMain } from './Scenes/GameMain/MarbleMain.js';
-import { initGameRoom } from './Scenes/GameRoom.js';
+import { initUnosMain } from './Scenes/GameMain/UnosMain.js';
+import { initRoom } from './Scenes/GameRoom.js';
 import { initMarble } from './Scenes/GameMarble.js';
 import { RoomManager } from './Lobby/RoomManager.js';
 import { AudioManager } from './System/System.js';
@@ -41,9 +42,12 @@ export function changeScene(sceneName, sceneParams = null) {
     } else if (sceneName === 'marble_main') {
         AudioManager.playBGM('./Resource/Audio/Main_Furry_Forest.mp3');
         initMarbleMain(app, sceneParams);
+    } else if (sceneName === 'unos_main') {
+        AudioManager.playBGM('./Resource/Audio/Main_Furry_Forest.mp3');
+        initUnosMain(app, sceneParams);
     } else if (sceneName === 'room') {
         AudioManager.playBGM('./Resource/Audio/Main_Furry_Forest.mp3');
-        initGameRoom(app, sceneParams);
+        initRoom(app, sceneParams);
     } else if (sceneName === 'marble') {
         AudioManager.playBGM('./Resource/Audio/Game_Let\'s_Go.mp3');
         initMarble(app, sceneParams);

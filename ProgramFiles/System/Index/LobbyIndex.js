@@ -40,6 +40,24 @@ export const LobbyLang = {
             "• 2~4인 플레이 지원 (대기 룸에서 빈 자리를 AI로 채울 수 있습니다)."
         ],
 
+        // 우노스 전용 정보
+        UNOS_TITLE: "우노스 (UNOS)",
+        UNOS_BADGE: "2인 전용 · 우노 × 체스 전략 게임",
+        UNOS_RULES: [
+            "• 우노(UNO)와 체스를 결합한 1대1(2인 제한) 전용 보드게임입니다.",
+            "• 현재는 대기실·방 코드(UNOS + 6자리)·준비 상태 등 룸 테스트 기능을 지원합니다.",
+            "• 인게임 플레이는 개발 중이며, 향후 리그/토너먼트 다인 모드로 확장될 수 있습니다."
+        ],
+        UNOS_DEFAULT_ROOM_TITLE: "함께 즐기는 우노스(UNOS) 1대1!",
+        UNOS_SETTING_PLAYERS: "플레이 인원: 2인 전용 (1 vs 1)",
+        UNOS_SETTING_MODE: "게임 규칙: 우노 × 체스 결합 (인게임 개발 중)",
+
+        // 빠른 참가 (메인 아레나)
+        QUICK_JOIN_TITLE: "빠른 방 참가 (룸 코드 숏컷)",
+        QUICK_JOIN_DESC: "전달받은 10자리 룸 코드를 입력하면 해당 게임 대기방으로 바로 입장합니다.",
+        QUICK_JOIN_NICK_LABEL: "내 닉네임 (선택)",
+        QUICK_JOIN_SUBMIT: "방으로 바로 입장",
+
         // 방 생성 모달
         CREATE_MODAL_TITLE: "새 대기방 생성",
         ROOM_TITLE_LABEL: "방 제목",
@@ -53,9 +71,9 @@ export const LobbyLang = {
 
         // 방 코드 참가 모달
         JOIN_MODAL_TITLE: "방 코드로 참가",
-        JOIN_CODE_LABEL: "전달받은 6자리 방 코드를 입력하세요",
-        JOIN_CODE_PLACEHOLDER: "예: MRB101",
-        JOIN_CODE_HINT: "※ 테스트용 샘플 코드: MRB101 (공개), MRB204 (공개), MRB777 (비공개)",
+        JOIN_CODE_LABEL: "전달받은 10자리 방 코드를 입력하세요",
+        JOIN_CODE_PLACEHOLDER: "예: EMRB3A7K9P",
+        JOIN_CODE_HINT: "※ 엘리아스 마블(EMRB) / 우노스(UNOS) + 무작위 대문자 영문·숫자 6자리",
         BTN_CONFIRM_JOIN: "입장하기",
 
         // 에러 / 토스트 메시지
@@ -116,8 +134,12 @@ export const LobbyLang = {
         OPTION_MONEY_LABEL: "초기 자금",
         BTN_RETURN_ROOM: "대기방으로 돌아가기",
         ERR_WRONG_PASSWORD: "방 비밀번호가 일치하지 않습니다.",
+        ERR_GAME_IN_DEVELOPMENT: "해당 게임의 인게임은 현재 개발 중입니다. (대기방 기능 테스트만 가능)",
         STATUS_FINISHED: "종료됨",
-        JOIN_PASSWORD_OPTIONAL: "비밀번호 (설정된 경우)"
+        JOIN_PASSWORD_OPTIONAL: "비밀번호 (설정된 경우)",
+        AFK_PENALTY_TITLE: "잠수 퇴장 패널티 안내",
+        AFK_PENALTY_DESC: "이전 게임에서 의도적 잠수판정으로 분류되어 퇴장 패널티를 받았습니다.\n모두가 즐거운 게임을 즐길 수 있도록 협조 부탁드립니다.",
+        AFK_PENALTY_BTN: "확인"
     },
     en: {
         BACK_TO_ARENA: "← Back to Arena",
@@ -157,6 +179,22 @@ export const LobbyLang = {
             "• Supports 2-4 players (empty slots can be filled with AI bots in the room)."
         ],
 
+        UNOS_TITLE: "UNOS",
+        UNOS_BADGE: "2 Players Only · UNO × Chess Strategy",
+        UNOS_RULES: [
+            "• A 1v1 (2-player only) strategy board game combining UNO and Chess.",
+            "• Waiting room, 10-char room codes (UNOS + 6 chars), and ready system are open for testing.",
+            "• Gameplay is under development and may expand to tournament modes later."
+        ],
+        UNOS_DEFAULT_ROOM_TITLE: "1v1 UNOS Casual Match!",
+        UNOS_SETTING_PLAYERS: "Players: 2 Players Only (1 vs 1)",
+        UNOS_SETTING_MODE: "Rules: UNO × Chess (Gameplay in development)",
+
+        QUICK_JOIN_TITLE: "Quick Join by Room Code",
+        QUICK_JOIN_DESC: "Enter a 10-character room code to jump straight into its waiting room.",
+        QUICK_JOIN_NICK_LABEL: "Nickname (optional)",
+        QUICK_JOIN_SUBMIT: "Join Room Now",
+
         CREATE_MODAL_TITLE: "Create Waiting Room",
         ROOM_TITLE_LABEL: "Room Title",
         DEFAULT_ROOM_TITLE: "Casual Elias Marble Match!",
@@ -168,9 +206,9 @@ export const LobbyLang = {
         BTN_CANCEL: "Cancel",
 
         JOIN_MODAL_TITLE: "Join Room by Code",
-        JOIN_CODE_LABEL: "Enter the 6-character room code",
-        JOIN_CODE_PLACEHOLDER: "e.g. MRB101",
-        JOIN_CODE_HINT: "* Sample codes: MRB101 (Public), MRB204 (Public), MRB777 (Private)",
+        JOIN_CODE_LABEL: "Enter the 10-character room code",
+        JOIN_CODE_PLACEHOLDER: "e.g. EMRB3A7K9P",
+        JOIN_CODE_HINT: "* Elias Marble (EMRB) / UNOS (UNOS) + 6 uppercase alphanumeric chars",
         BTN_CONFIRM_JOIN: "Join",
 
         ERR_EMPTY_CODE: "Please enter a room code.",
@@ -228,8 +266,12 @@ export const LobbyLang = {
         OPTION_MONEY_LABEL: "Starting Cash",
         BTN_RETURN_ROOM: "Return to Room",
         ERR_WRONG_PASSWORD: "Incorrect room password.",
+        ERR_GAME_IN_DEVELOPMENT: "Gameplay for this title is still in development (room testing only).",
         STATUS_FINISHED: "Finished",
-        JOIN_PASSWORD_OPTIONAL: "Password (if required)"
+        JOIN_PASSWORD_OPTIONAL: "Password (if required)",
+        AFK_PENALTY_TITLE: "AFK Removal Penalty Notice",
+        AFK_PENALTY_DESC: "You were removed from the previous match due to repeated inactivity.\nPlease stay active so everyone can enjoy a smooth game.",
+        AFK_PENALTY_BTN: "Confirm"
     },
     ja: {
         BACK_TO_ARENA: "← アリーナへ戻る",
@@ -269,6 +311,22 @@ export const LobbyLang = {
             "• 2~4人プレイ対応（空き枠にAIを配置可能）。"
         ],
 
+        UNOS_TITLE: "ウノス (UNOS)",
+        UNOS_BADGE: "2人専用 · ウノ×チェス戦略ゲーム",
+        UNOS_RULES: [
+            "• ウノ(UNO)とチェスを組み合わせた1対1（2人限定）専用ボードゲームです。",
+            "• 現在は待機ロビー・10桁ルームコード(UNOS+6桁)・準備システムをテスト可能です。",
+            "• ゲーム本編は開発中で、今後リーグ/トーナメント形式へ拡張予定です。"
+        ],
+        UNOS_DEFAULT_ROOM_TITLE: "ウノス(UNOS) 1対1マッチ！",
+        UNOS_SETTING_PLAYERS: "プレイ人数: 2人専用 (1 vs 1)",
+        UNOS_SETTING_MODE: "ゲームルール: ウノ×チェス（本編開発中）",
+
+        QUICK_JOIN_TITLE: "クイック参加（ルームコード入力）",
+        QUICK_JOIN_DESC: "共有された10桁のルームコードを入力すると、該当ゲームの待機ルームへ直接入室します。",
+        QUICK_JOIN_NICK_LABEL: "ニックネーム（任意）",
+        QUICK_JOIN_SUBMIT: "ルームへ直行入室",
+
         CREATE_MODAL_TITLE: "新規ルーム作成",
         ROOM_TITLE_LABEL: "ルーム名",
         DEFAULT_ROOM_TITLE: "みんなでエリアスマーブル！",
@@ -280,9 +338,9 @@ export const LobbyLang = {
         BTN_CANCEL: "キャンセル",
 
         JOIN_MODAL_TITLE: "ルームコードで参加",
-        JOIN_CODE_LABEL: "共有された6桁のルームコードを入力してください",
-        JOIN_CODE_PLACEHOLDER: "例: MRB101",
-        JOIN_CODE_HINT: "※ テスト用コード: MRB101(公開), MRB204(公開), MRB777(非公開)",
+        JOIN_CODE_LABEL: "共有された10桁のルームコードを入力してください",
+        JOIN_CODE_PLACEHOLDER: "例: EMRB3A7K9P",
+        JOIN_CODE_HINT: "※ エリアスマーブル(EMRB) / ウノス(UNOS) + 大文字英数字6桁",
         BTN_CONFIRM_JOIN: "参加する",
 
         ERR_EMPTY_CODE: "ルームコードを入力してください。",
@@ -340,7 +398,11 @@ export const LobbyLang = {
         OPTION_MONEY_LABEL: "初期資金",
         BTN_RETURN_ROOM: "ルームへ戻る",
         ERR_WRONG_PASSWORD: "パスワードが一致しません。",
+        ERR_GAME_IN_DEVELOPMENT: "このゲームの本編は現在開発中です。（待機ルーム機能のみテスト可能）",
         STATUS_FINISHED: "終了",
-        JOIN_PASSWORD_OPTIONAL: "パスワード（必要な場合）"
+        JOIN_PASSWORD_OPTIONAL: "パスワード（必要な場合）",
+        AFK_PENALTY_TITLE: "放置退場ペナルティのご案内",
+        AFK_PENALTY_DESC: "前のゲームで意図的な放置判定となり、退場ペナルティを受けました。\n皆が楽しくプレイできるようご協力をお願いいたします。",
+        AFK_PENALTY_BTN: "確認"
     }
 };

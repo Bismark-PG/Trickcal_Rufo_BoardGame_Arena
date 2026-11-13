@@ -4,13 +4,14 @@ import {
     formatMoney,
     getTileName,
     scheduleGameTask,
-    getCardUIText
+    getCardUIText,
+    getActiveWorld
 } from './MarbleRuntime.js';
 import { CARD_IDS } from '../System/Index/Marble/MarbleCardIndex.js';
 import { GAME_CONSTANTS } from '../System/Index/Marble/MarblePriceIndex.js';
 import { getDrawnTreasures } from './MarbleOdyssey.js';
-import { checkAndTriggerClimax } from './MarbleRequiem.js';
-import { getTileFullInvestedValue, getStartPassBonus } from './MarbleCardNormal.js';
+import { checkAndTriggerClimax, RequiemState } from './MarbleRequiem.js';
+import { getTileFullInvestedValue, applyLapPassBonus } from './MarbleCardNormal.js';
 import { AIManager } from './MarbleAI.js';
 
 // ==========================================
@@ -35,6 +36,23 @@ export const DEBUFF_CANCELED_BY_MAP = {
 export function hasTreasure(player, cardId) {
     if (!player || !player.treasureCards) return false;
     return player.treasureCards.some(c => c.id === cardId);
+}
+
+/**
+ * 보물카드 포지티브 효과(패시브 버프) 적용 여부:
+ * - 보물카드를 실제로 보유 중이거나,
+ * - 그을음 분기 2 [윤회] 상태 보유자인 동안 501(왕관), 502(활), 503(단검)의 포지티브 버프만 유지
+ */
+export function hasPositiveTreasureEffect(player, cardId) {
+    if (hasTreasure(player, cardId)) return true;
+    if (RequiemState?.isSootState && player?.isReincarnated) {
+        return (
+            cardId === CARD_IDS.TREASURE_CROWN ||
+            cardId === CARD_IDS.TREASURE_BOW ||
+            cardId === CARD_IDS.TREASURE_SWORD
+        );
+    }
+    return false;
 }
 
 // 특정 보물 카드의 부작용(디버프)이 현재 유효한지 확인 (상쇄 보물 보유 시 false)
@@ -62,6 +80,17 @@ export function acquireTreasureCard(ctx, card) {
         remainingUses: typeof card.maxUses === 'number' ? card.maxUses : 0
     };
     player.treasureCards.push(treasureInstance);
+    if (player.tracker) player.tracker.treasureAcquiredCount++;
+
+    const worldMetrics = getActiveWorld()?.metrics;
+    if (worldMetrics) {
+        if (!worldMetrics.treasureAcquireHistogram) worldMetrics.treasureAcquireHistogram = {};
+        const key = String(card.id);
+        if (!worldMetrics.treasureAcquireHistogram[key]) {
+            worldMetrics.treasureAcquireHistogram[key] = { id: card.id, name: card.name, count: 0 };
+        }
+        worldMetrics.treasureAcquireHistogram[key].count++;
+    }
 
     if (player.firstTreasureTurn === -1 && turnManager) {
         player.firstTreasureTurn = turnManager.globalTurn;
@@ -73,11 +102,11 @@ export function acquireTreasureCard(ctx, card) {
     }
 
     const cText = getCardUIText();
-    RuntimePopup.showToast(`[${card.name}] ${cText.TREASURE_OBTAIN}`, 3000);
+    RuntimePopup.showToast(`[${player.name}] [${card.name}] ${cText.TREASURE_OBTAIN}`, 3800);
     if (ctx.refreshUI) ctx.refreshUI();
 
-    // 6장 모두 등장했는지 검사하여 그을음 발동
-    checkAndTriggerClimax(ctx);
+    // 6장 모두 등장했는지 검사하여 그을음 발동 (발동 시 그을음 연출이 턴 종료를 위임 처리함)
+    return checkAndTriggerClimax(ctx);
 }
 
 export function stealTreasureCardFromPlayer(ctx, thief, victim) {
@@ -85,20 +114,27 @@ export function stealTreasureCardFromPlayer(ctx, thief, victim) {
     const randIdx = Math.floor(Math.random() * victim.treasureCards.length);
     const [stolenCard] = victim.treasureCards.splice(randIdx, 1);
     thief.treasureCards.push(stolenCard);
+    if (thief.tracker) {
+        thief.tracker.treasureAcquiredCount++;
+        thief.tracker.treasureStolenCount++;
+    }
 
     if (thief.firstTreasureTurn === -1 && ctx.turnManager) {
         thief.firstTreasureTurn = ctx.turnManager.globalTurn;
     }
     if (stolenCard.id === CARD_IDS.TREASURE_BOW) {
-        thief.bowExtraRollAvailable = true;
+        thief.bowExtraRollAvailable = hasPositiveTreasureEffect(thief, CARD_IDS.TREASURE_BOW);
     }
+    victim.bowExtraRollAvailable = hasPositiveTreasureEffect(victim, CARD_IDS.TREASURE_BOW);
     return stolenCard;
 }
 
 export function executeTreasureCard(ctx, card, onComplete = null) {
     const finish = onComplete || ctx.proceedEndTurn;
-    acquireTreasureCard(ctx, card);
-    scheduleGameTask(finish, 1500);
+    const climaxTriggered = acquireTreasureCard(ctx, card);
+    if (!climaxTriggered) {
+        scheduleGameTask(finish, 1500);
+    }
 }
 
 // ==========================================
@@ -122,21 +158,24 @@ export function processTreasureTurnStart(player) {
     if (!player || player.isBankrupt) return;
     const cText = getCardUIText();
 
-    if (hasTreasure(player, CARD_IDS.TREASURE_CROWN)) {
+    if (hasPositiveTreasureEffect(player, CARD_IDS.TREASURE_CROWN)) {
         player.money += 150000;
-        RuntimePopup.showToast(cText.TREASURE_CROWN_TURN, 2000);
+        RuntimePopup.showToast(cText.TREASURE_CROWN_TURN, 3000, player.id);
     }
 
     if (isTreasureDebuffActive(player, CARD_IDS.TREASURE_STAFF)) {
         player.payMoney(150000, null);
-        RuntimePopup.showToast(cText.TREASURE_STAFF_TURN, 2000);
+        RuntimePopup.showToast(cText.TREASURE_STAFF_TURN, 3000, player.id);
     }
 
-    player.bowExtraRollAvailable = hasTreasure(player, CARD_IDS.TREASURE_BOW);
+    player.bowExtraRollAvailable = hasPositiveTreasureEffect(player, CARD_IDS.TREASURE_BOW);
 }
 
-// [503: ???가 담긴 검] 부작용: 주사위가 2개에서 1개로 줄어듦 (활(502) 보유 시 상쇄)
-export function getPlayerDiceCount(player) {
+// [503: ???가 담긴 검] 부작용: 주사위가 2개에서 1개로 줄어듦 (활(502) 보유 또는 [50: 루포의 주사위] 사용 턴 시 상쇄)
+export function getPlayerDiceCount(player, opts = {}) {
+    if (!opts?.ignoreRufo && player?.hasRufoDiceBuff) {
+        return 2;
+    }
     if (isTreasureDebuffActive(player, CARD_IDS.TREASURE_SWORD)) {
         return 1;
     }
@@ -145,7 +184,7 @@ export function getPlayerDiceCount(player) {
 
 // [503: ???가 담긴 검] 버프: 영토 매입비와 건설비가 0.8배로 하락
 export function getTreasurePurchaseMultiplier(player) {
-    if (hasTreasure(player, CARD_IDS.TREASURE_SWORD)) {
+    if (hasPositiveTreasureEffect(player, CARD_IDS.TREASURE_SWORD)) {
         return 0.8;
     }
     return 1.0;
@@ -187,7 +226,7 @@ export function useTreasureActiveCard(ctx, treasureCard, onComplete = null, onCa
     };
 
     if (!treasureCard || treasureCard.remainingUses <= 0) {
-        RuntimePopup.showToast(cText.CANT_USE_NOW, 2000);
+        RuntimePopup.showToast(cText.CANT_USE_NOW, 2800, p.id);
         cancelTarget();
         return;
     }
@@ -195,23 +234,32 @@ export function useTreasureActiveCard(ctx, treasureCard, onComplete = null, onCa
     switch (treasureCard.id) {
         // [504] ???의 수의: 플레이 동안 3회에 한해 1칸부터 6칸까지 원하는 수치만큼 이동
         case CARD_IDS.TREASURE_SHROUD: {
-            if (p.isAi()) {
-                if (ctx.turnTimer) ctx.turnTimer.stop();
-                const globalTurn = ctx.turnManager ? ctx.turnManager.globalTurn : 1;
-                const step = AIManager.decideRelativeMoveCard(p, [1, 2, 3, 4, 5, 6], ctx.tiles, ctx.allPlayers, globalTurn);
+            const executeShroudStep = (step) => {
                 treasureCard.remainingUses--;
+                if (p.tracker) p.tracker.activeCardsUsed++;
+                const wmShroud = getActiveWorld()?.metrics;
+                if (wmShroud) wmShroud.treasureActiveUseCount = (wmShroud.treasureActiveUseCount || 0) + 1;
                 if (onComplete) onComplete(true);
 
                 const oldPos = p.pos;
                 p.pos = (p.pos + step) % 40;
+                RuntimePopup.showToast(
+                    `[${p.name}] [${treasureCard.name}] ${cText.MOVE_FORWARD_PREFIX}${step}${cText.MOVE_SPACE_SUFFIX}`,
+                    3200
+                );
                 if (oldPos + step >= 40) {
-                    const startBonus = getStartPassBonus(p);
-                    p.money += startBonus;
-                    RuntimePopup.showToast(`${cText.MOVE_START_BONUS} (+${formatMoney(startBonus)})`, 2000);
+                    applyLapPassBonus(p, { showBlockedToast: true });
                 }
                 ctx.updateRender();
                 ctx.refreshUI();
-                scheduleGameTask(() => ctx.handleTileArrival(p), 1000);
+                scheduleGameTask(() => ctx.handleTileArrival(p), 1200);
+            };
+
+            if (p.isAi()) {
+                if (ctx.turnTimer) ctx.turnTimer.stop();
+                const globalTurn = ctx.turnManager ? ctx.turnManager.globalTurn : 1;
+                const step = AIManager.decideRelativeMoveCard(p, [1, 2, 3, 4, 5, 6], ctx.tiles, ctx.allPlayers, globalTurn);
+                executeShroudStep(step);
                 return;
             }
             resetTargetTimer();
@@ -221,19 +269,7 @@ export function useTreasureActiveCard(ctx, treasureCard, onComplete = null, onCa
                 action: () => {
                     if (ctx.turnTimer) ctx.turnTimer.stop();
                     RuntimePopup.closeAll();
-                    treasureCard.remainingUses--;
-                    if (onComplete) onComplete(true); // 즉시 이동했으므로 주사위 굴리기 페이즈 재진입 대신 칸 도착 처리로 진행
-
-                    const oldPos = p.pos;
-                    p.pos = (p.pos + step) % 40;
-                    if (oldPos + step >= 40) {
-                        const startBonus = getStartPassBonus(p);
-                        p.money += startBonus;
-                        RuntimePopup.showToast(`${cText.MOVE_START_BONUS} (+${formatMoney(startBonus)})`, 2000);
-                    }
-                    ctx.updateRender();
-                    ctx.refreshUI();
-                    scheduleGameTask(() => ctx.handleTileArrival(p), 1000);
+                    executeShroudStep(step);
                 }
             }));
             RuntimePopup.showChoicePopup(cText.TREASURE_SHROUD_TITLE, cText.TREASURE_SHROUD_DESC, btnConfigs);
@@ -247,25 +283,33 @@ export function useTreasureActiveCard(ctx, treasureCard, onComplete = null, onCa
                 ctx.tiles.some(t => t.owner === enemy && t.type === 'normal')
             );
             if (validEnemies.length === 0) {
-                RuntimePopup.showToast(cText.CANT_USE_NOW, 2000);
+                RuntimePopup.showToast(cText.CANT_USE_NOW, 2800, p.id);
                 cancelTarget();
                 return;
             }
+            const applyRopeForceSell = (targetEnemy, targetTile) => {
+                const forcedSellAmount = getTileFullInvestedValue(targetTile);
+                targetEnemy.money += forcedSellAmount;
+                targetEnemy.territoryCount--;
+                targetTile.owner = null;
+                targetTile.level = -1;
+
+                treasureCard.remainingUses--;
+                if (p.tracker) p.tracker.activeCardsUsed++;
+                const wm = getActiveWorld()?.metrics;
+                if (wm) wm.treasureActiveUseCount = (wm.treasureActiveUseCount || 0) + 1;
+                ctx.updateRender();
+                ctx.refreshUI();
+                if (onComplete) onComplete(false);
+                RuntimePopup.showToast(
+                    `[${p.name} → ${targetEnemy.name}] ${cText.TREASURE_ROPE_DONE} ${getTileName(targetTile)} (+${formatMoney(forcedSellAmount)})`,
+                    3600
+                );
+            };
             if (p.isAi()) {
                 const targetTile = AIManager.selectRopeTargetTile(p, ctx.tiles, ctx.allPlayers);
                 if (targetTile && targetTile.owner) {
-                    const targetEnemy = targetTile.owner;
-                    const forcedSellAmount = getTileFullInvestedValue(targetTile);
-                    targetEnemy.money += forcedSellAmount;
-                    targetEnemy.territoryCount--;
-                    targetTile.owner = null;
-                    targetTile.level = -1;
-
-                    treasureCard.remainingUses--;
-                    ctx.updateRender();
-                    ctx.refreshUI();
-                    if (onComplete) onComplete(false);
-                    RuntimePopup.showToast(`${cText.TREASURE_ROPE_DONE} ${getTileName(targetTile)}`, 2500);
+                    applyRopeForceSell(targetTile.owner, targetTile);
                 } else {
                     cancelTarget();
                 }
@@ -283,18 +327,8 @@ export function useTreasureActiveCard(ctx, treasureCard, onComplete = null, onCa
                 resetTargetTimer();
                 RuntimePopup.showTargetPopup(cText.TREASURE_ROPE_ENEMY_TITLE, cText.TREASURE_ROPE_TILE_DESC, tileTargets, (tileId) => {
                     const targetTile = ctx.tiles[tileId];
-                    const forcedSellAmount = getTileFullInvestedValue(targetTile); // 강제 매각: 매입가 + 건설비 1.0배 지급
-                    targetEnemy.money += forcedSellAmount;
-                    targetEnemy.territoryCount--;
-                    targetTile.owner = null;
-                    targetTile.level = -1;
-
-                    treasureCard.remainingUses--;
                     RuntimePopup.closeAll();
-                    ctx.updateRender();
-                    ctx.refreshUI();
-                    if (onComplete) onComplete(false);
-                    RuntimePopup.showToast(`${cText.TREASURE_ROPE_DONE} ${getTileName(targetTile)}`, 2500);
+                    applyRopeForceSell(targetEnemy, targetTile);
                 }, cancelTarget);
             }, cancelTarget);
             break;
@@ -308,26 +342,32 @@ export function useTreasureActiveCard(ctx, treasureCard, onComplete = null, onCa
                 : ctx.tiles.filter(t => t.type === 'normal' && t.owner !== p);
 
             if (selectableTiles.length === 0) {
-                RuntimePopup.showToast(cText.CANT_USE_NOW, 2000);
+                RuntimePopup.showToast(cText.CANT_USE_NOW, 2800, p.id);
                 cancelTarget();
                 return;
             }
+            const applyStaffSteal = (targetTile) => {
+                if (targetTile.owner) {
+                    targetTile.owner.territoryCount--;
+                } else {
+                    targetTile.level = 0;
+                }
+                targetTile.owner = p;
+                p.territoryCount++;
+
+                treasureCard.remainingUses--;
+                if (p.tracker) p.tracker.activeCardsUsed++;
+                const wm = getActiveWorld()?.metrics;
+                if (wm) wm.treasureActiveUseCount = (wm.treasureActiveUseCount || 0) + 1;
+                ctx.updateRender();
+                ctx.refreshUI();
+                if (onComplete) onComplete(false);
+                RuntimePopup.showToast(`[${p.name}] ${cText.TREASURE_STAFF_DONE} ${getTileName(targetTile)}`, 3600);
+            };
             if (p.isAi()) {
                 const targetTile = AIManager.selectStaffTargetTile(p, ctx.tiles);
                 if (targetTile) {
-                    if (targetTile.owner) {
-                        targetTile.owner.territoryCount--;
-                    } else {
-                        targetTile.level = 0;
-                    }
-                    targetTile.owner = p;
-                    p.territoryCount++;
-
-                    treasureCard.remainingUses--;
-                    ctx.updateRender();
-                    ctx.refreshUI();
-                    if (onComplete) onComplete(false);
-                    RuntimePopup.showToast(`${cText.TREASURE_STAFF_DONE} ${getTileName(targetTile)}`, 2500);
+                    applyStaffSteal(targetTile);
                 } else {
                     cancelTarget();
                 }
@@ -341,20 +381,8 @@ export function useTreasureActiveCard(ctx, treasureCard, onComplete = null, onCa
             }));
             RuntimePopup.showTargetPopup(cText.TREASURE_STAFF_TILE_TITLE, cText.TREASURE_STAFF_TILE_DESC, tileTargets, (tileId) => {
                 const targetTile = ctx.tiles[tileId];
-                if (targetTile.owner) {
-                    targetTile.owner.territoryCount--;
-                } else {
-                    targetTile.level = 0;
-                }
-                targetTile.owner = p;
-                p.territoryCount++;
-
-                treasureCard.remainingUses--;
                 RuntimePopup.closeAll();
-                ctx.updateRender();
-                ctx.refreshUI();
-                if (onComplete) onComplete(false);
-                RuntimePopup.showToast(`${cText.TREASURE_STAFF_DONE} ${getTileName(targetTile)}`, 2500);
+                applyStaffSteal(targetTile);
             }, cancelTarget);
             break;
         }

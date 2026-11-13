@@ -2,13 +2,14 @@
 // 서버 권위적 로비, 대기방 관리, 카운트다운, 재접속/이탈 처리 및 게임 세션 오케스트레이션
 
 import crypto from 'node:crypto';
-import { getGameMeta } from '../GameRegistry.js';
+import { getGameMeta, pickRandomBotName } from '../GameRegistry.js';
 import { GAME_CONSTANTS } from '../Index/Marble/MarblePriceIndex.js';
 import { createGameSession, hasGameSessionSupport } from './GameSessionRegistry.js';
+import { SystemLogManager } from '../Log/SystemLogManager.js';
 
 const SLOT_COLORS = ['#e74c3c', '#3498db', '#f1c40f', '#9b59b6', '#2ecc71', '#e67e22'];
 const AI_ARCHETYPES = ['random', 'aggressive', 'defensive', 'marathon'];
-const CODE_CHARS = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+const CODE_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
 const WAITING_DISCONNECT_GRACE_MS = 20000;
 const PLAYING_EMPTY_ROOM_GRACE_MS = 60000;
@@ -22,15 +23,12 @@ function sanitizeText(str, maxLen = 24, fallback = '') {
 }
 
 function clampCustomOptions(raw) {
-    const allowedTurns = [10, 15, 20, 25, 30];
-    const allowedMoney = [1000000, 1500000, 2000000, 3000000];
-    const maxTurn = allowedTurns.includes(Number(raw?.maxTurn))
-        ? Number(raw.maxTurn)
-        : GAME_CONSTANTS.MAX_TURN;
-    const initialMoney = allowedMoney.includes(Number(raw?.initialMoney))
-        ? Number(raw.initialMoney)
-        : GAME_CONSTANTS.INITIAL_MONEY;
-    return { maxTurn, initialMoney };
+    // 추후 턴/자금 커스텀 및 세부 파라미터 연동 전까지는 기본 기획 수치(20턴 / 500만)로 고정
+    void raw;
+    return {
+        maxTurn: GAME_CONSTANTS.MAX_TURN,
+        initialMoney: GAME_CONSTANTS.INITIAL_MONEY
+    };
 }
 
 function createEmptySlot(slotIndex) {
@@ -54,7 +52,9 @@ function getNextUnusedColor(room, fallbackIdx) {
 }
 
 export class LobbyServer {
-    constructor() {
+    constructor(options = {}) {
+        this.logDir = options.logDir || null;
+        this.disableDiskWrite = Boolean(options.disableDiskWrite);
         this.sessions = new Map(); // sessionToken -> sessionObj
         this.sessionsByPlayerId = new Map(); // playerId -> sessionObj
         this.rooms = new Map(); // roomId -> roomObj
@@ -300,7 +300,7 @@ export class LobbyServer {
             case 'CREATE_ROOM': {
                 const gameId = String(msg.gameId || 'marble');
                 const meta = getGameMeta(gameId);
-                if (!meta || meta.status !== 'active' || !hasGameSessionSupport(gameId)) {
+                if (!meta || (!meta.lobbyEnabled && meta.status !== 'active')) {
                     this._sendReply(client, msg, false, null, 'GAME_NOT_AVAILABLE');
                     return;
                 }
@@ -368,15 +368,23 @@ export class LobbyServer {
             }
 
             case 'JOIN_ROOM_BY_CODE': {
-                const gameId = String(msg.gameId || 'marble');
-                const code = String(msg.code || '').trim().toUpperCase();
+                const expectedGameId = msg.gameId ? String(msg.gameId) : null;
+                const code = String(msg.code || '').replace(/\s+/g, '').trim().toUpperCase();
                 if (!code) {
                     this._sendReply(client, msg, false, null, 'EMPTY_CODE');
                     return;
                 }
                 const room = Array.from(this.rooms.values()).find(
-                    r => r.gameId === gameId && r.code.toUpperCase() === code
+                    r => r.code.toUpperCase() === code
                 );
+                if (!room) {
+                    this._sendReply(client, msg, false, null, 'ROOM_NOT_FOUND');
+                    return;
+                }
+                if (expectedGameId && room.gameId !== expectedGameId) {
+                    this._sendReply(client, msg, false, null, 'WRONG_GAME');
+                    return;
+                }
                 const res = this._joinRoomInternal(session, room, msg.password || '');
                 this._sendReply(client, msg, res.ok, res.ok ? { room: res.room } : null, res.reason || null);
                 return;
@@ -516,6 +524,7 @@ export class LobbyServer {
                         this._sendToPlayer(kickedPlayerId, {
                             type: 'KICKED_FROM_ROOM',
                             roomId: room.id,
+                            gameId: room.gameId,
                             reason: 'HOST_KICKED'
                         });
                     }
@@ -599,25 +608,25 @@ export class LobbyServer {
             .map(r => this._serializeRoom(r));
     }
 
-    _generateUniqueCode(prefix = 'RM') {
-        const p = prefix.slice(0, 3).toUpperCase();
+    _generateUniqueCode(prefix = 'ROOM') {
+        const p = String(prefix || 'ROOM').slice(0, 4).toUpperCase().padEnd(4, 'X');
         for (let attempt = 0; attempt < 200; attempt++) {
             let suffix = '';
-            for (let i = 0; i < 4; i++) {
+            for (let i = 0; i < 6; i++) {
                 suffix += CODE_CHARS[crypto.randomInt(0, CODE_CHARS.length)];
             }
             const code = `${p}${suffix}`;
             const exists = Array.from(this.rooms.values()).some(r => r.code === code);
             if (!exists) return code;
         }
-        return `${p}${crypto.randomInt(1000, 9999)}`;
+        return `${p}${crypto.randomInt(100000, 999999)}`;
     }
 
     _assignAiSlot(room, slot, aiType = 'random') {
-        const aiNum = slot.slotIndex + 1;
+        const usedNames = room.slots.filter(s => s.type !== 'empty' && s !== slot && s.name).map(s => s.name);
         slot.type = 'ai';
         slot.id = `ai_${room.id}_${slot.slotIndex}`;
-        slot.name = `AI ${aiNum}`;
+        slot.name = pickRandomBotName(usedNames);
         slot.color = getNextUnusedColor(room, slot.slotIndex);
         slot.isHost = false;
         slot.isReady = true;
@@ -670,6 +679,65 @@ export class LobbyServer {
         return { ok: true, room: serialized };
     }
 
+    _convertSlotToAi(room, slotIdx, aiType = 'aggressive') {
+        const oldSlot = room.slots[slotIdx];
+        if (!oldSlot) return null;
+        room.slots[slotIdx] = {
+            slotIndex: slotIdx,
+            type: 'ai',
+            id: oldSlot.id,
+            name: `${oldSlot.name} (AI)`,
+            color: oldSlot.color,
+            isHost: false,
+            isReady: true,
+            isMockHuman: false,
+            isConnected: true,
+            aiType: aiType || 'aggressive'
+        };
+        return room.slots[slotIdx];
+    }
+
+    _finalizeHumanRemovalFromRoom(room, removedPlayerId) {
+        const remainingHumans = room.slots.filter(s => s.type === 'human');
+        if (remainingHumans.length === 0) {
+            this._destroyRoom(room.id);
+            return;
+        }
+
+        if (room.hostId === removedPlayerId) {
+            const nextHost = remainingHumans.find(s => s.isConnected) || remainingHumans[0];
+            nextHost.isHost = true;
+            if (room.status === 'waiting') nextHost.isReady = true;
+            room.hostId = nextHost.id;
+        }
+
+        this._syncRoomState(room);
+    }
+
+    _kickPlayerForAfk(room, playerId, aiType = 'aggressive') {
+        if (!room || !this.rooms.has(room.id)) return;
+        this._cancelDisconnectTimer(playerId);
+        const sess = this.sessionsByPlayerId.get(playerId);
+        if (sess && sess.currentRoomId === room.id) {
+            sess.currentRoomId = null;
+        }
+
+        const slotIdx = room.slots.findIndex(s => s.id === playerId);
+        if (slotIdx !== -1 && room.status === 'playing') {
+            this._convertSlotToAi(room, slotIdx, aiType);
+        }
+
+        this._sendToPlayer(playerId, {
+            type: 'KICKED_FROM_ROOM',
+            roomId: room.id,
+            gameId: room.gameId,
+            reason: 'AFK_KICKED',
+            aiType
+        });
+
+        this._finalizeHumanRemovalFromRoom(room, playerId);
+    }
+
     _leaveRoomInternal(session) {
         this._cancelDisconnectTimer(session.playerId);
         const room = this._getSessionRoom(session);
@@ -680,42 +748,20 @@ export class LobbyServer {
         if (slotIdx === -1) return;
 
         if (room.status === 'playing' && room.gameSession) {
-            const oldSlot = room.slots[slotIdx];
-            room.slots[slotIdx] = {
-                slotIndex: slotIdx,
-                type: 'ai',
-                id: oldSlot.id,
-                name: `${oldSlot.name} (AI)`,
-                color: oldSlot.color,
-                isHost: false,
-                isReady: true,
-                isMockHuman: false,
-                isConnected: true,
-                aiType: 'aggressive'
-            };
+            this._convertSlotToAi(room, slotIdx, 'aggressive');
             room.gameSession.onPlayerLeave(session.playerId);
         } else {
             room.slots[slotIdx] = createEmptySlot(slotIdx);
             this._cancelCountdownIfActive(room);
         }
 
-        const remainingHumans = room.slots.filter(s => s.type === 'human');
-        if (remainingHumans.length === 0) {
-            this._destroyRoom(room.id);
-            return;
-        }
-
-        if (room.hostId === session.playerId) {
-            const nextHost = remainingHumans.find(s => s.isConnected) || remainingHumans[0];
-            nextHost.isHost = true;
-            if (room.status === 'waiting') nextHost.isReady = true;
-            room.hostId = nextHost.id;
-        }
-
-        this._syncRoomState(room);
+        this._finalizeHumanRemovalFromRoom(room, session.playerId);
     }
 
     _canStart(room) {
+        if (!hasGameSessionSupport(room.gameId)) {
+            return { canStart: false, reason: 'GAME_IN_DEVELOPMENT' };
+        }
         const meta = getGameMeta(room.gameId);
         const minP = meta ? meta.minPlayers : 2;
         const activeSlots = room.slots.filter(s => s.type !== 'empty');
@@ -818,14 +864,26 @@ export class LobbyServer {
                 if (!initialStarted) return;
                 this._broadcastToRoom(room, payload);
             },
-            onGameFinished: () => {
+            onGameFinished: (results, matchLogData = null) => {
                 if (this.rooms.has(room.id)) {
                     room.status = 'finished';
+                    if (matchLogData && (!this.disableDiskWrite || this.logDir)) {
+                        SystemLogManager.recordGameResult(room.gameId || 'marble', matchLogData, {
+                            logDir: this.logDir
+                        }).catch((err) => {
+                            console.error('[LobbyServer] Failed to record game log:', err);
+                        });
+                    }
                     this._broadcastToRoom(room, {
                         type: 'ROOM_UPDATED',
                         room: this._serializeRoom(room)
                     });
                     this._broadcastLobbyUpdate(room.gameId);
+                }
+            },
+            onPlayerAfkKick: ({ playerId, aiType }) => {
+                if (this.rooms.has(room.id)) {
+                    this._kickPlayerForAfk(room, playerId, aiType);
                 }
             }
         });

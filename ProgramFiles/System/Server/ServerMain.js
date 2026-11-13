@@ -6,10 +6,62 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRealtimeServer } from './WebSocketServer.js';
 import { LobbyServer } from './LobbyServer.js';
+import { SystemLogManager } from '../Log/SystemLogManager.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '..', '..', '..');
+const MAX_LOG_BODY_BYTES = 512 * 1024;
+
+function readRequestBodyJson(req, maxBytes = MAX_LOG_BODY_BYTES) {
+    return new Promise((resolve, reject) => {
+        const chunks = [];
+        let total = 0;
+        let settled = false;
+
+        req.on('data', (chunk) => {
+            if (settled) return;
+            total += chunk.length;
+            if (total > maxBytes) {
+                settled = true;
+                const err = new Error('PAYLOAD_TOO_LARGE');
+                err.code = 'PAYLOAD_TOO_LARGE';
+                reject(err);
+                req.destroy();
+                return;
+            }
+            chunks.push(chunk);
+        });
+
+        req.on('end', () => {
+            if (settled) return;
+            settled = true;
+            try {
+                const raw = Buffer.concat(chunks).toString('utf8');
+                const parsed = raw ? JSON.parse(raw) : {};
+                resolve(parsed);
+            } catch {
+                const err = new Error('INVALID_JSON');
+                err.code = 'INVALID_JSON';
+                reject(err);
+            }
+        });
+
+        req.on('error', (err) => {
+            if (settled) return;
+            settled = true;
+            reject(err);
+        });
+    });
+}
+
+function sendJson(res, statusCode, payload) {
+    res.writeHead(statusCode, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store'
+    });
+    res.end(JSON.stringify(payload));
+}
 
 function getLanAddresses() {
     const interfaces = os.networkInterfaces();
@@ -25,8 +77,18 @@ function getLanAddresses() {
     return ips;
 }
 
-export async function startArenaServer({ port = Number(process.env.PORT) || 3000, host = process.env.HOST || '0.0.0.0', quiet = false } = {}) {
-    const lobby = new LobbyServer();
+export async function startArenaServer({
+    port = Number(process.env.PORT) || 3000,
+    host = process.env.HOST || '0.0.0.0',
+    quiet = false,
+    logDir = null,
+    disableDiskWrite = false
+} = {}) {
+    if (!disableDiskWrite || logDir) {
+        await SystemLogManager.initializeGameLogs('marble', { logDir }).catch(() => {});
+    }
+
+    const lobby = new LobbyServer({ logDir, disableDiskWrite });
     const server = createRealtimeServer({
         publicDir: projectRoot,
         onConnection: (client) => lobby.attachClient(client),
@@ -35,7 +97,37 @@ export async function startArenaServer({ port = Number(process.env.PORT) || 3000
             uptimeSec: Math.round(process.uptime()),
             ...lobby.getStats(),
             clientCount
-        })
+        }),
+        onHttpRequest: async (req, res, urlObj) => {
+            if (urlObj.pathname !== '/api/logs/record') {
+                return false;
+            }
+            if (req.method !== 'POST') {
+                sendJson(res, 405, { ok: false, error: 'METHOD_NOT_ALLOWED' });
+                return true;
+            }
+            try {
+                const body = await readRequestBodyJson(req, MAX_LOG_BODY_BYTES);
+                const gameId = typeof body?.gameId === 'string' && body.gameId.trim()
+                    ? body.gameId.trim()
+                    : 'marble';
+                const matchData = body?.matchData || null;
+                if (!matchData) {
+                    sendJson(res, 400, { ok: false, error: 'MISSING_MATCH_DATA' });
+                    return true;
+                }
+                if (disableDiskWrite && !logDir) {
+                    sendJson(res, 200, { ok: true, skippedDiskWrite: true, cycleCount: 0 });
+                    return true;
+                }
+                const result = await SystemLogManager.recordGameResult(gameId, matchData, { logDir });
+                sendJson(res, result.ok ? 200 : 400, result);
+            } catch (err) {
+                const status = err?.code === 'PAYLOAD_TOO_LARGE' ? 413 : (err?.code === 'INVALID_JSON' ? 400 : 500);
+                sendJson(res, status, { ok: false, error: err?.code || 'LOG_RECORD_FAILED' });
+            }
+            return true;
+        }
     });
 
     const address = await server.listen(port, host);

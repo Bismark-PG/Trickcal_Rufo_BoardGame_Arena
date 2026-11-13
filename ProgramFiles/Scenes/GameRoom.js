@@ -7,7 +7,6 @@ import { escapeHtml, showLobbyToast } from '../Lobby/LobbyUI.js';
 import { getGameMeta } from '../System/GameRegistry.js';
 import { LangState } from '../System/LanguageManager.js';
 import { LobbyLang } from '../System/Index/LobbyIndex.js';
-import { GAME_CONSTANTS } from '../System/Index/Marble/MarblePriceIndex.js';
 
 function getAiLabel(aiType, text) {
     switch (aiType) {
@@ -180,10 +179,6 @@ export function initRoom(container, sceneParams = null) {
             readyBtnBg = '#2ecc71';
         }
 
-        const customTurns = room.customOptions?.maxTurn || GAME_CONSTANTS.MAX_TURN;
-        const customMoney = room.customOptions?.initialMoney || GAME_CONSTANTS.INITIAL_MONEY;
-        const canEditOptions = !isOnline || isMyHost;
-
         container.innerHTML = `
             <div style="width: 100%; height: 100%; background: #bee8fc; padding: 38px 56px; box-sizing: border-box; display: flex; flex-direction: column;">
                 <!-- 상단 헤더 -->
@@ -235,20 +230,16 @@ export function initRoom(container, sceneParams = null) {
                     <div style="background: #165b7a; border-radius: 26px; padding: 32px; color: #fff; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 12px 26px rgba(0,0,0,0.16);">
                         <div>
                             <h2 style="margin: 0 0 20px 0; font-size: 28px; color: #f1c40f;">${escapeHtml(text.ROOM_SETTINGS_TITLE)}</h2>
-                            <div style="display: flex; flex-direction: column; gap: 16px; font-size: 20px; background: rgba(0,0,0,0.22); padding: 22px; border-radius: 16px;">
-                                <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <span>• ${escapeHtml(text.OPTION_TURNS_LABEL || '최대 턴 수')}</span>
-                                    <select id="opt-max-turn" ${!canEditOptions ? 'disabled' : ''} style="font-family: inherit; padding: 8px 14px; font-size: 18px; border-radius: 8px; border: none;">
-                                        ${[10, 15, 20, 25, 30].map(t => `<option value="${t}" ${customTurns === t ? 'selected' : ''}>${t} Turn</option>`).join('')}
-                                    </select>
-                                </div>
-                                <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <span>• ${escapeHtml(text.OPTION_MONEY_LABEL || '초기 자금')}</span>
-                                    <select id="opt-init-money" ${!canEditOptions ? 'disabled' : ''} style="font-family: inherit; padding: 8px 14px; font-size: 18px; border-radius: 8px; border: none;">
-                                        ${[1000000, 1500000, 2000000, 3000000].map(m => `<option value="${m}" ${customMoney === m ? 'selected' : ''}>${m.toLocaleString()}</option>`).join('')}
-                                    </select>
-                                </div>
-                                <div>• ${escapeHtml(text.SETTING_AI_MODE)}</div>
+                            <div style="display: flex; flex-direction: column; gap: 14px; font-size: 20px; background: rgba(0,0,0,0.22); padding: 22px; border-radius: 16px;">
+                                ${room.gameId === 'unos' ? `
+                                    <div>• ${escapeHtml(text.UNOS_SETTING_PLAYERS)}</div>
+                                    <div>• ${escapeHtml(text.UNOS_SETTING_MODE)}</div>
+                                    <div>• ${escapeHtml(text.SETTING_AI_MODE)}</div>
+                                ` : `
+                                    <div>• ${escapeHtml(text.SETTING_TURNS)}</div>
+                                    <div>• ${escapeHtml(text.SETTING_MONEY)}</div>
+                                    <div>• ${escapeHtml(text.SETTING_AI_MODE)}</div>
+                                `}
                             </div>
                             <p style="margin: 18px 0 0 0; font-size: 18px; line-height: 1.5; color: #dceefb;">
                                 ${escapeHtml(text.SETTING_CUSTOM_DESC)}
@@ -297,34 +288,21 @@ export function initRoom(container, sceneParams = null) {
             };
         }
 
-        const turnSelect = container.querySelector('#opt-max-turn');
-        const moneySelect = container.querySelector('#opt-init-money');
-        if (canEditOptions && turnSelect && moneySelect) {
-            const onOptionChange = async () => {
-                await RoomManager.updateCustomOptions({
-                    maxTurn: Number(turnSelect.value),
-                    initialMoney: Number(moneySelect.value)
-                });
-                render();
-            };
-            turnSelect.onchange = onOptionChange;
-            moneySelect.onchange = onOptionChange;
-        }
-
         container.querySelector('#btn-toggle-ready').onclick = async () => {
-            if (!isMyReady && !RoomManager.getReadinessSummary(room).hasMinPlayers) {
-                showLobbyToast(container, text.TOAST_NEED_MIN_PLAYERS);
+            let toastMsg = null;
+            if (room.gameId !== 'unos' && !isMyReady && !RoomManager.getReadinessSummary(room).hasMinPlayers) {
+                toastMsg = text.TOAST_NEED_MIN_PLAYERS;
             }
             const res = await RoomManager.toggleReady();
             if (res && res.ok === false && res.errorCode) {
-                showLobbyToast(container, text[res.errorCode] || text.TOAST_NEED_MIN_PLAYERS);
+                toastMsg = text[res.errorCode] || text.TOAST_NEED_MIN_PLAYERS;
             }
-            if (!isOnline && res?.startOfflineNow) {
-                syncLocalCountdownState();
-            } else {
-                syncLocalCountdownState();
-            }
+            syncLocalCountdownState();
             render();
+            // render()가 container.innerHTML을 다시 그리므로 토스트는 render 이후에 띄워야 유지된다.
+            if (toastMsg) {
+                showLobbyToast(container, toastMsg);
+            }
         };
 
         container.querySelectorAll('.btn-slot-add-ai').forEach(btn => {

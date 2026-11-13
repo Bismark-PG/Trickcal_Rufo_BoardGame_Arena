@@ -16,18 +16,28 @@ export class Player {
         this.bbangjuPaidTotal = 0;        // 누적 납부액 (거절 시 -1 저장)
         
         this.islandTurns = 0; this.restTurns = 0; this.hasMountainBuff = false;
+        this._trappedByVoid = false;
         
         // 대출 및 자산 상태
         this.isBankrupt = false; 
         this.loanCount = 0;      
         this.loanPrincipal = 0; 
+        this.loanInterestPrincipal = 0;
         this.loanInterest = 0;  
+        this.hasPiraCard = false;
         
         this.aiType = aiType; this.marathonSkipNext = false;
+        this.afkWarningCount = 0;         // 누적 잠수 경고 횟수 (1회 경고 후 재발 시 강제 퇴장)
+        this.consecutiveTimeouts = 0;     // 연속 무응답 턴 수 (3턴 이상 시 AI 대체 판정)
+        this.isAfkAuto = false;           // 1차 잠수 판정으로 임시 AI 자동 플레이 중인 여부
+        this.isKickedForAfk = false;      // 2차 잠수 판정으로 로비 퇴장 및 AI 전환된 여부
+        this._timedOutThisTurn = false;   // 현재 턴 내 타임아웃 발생 여부(턴당 1회 집계)
+        this._respondedThisTurn = false;  // 현재 턴 내 수동 입력 발생 여부
         this.inventory = []; this.buffs = {};
 
         // 망가진 제단 및 보물/특수 카드 시스템
         this.hasVisitedAltar = false;      // 11번(제단) 방문 여부 (이후부터 보물 등장)
+        this.altarVisitCount = 0;          // 11번(제단) 누적 방문 횟수 (2회 이상 시 차원카드 포탈 발동)
         this.treasureCards = [];           // 현재 보유 중인 보물 카드 배열
         this.firstTreasureTurn = -1;       // 보물의 저주에 가장 먼저 노출된 턴 기록용
         this.hasRufoDiceBuff = false;      // 루포 주사위
@@ -41,15 +51,21 @@ export class Player {
         this.bowExtraRollAvailable = false;// ???의 활(502) 이번 턴 주사위 추가 굴림 가능 여부
         this.timeAccelBuffPhase = 'none';  // 시간가속(110) 주사위 2회 굴림 버프가 유지되는 시간대 ('day' | 'night' | 'none')
         this.timeAccelExtraRollAvailable = false; // 시간가속(110) 이번 턴 주사위 추가 굴림 가능 여부
+        this._turnBaseRollsTaken = 0;      // 이번 턴 진행한 기본(비더블 보너스) 굴림 횟수
+        this._turnDoubleBonusUsed = false; // 이번 턴 더블 보너스 사용 여부 (턴당 최대 1회)
+        this._turnPendingDoubleBonus = false; // 이번 굴림 더블로 인한 재굴림 대기 여부
+        this._nextRollIsDoubleBonus = false;  // 다음 굴림이 더블 재굴림 보너스인지 여부
+        this._rufoToastShownThisTurn = false; // 이번 턴 루포 안내 토스트 중복 방지
         this.isReincarnated = false;       // 그을음: 윤회 상태
         this.hasKarmaState = false;        // 빛무리: 죄업 상태 (카드 강제 종료 시)
         this.hasRegretState = false;       // 빛무리: 후회 상태 (자연 종료 시)
         this.hasDreamState = false;        // 몽환살이(113) 상태
         this.hasWishState = false;         // 염원살이(114) 상태
+        this.hasFirstLapPassed = false;    // 첫 바퀴 순회 통과 여부 (선후공 보정 차등 지급용)
         this.lastMountainTurnCounted = -1; // 정령산 정상 효과 턴 중복 카운트 방지용
         this.lastDayaTurnCounted = -1;     // 다야의 궁전 보유 턴 중복 카운트 방지용
 
-        // 정산 기믹용 통계 추적기
+        // 정산 기믹 및 통계 로그용 추적기
         this.tracker = {
             theaterProfitCount: 0,
             monatium25Visits: 0,
@@ -58,8 +74,55 @@ export class Player {
             cardsDrawn: 0,
             moonHillVisits: 0,
             mountainBuffTurns: 0,
+            mountainVisits: 0,
             dayaHoldTurns: 0,
-            bbangjuUsageCount: 0
+            bbangjuUsageCount: 0,
+            lapPassCount: 0,
+            lapBonusCount: 0,
+            lapBlockedCount: 0,
+            specialTileVisits: 0,
+            cardDrawsTotal: 0,
+            activeCardsUsed: 0,
+            treasureAcquiredCount: 0,
+            treasureStolenCount: 0,
+            tollsPaidTotal: 0,
+            tollsPaidCount: 0,
+            minSingleTollPaid: null,
+            maxSingleTollPaid: 0,
+            turnStartCrisisCount: 0,
+            tollLoanCount: 0,
+            emergencyLoanCount: 0,
+            borrowedPrincipalTotal: 0,
+            minLoanAmount: null,
+            maxLoanAmount: 0,
+            loanEvents: [],
+            loanRepayCount: 0,
+            loanRepaidTotal: 0,
+            loanPrincipalRepaidTotal: 0,
+            loanInterestRepaidTotal: 0,
+            loanInterestConvertedCount: 0,
+            loanInterestConvertedTotal: 0,
+            loanFullClearedCount: 0,
+            gradeDraws: {
+                normal: 0,
+                special: 0,
+                treasure: 0
+            },
+            totalRolls: 0,
+            totalMovedSpaces: 0,
+            doublesRolled: 0,
+            doubleBonusRolls: 0,
+            rankChangeCount: 0,
+            bbangjuChiefAllowanceTotal: 0,
+            bbangjuVacantRefundTotal: 0,
+            altarTradeCount: 0,
+            altarTradeCards: 0,
+            altarTradeReward: 0,
+            voidVisitCount: 0,
+            voidTrappedCount: 0,
+            voidEscapeSuccessCount: 0,
+            voidEscapeFailCount: 0,
+            voidDamageTotal: 0
         };
     }
 
@@ -110,7 +173,7 @@ export class Player {
                     const idx = this.buffs['hold_immune'].findIndex(c => c.id === CARD_IDS.RANK_2_PRIVILEGE);
                     if (idx > -1) {
                         this.buffs['hold_immune'].splice(idx, 1);
-                        RuntimePopup.showToast(getCardUIText().CARD_DESTROYED_RANK2, 2500);
+                        RuntimePopup.showToast(`[${this.name}] ${getCardUIText().CARD_DESTROYED_RANK2}`, 3200);
                     }
                 }
             }
@@ -128,9 +191,192 @@ export class Player {
         if (recipient && actualPaid > 0) recipient.money += actualPaid;
         return actualPaid;
     }
+
+    hasPiraLoanBuff() {
+        return Boolean(
+            this.hasPiraCard ||
+            (this.buffs && Array.isArray(this.buffs['hold_pira_loan']) && this.buffs['hold_pira_loan'].length > 0)
+        );
+    }
+
+    getLoanInterestRate() {
+        if (this.hasPiraLoanBuff()) {
+            return GAME_CONSTANTS.LOAN_PIRA_INTEREST_RATE || 0.05;
+        }
+        // 일반 대출은 원금(loanPrincipal) 잔존 시에만 2.5% 이자 부과, 원금 완납 후 전환된 이자 원금(loanInterestPrincipal)은 무이자(0%)
+        if ((Number(this.loanPrincipal) || 0) > 0) {
+            return GAME_CONSTANTS.LOAN_INTEREST_RATE || 0.025;
+        }
+        return 0;
+    }
+
+    getActiveRepayPrincipal() {
+        const realPrin = Math.max(0, Math.round(Number(this.loanPrincipal) || 0));
+        if (realPrin > 0) return realPrin;
+        return Math.max(0, Math.round(Number(this.loanInterestPrincipal) || 0));
+    }
+
+    getTotalPrincipalBalance() {
+        return Math.max(
+            0,
+            Math.round((Number(this.loanPrincipal) || 0) + (Number(this.loanInterestPrincipal) || 0))
+        );
+    }
+
+    getTotalLoanDebt() {
+        return Math.max(
+            0,
+            Math.round(
+                (Number(this.loanPrincipal) || 0) +
+                (Number(this.loanInterestPrincipal) || 0) +
+                (Number(this.loanInterest) || 0)
+            )
+        );
+    }
+
+    getLoanRepayOptions() {
+        const totalDebt = this.getTotalLoanDebt();
+        if (totalDebt <= 0) return [];
+        const activePrincipal = this.getActiveRepayPrincipal();
+        const percents = GAME_CONSTANTS.LOAN_REPAY_PERCENTS || [10, 25, 50, 75, 100];
+        const opts = percents.map(pct => {
+            const amount = activePrincipal <= 0
+                ? 0
+                : (pct >= 100 ? activePrincipal : Math.max(1, Math.round((activePrincipal * pct) / 100)));
+            return {
+                mode: 'principal',
+                pct,
+                amount,
+                affordable: activePrincipal > 0 && amount > 0 && this.money >= amount
+            };
+        });
+        opts.push({
+            mode: 'all',
+            pct: 'all',
+            amount: totalDebt,
+            affordable: totalDebt > 0 && this.money >= totalDebt
+        });
+        return opts;
+    }
+
+    /**
+     * 대출 중도 상환 처리:
+     * - pct = 10/25/50/75/100: '원금(loanPrincipal, 없을 경우 전환 이자 원금 loanInterestPrincipal)'만 기준으로 상환
+     *   -> 원금을 모두 갚으면 남아 있던 이자가 새로운 원금(loanInterestPrincipal)으로 전환
+     * - pct = 'all': 현재 남아 있는 원금 + 누적 이자 전액 완납
+     */
+    repayLoanByPercent(percentOrMode) {
+        const prevPrincipal = Math.max(0, Math.round(Number(this.loanPrincipal) || 0));
+        const prevConverted = Math.max(0, Math.round(Number(this.loanInterestPrincipal) || 0));
+        const prevInterest = Math.max(0, Math.round(Number(this.loanInterest) || 0));
+        const totalDebt = prevPrincipal + prevConverted + prevInterest;
+        if (totalDebt <= 0 || this.isBankrupt) {
+            return { ok: false, paid: 0, principalPaid: 0, interestPaid: 0, convertedInterest: 0 };
+        }
+
+        if (percentOrMode === 'all') {
+            if (this.money < totalDebt) {
+                return { ok: false, paid: 0, principalPaid: 0, interestPaid: 0, convertedInterest: 0 };
+            }
+            const principalPaid = prevPrincipal + prevConverted;
+            const interestPaid = prevInterest;
+            this.money -= totalDebt;
+            this.loanPrincipal = 0;
+            this.loanInterestPrincipal = 0;
+            this.loanInterest = 0;
+            if (this.tracker) {
+                this.tracker.loanRepayCount = (this.tracker.loanRepayCount || 0) + 1;
+                this.tracker.loanRepaidTotal = (this.tracker.loanRepaidTotal || 0) + totalDebt;
+                this.tracker.loanPrincipalRepaidTotal = (this.tracker.loanPrincipalRepaidTotal || 0) + principalPaid;
+                this.tracker.loanInterestRepaidTotal = (this.tracker.loanInterestRepaidTotal || 0) + interestPaid;
+                this.tracker.loanFullClearedCount = (this.tracker.loanFullClearedCount || 0) + 1;
+            }
+            return {
+                ok: true,
+                mode: 'all',
+                pct: 'all',
+                paid: totalDebt,
+                principalPaid,
+                interestPaid,
+                convertedInterest: 0,
+                remainingPrincipal: 0,
+                remainingInterest: 0,
+                fullCleared: true
+            };
+        }
+
+        const pct = Number(percentOrMode);
+        const usingConverted = prevPrincipal <= 0 && prevConverted > 0;
+        const activeBase = usingConverted ? prevConverted : prevPrincipal;
+        const rawPay = pct >= 100 ? activeBase : Math.round((activeBase * pct) / 100);
+        const payAmount = Math.min(activeBase, Math.max(0, rawPay));
+        if (activeBase <= 0 || payAmount <= 0 || this.money < payAmount) {
+            return { ok: false, paid: 0, principalPaid: 0, interestPaid: 0, convertedInterest: 0 };
+        }
+
+        this.money -= payAmount;
+        const principalPaid = payAmount;
+        let newPrincipal = prevPrincipal;
+        let newConverted = prevConverted;
+        let newInterest = prevInterest;
+        let convertedInterest = 0;
+
+        const convMult = this.hasPiraLoanBuff() ? (GAME_CONSTANTS.LOAN_PIRA_AMOUNT_MULT || 0.5) : 1;
+        if (!usingConverted) {
+            newPrincipal = Math.max(0, prevPrincipal - payAmount);
+            if (newPrincipal === 0 && newInterest > 0) {
+                convertedInterest = Math.round(newInterest * convMult);
+                newConverted = prevConverted + convertedInterest;
+                newInterest = 0;
+            }
+        } else {
+            newConverted = Math.max(0, prevConverted - payAmount);
+            if (newConverted === 0 && newInterest > 0) {
+                convertedInterest = Math.round(newInterest * convMult);
+                newConverted = convertedInterest;
+                newInterest = 0;
+            }
+        }
+
+        this.loanPrincipal = newPrincipal;
+        this.loanInterestPrincipal = newConverted;
+        this.loanInterest = newInterest;
+
+        if (this.tracker) {
+            this.tracker.loanRepayCount = (this.tracker.loanRepayCount || 0) + 1;
+            this.tracker.loanRepaidTotal = (this.tracker.loanRepaidTotal || 0) + payAmount;
+            this.tracker.loanPrincipalRepaidTotal = (this.tracker.loanPrincipalRepaidTotal || 0) + principalPaid;
+            if (convertedInterest > 0) {
+                this.tracker.loanInterestConvertedCount = (this.tracker.loanInterestConvertedCount || 0) + 1;
+                this.tracker.loanInterestConvertedTotal = (this.tracker.loanInterestConvertedTotal || 0) + convertedInterest;
+            }
+            if (newPrincipal === 0 && newConverted === 0 && newInterest === 0) {
+                this.tracker.loanFullClearedCount = (this.tracker.loanFullClearedCount || 0) + 1;
+            }
+        }
+
+        const remainingPrincipal = newPrincipal + newConverted;
+        return {
+            ok: true,
+            mode: 'principal',
+            pct,
+            paid: payAmount,
+            principalPaid,
+            interestPaid: 0,
+            convertedInterest,
+            remainingPrincipal,
+            remainingInterest: newInterest,
+            fullCleared: remainingPrincipal === 0 && newInterest === 0
+        };
+    }
+
     processTurnInterest(globalTurn = null) {
-        // 1. 대출 이자(5%) 부과
-        if (this.loanPrincipal > 0) this.loanInterest += (this.loanPrincipal * GAME_CONSTANTS.LOAN_INTEREST_RATE);
+        // 1. 대출 이자 부과 (기본 2.5%, 피라의 대부업명함 보유 시 5%)
+        // 대출 원금이 있으면 원금 기준, 원금 완납 후 전환 이자 원금만 있으면 해당 금액 기준
+        const interestBase = this.loanPrincipal > 0 ? this.loanPrincipal : this.loanInterestPrincipal;
+        if (interestBase > 0) {
+            this.loanInterest += (interestBase * this.getLoanInterestRate());
+        }
 
         // 2. 보물 카드 매 턴 시작 효과 (왕관 +15만, 지팡이 -15만 부작용, 활 2회 굴림 초기화)
         processTreasureTurnStart(this);
@@ -190,7 +436,7 @@ export class Player {
             this.money += reviveAmount;
             this.isBankrupt = false;
             const cText = getCardUIText();
-            RuntimePopup.showToast(hasOwnedTerritory ? cText.SECOND_CHANCE_HALF_USED : cText.SECOND_CHANCE_USED, 3000);
+            RuntimePopup.showToast(`[${this.name}] ${hasOwnedTerritory ? cText.SECOND_CHANCE_HALF_USED : cText.SECOND_CHANCE_USED}`, 4000);
             return false;
         }
 

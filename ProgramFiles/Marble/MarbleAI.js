@@ -1,5 +1,5 @@
-import { GAME_CONSTANTS, BUILDING_COSTS, MULTIPLIERS } from '../System/Index/Marble/MarblePriceIndex.js';
-import { BOARD_TILES } from '../System/Index/Marble/MarbleBoardIndex.js';
+import { GAME_CONSTANTS, BUILDING_COSTS, MULTIPLIERS, resolveLapBaseBonus } from '../System/Index/Marble/MarblePriceIndex.js';
+import { BOARD_TILES, CARD_TILE_IDS } from '../System/Index/Marble/MarbleBoardIndex.js';
 import { CARD_IDS } from '../System/Index/Marble/MarbleCardIndex.js';
 import { calculateToll, applySpecialTileTollModifiers, getTileSellValue } from './MarbleLogic.js';
 import { WorldGimmickManager } from './MarbleWorldGimmick.js';
@@ -9,6 +9,7 @@ import {
     getPositiveEffectMultiplier
 } from './MarbleRequiem.js';
 import { isTreasureDebuffActive, isBowVillageForced } from './MarbleCardTreasure.js';
+import { getDrawnTreasures } from './MarbleOdyssey.js';
 
 export const AIManager = {
     // ==========================================
@@ -37,8 +38,11 @@ export const AIManager = {
         if (!player) return 0;
         if (RequiemState.isSootState && !player.isReincarnated) return 0;
         if (RequiemState.isHaloState && (player.hasKarmaState || player.hasRegretState)) return 0;
+        const idx = Math.max(0, (Number(player.playerIndex) || 1) - 1);
+        const priorLaps = Number(player.tracker?.lapPassCount) || 0;
+        const rawBase = resolveLapBaseBonus(idx, Boolean(player.hasFirstLapPassed), priorLaps);
         const hasSmuggler = player.buffs && player.buffs['hold_start_buff'] && player.buffs['hold_start_buff'].length > 0;
-        const baseBonus = hasSmuggler ? Math.round(GAME_CONSTANTS.START_BONUS * 1.5) : GAME_CONSTANTS.START_BONUS;
+        const baseBonus = hasSmuggler ? Math.round(rawBase * 1.5) : rawBase;
         return Math.round(baseBonus * getPositiveEffectMultiplier(player));
     },
 
@@ -58,9 +62,38 @@ export const AIManager = {
         return 'none';
     },
 
+    hasReincarnatedRival(player) {
+        return Boolean(
+            RequiemState.isSootState &&
+            RequiemState.reincarnatedPlayer &&
+            RequiemState.reincarnatedPlayer !== player &&
+            !RequiemState.reincarnatedPlayer.isBankrupt
+        );
+    },
+
+    isHaloBeneficiary(player) {
+        return Boolean(
+            RequiemState.isHaloState &&
+            player &&
+            !player.hasKarmaState &&
+            !player.hasRegretState
+        );
+    },
+
+    isHaloSpecialBeneficiary(player) {
+        return Boolean(
+            this.isHaloBeneficiary(player) &&
+            RequiemState.haloTriggeredByCard &&
+            (player.hasDreamState || player.hasWishState)
+        );
+    },
+
     evaluatePlayerThreat(target, tiles = []) {
         if (!target || target.isBankrupt) return -99999999;
-        let score = target.money - (target.loanPrincipal + target.loanInterest);
+        const debt = target.getTotalLoanDebt
+            ? target.getTotalLoanDebt()
+            : ((target.loanPrincipal || 0) + (target.loanInterestPrincipal || 0) + (target.loanInterest || 0));
+        let score = target.money - debt;
         tiles.forEach(t => {
             if (t.owner === target && t.type === 'normal') {
                 score += this.getTileSettlementValue(t);
@@ -116,23 +149,63 @@ export const AIManager = {
         if (player.aiType === 'aggressive') {
             baseMargin = phase === 'mid' ? 500000 : 300000;
         } else if (player.aiType === 'defensive') {
-            baseMargin = phase === 'early' ? 1200000 : (phase === 'mid' ? 1500000 : 1000000);
+            baseMargin = phase === 'early' ? 650000 : (phase === 'mid' ? 850000 : 500000);
         } else if (player.aiType === 'marathon') {
-            baseMargin = phase === 'early' ? 600000 : (phase === 'mid' ? 800000 : 500000);
+            baseMargin = phase === 'early' ? 700000 : (phase === 'mid' ? 1000000 : 600000);
         }
 
-        // [그을음] 0.5배 매입/건설 할인 기간에는 공격적/운영형 기준 완화
-        if (RequiemState.isSootState && !player.isReincarnated) {
-            baseMargin = Math.round(baseMargin * (player.aiType === 'defensive' ? 0.85 : 0.5));
+        const isSoot = RequiemState.isSootState;
+        const isHalo = RequiemState.isHaloState;
+        const hasReincarnatedRival = this.hasReincarnatedRival(player);
+
+        // [그을음] 0.5배 매입/건설 할인 기간: 비윤회자는 성향별 유보 완화(윤회 경쟁 시 약간 보수 보정), 윤회자는 권능/생존 자금 유지
+        if (isSoot) {
+            if (!player.isReincarnated) {
+                const factorMap = hasReincarnatedRival
+                    ? { aggressive: 0.55, defensive: 0.72, marathon: 0.65 }
+                    : { aggressive: 0.45, defensive: 0.58, marathon: 0.5 };
+                baseMargin = Math.round(baseMargin * (factorMap[player.aiType] || 0.6));
+            } else {
+                const bossFactorMap = { aggressive: 0.9, defensive: 1.0, marathon: 1.0 };
+                baseMargin = Math.round(baseMargin * (bossFactorMap[player.aiType] || 1.0));
+            }
+        } else if (isHalo) {
+            // [빛무리] 후회(+0.5x 피통행료), 죄업(-0.5x 수취), 정상/몽환/염원 성향별 반영
+            if (player.hasRegretState) {
+                const regretMap = { aggressive: 1.05, defensive: 1.15, marathon: 1.15 };
+                baseMargin = Math.round(baseMargin * (regretMap[player.aiType] || 1.15));
+            } else if (player.hasKarmaState) {
+                const karmaMap = { aggressive: 0.9, defensive: 1.05, marathon: 1.0 };
+                baseMargin = Math.round(baseMargin * (karmaMap[player.aiType] || 1.0));
+            } else {
+                const haloMap = this.isHaloSpecialBeneficiary(player)
+                    ? { aggressive: 0.7, defensive: 0.78, marathon: 0.75 }
+                    : { aggressive: 0.85, defensive: 0.88, marathon: 0.9 };
+                baseMargin = Math.round(baseMargin * (haloMap[player.aiType] || 0.9));
+            }
         }
 
         // 전방 위험 통행료 보정 (18턴 이후 막판 올인 제외)
         if (tiles && tiles.length >= 40 && globalTurn <= 17) {
             const { maxToll } = this.evaluateDangerAhead(player, tiles, 2, 12);
             if (player.aiType === 'defensive' && maxToll > baseMargin) {
-                baseMargin = Math.min(2000000, Math.round(maxToll * 0.8));
+                if (isSoot && !player.isReincarnated) {
+                    const cap = hasReincarnatedRival ? 1350000 : 1000000;
+                    const mult = hasReincarnatedRival ? 0.62 : 0.45;
+                    baseMargin = Math.min(cap, Math.max(baseMargin, Math.round(maxToll * mult)));
+                } else {
+                    const cap = player.hasRegretState ? 1450000 : 1250000;
+                    const mult = player.hasRegretState ? 0.65 : 0.55;
+                    baseMargin = Math.min(cap, Math.max(baseMargin, Math.round(maxToll * mult)));
+                }
             } else if (player.aiType === 'marathon' && maxToll > baseMargin) {
-                baseMargin = Math.min(1200000, Math.round(maxToll * 0.5));
+                if (isSoot && !player.isReincarnated) {
+                    const cap = hasReincarnatedRival ? 1500000 : 1100000;
+                    const mult = hasReincarnatedRival ? 0.65 : 0.5;
+                    baseMargin = Math.min(cap, Math.max(baseMargin, Math.round(maxToll * mult)));
+                } else {
+                    baseMargin = Math.min(1400000, Math.max(baseMargin, Math.round(maxToll * 0.65)));
+                }
             }
         }
 
@@ -174,7 +247,7 @@ export const AIManager = {
 
         const cheapest = sellables[0];
         if (player.aiType === 'defensive') {
-            if (globalTurn <= 15 && cheapest.level <= 1 && cheapest.side <= 1) {
+            if (cheapest.level === 0 && !cheapest.isSpecialToll && (globalTurn <= 15 || getTileSellValue(cheapest) > emergencyLoanAmount)) {
                 return { action: 'sell', tiles: [cheapest] };
             }
             if (canLoan) return { action: 'loan', tiles: [] };
@@ -212,10 +285,9 @@ export const AIManager = {
             return { action: 'loan', tiles: [] };
         }
 
-        const allLowTier = picked.every(t => t.level <= 1 && !t.isSpecialToll);
         const allEmpty = picked.every(t => t.level === 0 && !t.isSpecialToll);
 
-        if (player.aiType === 'defensive' && allLowTier) {
+        if (player.aiType === 'defensive' && allEmpty) {
             return { action: 'sell', tiles: picked };
         }
         if (player.aiType === 'marathon' && allEmpty) {
@@ -226,6 +298,55 @@ export const AIManager = {
         }
 
         return { action: 'loan', tiles: [] };
+    },
+
+    decideTurnLoanRepay(player, tiles = [], globalTurn = 1) {
+        if (!player || player.isBankrupt) return 0;
+        const totalDebt = player.getTotalLoanDebt ? player.getTotalLoanDebt() : Math.round((player.loanPrincipal || 0) + (player.loanInterest || 0));
+        if (totalDebt <= 0) return 0;
+        // 무이자(0%) 전환 원금만 남은 경우에는 추가 이자가 발생하지 않으므로 유동성 보존을 위해 중도 상환 보류
+        const currentRate = player.getLoanInterestRate ? player.getLoanInterestRate() : GAME_CONSTANTS.LOAN_INTEREST_RATE;
+        if (currentRate <= 0) return 0;
+
+        const remainingTurns = Math.max(0, GAME_CONSTANTS.MAX_TURN - (Number(globalTurn) || 1));
+        if (remainingTurns <= 0) return 0; // 마지막 턴에는 다음 턴 이자 발생이 없으므로 현금 유동성 유지
+
+        const baseReserveMap = {
+            defensive: remainingTurns >= 8 ? 600000 : (remainingTurns >= 3 ? 380000 : 200000),
+            marathon: remainingTurns >= 8 ? 1050000 : (remainingTurns >= 3 ? 650000 : 300000),
+            aggressive: remainingTurns >= 8 ? 1300000 : (remainingTurns >= 3 ? 850000 : 350000)
+        };
+        let cashReserve = baseReserveMap[player.aiType] ?? 900000;
+        if (RequiemState.isSootState && player.isReincarnated) {
+            cashReserve = Math.max(cashReserve, 700000);
+        }
+
+        const availableExcess = player.money - cashReserve;
+        if (availableExcess <= 0) return 0;
+
+        // 잔여 턴이 3턴 이상이거나 원금 2.5% 부담이 클수록 적극 상환 (최고 가능 비율 선택)
+        const minTurnsWorth = player.aiType === 'defensive' ? 3 : (player.aiType === 'marathon' ? 3 : 4);
+        if (remainingTurns < minTurnsWorth && player.money < totalDebt + cashReserve) {
+            return 0;
+        }
+
+        const options = player.getLoanRepayOptions
+            ? player.getLoanRepayOptions()
+            : (GAME_CONSTANTS.LOAN_REPAY_PERCENTS || [10, 25, 50, 75, 100]).map(pct => ({
+                mode: 'principal',
+                pct,
+                amount: pct >= 100 ? totalDebt : Math.max(1, Math.round((totalDebt * pct) / 100)),
+                affordable: totalDebt > 0 && player.money >= (pct >= 100 ? totalDebt : Math.max(1, Math.round((totalDebt * pct) / 100)))
+            }));
+
+        const weight = (pct) => (pct === 'all' ? 200 : Number(pct) || 0);
+        const descending = [...options].sort((a, b) => weight(b.pct) - weight(a.pct));
+        for (const opt of descending) {
+            if (opt.affordable !== false && opt.amount > 0 && opt.amount <= availableExcess) {
+                return opt.pct;
+            }
+        }
+        return 0;
     },
 
     // ==========================================
@@ -257,14 +378,21 @@ export const AIManager = {
             return raw;
         };
 
+        const isSootDiscount = RequiemState.isSootState && !player.isReincarnated;
+        const hasReincarnatedRival = this.hasReincarnatedRival(player);
+        const isHaloBenefit = this.isHaloBeneficiary(player);
+
         if (player.aiType === 'aggressive') {
-            const highValueSpot = tile.isSpecialToll || tile.side >= 2 || RequiemState.isSootState || globalTurn >= 14;
-            const effMargin = highValueSpot ? Math.min(safetyMargin, 200000) : safetyMargin;
+            const isHaloKarmaEarly = RequiemState.isHaloState && player.hasKarmaState && globalTurn < 16 && !tile.isSpecialToll && tile.side < 2;
+            const highValueSpot = !isHaloKarmaEarly && (tile.isSpecialToll || tile.side >= 2 || isSootDiscount || isHaloBenefit || globalTurn >= 14);
+            const sootCap = isSootDiscount ? (hasReincarnatedRival ? 220000 : 150000) : 200000;
+            const effMargin = highValueSpot ? Math.min(safetyMargin, sootCap) : safetyMargin;
+            const side0StatueCushion = isSootDiscount ? 600000 : 1200000;
 
             for (let lvl = maxAllowedLvl; lvl >= minLvl; lvl--) {
                 if (tile.level >= lvl) continue;
-                // 1열 일반 땅은 자금이 아주 넉넉하지 않으면 조각상(100만) 과투자 억제
-                if (lvl === 4 && tile.side === 0 && !tile.isSpecialToll && currentMoney < getEffCost(lvl) + 1200000) {
+                // 1열 일반 땅은 자금이 아주 넉넉하지 않으면 조각상(100만, 그을음 시 50만) 과투자 억제
+                if (lvl === 4 && tile.side === 0 && !tile.isSpecialToll && currentMoney < getEffCost(lvl) + side0StatueCushion) {
                     continue;
                 }
                 const cost = getEffCost(lvl);
@@ -276,12 +404,18 @@ export const AIManager = {
         }
 
         if (player.aiType === 'defensive') {
-            const reqReserve = tile.level >= 2 ? (safetyMargin + 400000) : safetyMargin;
-            const maxWantedLvl = maxAllowedLvl;
-            for (let lvl = maxWantedLvl; lvl >= minLvl; lvl--) {
+            const upcomingTime = this.getUpcomingTimePhase(globalTurn);
+            const isTimeMatch = upcomingTime !== 'none' && tile.timeType === upcomingTime;
+            const isPriorityTile = isSootDiscount || tile.isSpecialToll || tile.side >= 2 || tile.level >= 2 || isTimeMatch || isHaloBenefit;
+            let marginMult = isPriorityTile ? 0.72 : 0.90;
+            if (isSootDiscount) marginMult = hasReincarnatedRival ? 0.72 : 0.55;
+            else if (globalTurn >= 14 && tile.level >= 2) marginMult = 0.60;
+            const baseReserve = Math.round(safetyMargin * marginMult);
+
+            for (let lvl = maxAllowedLvl; lvl >= minLvl; lvl--) {
                 if (tile.level >= lvl) continue;
                 const cost = getEffCost(lvl);
-                if (currentMoney - cost >= reqReserve) {
+                if (currentMoney - cost >= baseReserve) {
                     return lvl;
                 }
             }
@@ -291,11 +425,15 @@ export const AIManager = {
         if (player.aiType === 'marathon') {
             const upcomingTime = this.getUpcomingTimePhase(globalTurn);
             const isTimeMatch = upcomingTime !== 'none' && tile.timeType === upcomingTime;
-            const isPriorityTile = tile.isSpecialToll || isTimeMatch || tile.level >= 2 || tile.side >= 2;
-            const effMargin = isPriorityTile ? Math.round(safetyMargin * 0.7) : safetyMargin;
+            const isHaloTarget = isHaloBenefit && (tile.level >= 1 || tile.side >= 1 || tile.isSpecialToll);
+            const isKarmaSettlementTarget = RequiemState.isHaloState && player.hasKarmaState && (tile.level >= 2 || tile.side >= 2);
+            const isPriorityTile = isSootDiscount || tile.isSpecialToll || isTimeMatch || tile.level >= 2 || tile.side >= 2 || isHaloTarget || isKarmaSettlementTarget;
+            let marginMult = isPriorityTile ? 0.85 : 1.0;
+            if (isSootDiscount) marginMult = hasReincarnatedRival ? 0.82 : 0.65;
+            const effMargin = Math.round(safetyMargin * marginMult);
 
-            // 이미 건물(Lv.2~3)이 있거나 고가치 구역이면 최고 허용 단계까지 적극 증축
-            if (tile.level >= 2 || tile.isSpecialToll || tile.side >= 2) {
+            // 이미 건물(Lv.2~3)이 있거나 고가치 구역·그을음 0.5배 할인 구간이면 최고 허용 단계까지 적극 증축
+            if (isSootDiscount || tile.level >= 2 || tile.isSpecialToll || tile.side >= 2) {
                 for (let lvl = maxAllowedLvl; lvl >= minLvl; lvl--) {
                     if (tile.level >= lvl) continue;
                     if (currentMoney - getEffCost(lvl) >= effMargin) return lvl;
@@ -325,11 +463,10 @@ export const AIManager = {
 
         if (tile.id === BOARD_TILES.THEATER) {
             if (!tile.owner && globalTurn <= 18) {
-                const reqReserve = type === 'defensive' ? 600000 : 250000;
-                return money - GAME_CONSTANTS.THEATER_BUY >= reqReserve ? 'buy' : 'skip';
+                return money - GAME_CONSTANTS.THEATER_BUY >= 250000 ? 'buy' : 'skip';
             }
             if (tile.owner && tile.owner !== player && globalTurn <= 17) {
-                const reqReserve = type === 'defensive' ? margin : Math.round(margin * 0.4);
+                const reqReserve = type === 'defensive' ? Math.round(margin * 0.50) : Math.round(margin * 0.4);
                 return money - GAME_CONSTANTS.THEATER_TAKE >= reqReserve ? 'takeover' : 'skip';
             }
             return 'skip';
@@ -343,8 +480,8 @@ export const AIManager = {
                 const expCost = tile.level === 0 ? GAME_CONSTANTS.MONATIUM_EXPAND_1 : GAME_CONSTANTS.MONATIUM_EXPAND_2;
                 const turnLimit = tile.level === 0 ? 15 : 13;
                 if (globalTurn > turnLimit) return 'skip';
-                if (tile.level === 1 && type === 'defensive' && money < 2800000) return 'skip';
-                const reqReserve = type === 'defensive' ? margin : Math.round(margin * 0.65);
+                if (tile.level === 1 && type === 'defensive' && money < 1100000) return 'skip';
+                const reqReserve = type === 'defensive' ? Math.round(margin * 0.60) : Math.round(margin * 0.65);
                 return money - expCost >= reqReserve ? 'expand' : 'skip';
             }
             return 'skip';
@@ -352,7 +489,7 @@ export const AIManager = {
 
         if (tile.id === BOARD_TILES.LAKE) {
             if (!tile.owner && globalTurn <= 16) {
-                const mult = type === 'defensive' ? 0.9 : 0.5;
+                const mult = type === 'defensive' ? 0.55 : 0.5;
                 return money - GAME_CONSTANTS.LAKE_BUY >= Math.round(margin * mult) ? 'buy' : 'skip';
             }
             return 'skip';
@@ -360,14 +497,14 @@ export const AIManager = {
 
         if (tile.id === BOARD_TILES.LIBRARY) {
             if (!tile.owner && globalTurn <= 16) {
-                const mult = type === 'defensive' ? 1.0 : (type === 'marathon' ? 0.35 : 0.5);
+                const mult = type === 'marathon' ? 0.35 : 0.5;
                 return money - GAME_CONSTANTS.LIBRARY_BUY >= Math.round(margin * mult) ? 'buy' : 'skip';
             }
             if (tile.owner && tile.owner !== player && mode === 'ability' && !player.hasLibraryBuff) {
                 if (player.inventory && player.inventory.some(c => c.id === CARD_IDS.LIBRARY_ASSIST)) {
                     return 'use_assist';
                 }
-                if (globalTurn <= 15 && type !== 'defensive') {
+                if (globalTurn <= 15) {
                     const toll = applySpecialTileTollModifiers(GAME_CONSTANTS.TOLL_LIBRARY, tile, player);
                     if (money - toll >= 1000000) return 'buy_ability';
                 }
@@ -377,14 +514,14 @@ export const AIManager = {
 
         if (tile.id === BOARD_TILES.DAYA) {
             if (!tile.owner && globalTurn <= 18) {
-                if (type === 'defensive' && this.hasTileImmunity(player, BOARD_TILES.DAYA) && money < 2500000) {
+                if (type === 'defensive' && this.hasTileImmunity(player, BOARD_TILES.DAYA) && money < 1100000) {
                     return 'skip';
                 }
-                const reqReserve = type === 'defensive' ? 1000000 : 300000;
+                const reqReserve = type === 'defensive' ? 350000 : 300000;
                 return money - GAME_CONSTANTS.DAYA_BUY >= reqReserve ? 'buy' : 'skip';
             }
             if (tile.owner && tile.owner !== player && mode === 'takeover' && globalTurn <= 15) {
-                const reqReserve = type === 'defensive' ? 1300000 : Math.round(margin * 0.5);
+                const reqReserve = type === 'defensive' ? Math.round(margin * 0.60) : Math.round(margin * 0.5);
                 return money - GAME_CONSTANTS.DAYA_TAKE >= reqReserve ? 'takeover' : 'skip';
             }
             return 'skip';
@@ -435,7 +572,10 @@ export const AIManager = {
             if (player.hasVipShield || (player.inventory && player.inventory.some(c => c.id === CARD_IDS.VIP_CARD))) {
                 return toll >= 400000 ? -80000 : -200000; // 소액 땅에 VIP 낭비 회피
             }
-            const riskMult = type === 'defensive' ? 1.5 : 1.1;
+            let riskMult = type === 'defensive' ? 1.18 : 1.1;
+            if (type === 'defensive' && tile.owner.isReincarnated) riskMult = 1.28;
+            else if (type === 'defensive' && this.isHaloSpecialBeneficiary(tile.owner)) riskMult = 1.28;
+            else if (type === 'defensive' && player.hasRegretState) riskMult = 1.25;
             let penalty = -Math.round(toll * riskMult);
             if (money < toll) penalty -= 2000000;
             return penalty;
@@ -443,15 +583,21 @@ export const AIManager = {
 
         // 2. 본인 소유 타일 도착 시
         if (tile.owner === player) {
+            const isSootDiscount = RequiemState.isSootState && !player.isReincarnated;
+            const isHaloBenefit = this.isHaloBeneficiary(player);
             if (tile.type === 'normal' && tile.level < 4) {
                 const nextLvl = tile.level < 2 ? 2 : tile.level + 1;
-                const upgCost = tile.level === 0
+                const rawUpgCost = tile.level === 0
                     ? BUILDING_COSTS[tile.side][nextLvl - 1]
                     : (nextLvl === 4 ? BUILDING_COSTS[tile.side][3] : BUILDING_COSTS[tile.side][nextLvl - 1] * 0.5);
+                const upgCost = isSootDiscount ? Math.round(rawUpgCost * 0.5) : rawUpgCost;
                 if (money >= upgCost + margin * 0.5) {
                     let bonus = 260000 + tile.side * 60000;
                     if (tile.isSpecialToll) bonus += 200000;
                     if (upcomingTime !== 'none' && tile.timeType === upcomingTime) bonus += 150000;
+                    if (isSootDiscount) bonus += 180000;
+                    if (isHaloBenefit) bonus += this.isHaloSpecialBeneficiary(player) ? 120000 : 60000;
+                    if (RequiemState.isHaloState && player.hasKarmaState && globalTurn < 16) bonus -= 40000;
                     return bonus;
                 }
             }
@@ -464,21 +610,25 @@ export const AIManager = {
 
         // 3. 미소유 구매 가능 타일
         if (tile.type === 'normal') {
-            const minCost = isBowVillageForced(player)
+            const isSootDiscount = RequiemState.isSootState && !player.isReincarnated;
+            const rawMinCost = isBowVillageForced(player)
                 ? tile.basePrice + BUILDING_COSTS[tile.side][1]
                 : tile.basePrice;
+            const minCost = isSootDiscount ? Math.round(rawMinCost * 0.5) : rawMinCost;
             if (money >= minCost + margin * 0.4) {
                 let score = 200000 + tile.side * 80000;
                 if (tile.isSpecialToll) score += 350000;
                 if (upcomingTime !== 'none' && tile.timeType === upcomingTime) score += 120000;
-                if (RequiemState.isSootState && !player.isReincarnated) score += 220000;
+                if (isSootDiscount) {
+                    score += this.hasReincarnatedRival(player) ? 200000 : 260000;
+                }
                 return score;
             }
             return 10000;
         }
 
         if (tile.id === BOARD_TILES.DAYA && globalTurn <= 18 && money >= GAME_CONSTANTS.DAYA_BUY + 300000) {
-            return type === 'defensive' ? 500000 : 950000;
+            return type === 'defensive' ? 800000 : 950000;
         }
         if (tile.id === BOARD_TILES.THEATER && globalTurn <= 18 && money >= GAME_CONSTANTS.THEATER_BUY + 250000) {
             return 550000;
@@ -510,6 +660,9 @@ export const AIManager = {
         }
         if (tile.id === BOARD_TILES.ALTAR) {
             if (!player.hasVisitedAltar && !RequiemState.hasSootEverTriggered) return 480000;
+            if ((player.altarVisitCount || 0) >= 1 && !RequiemState.hasSootEverTriggered && !RequiemState.isSootState && getDrawnTreasures().size < 6) {
+                return 550000;
+            }
             if (player.treasureCards && player.treasureCards.length > 0 && this.decideAltarTrade(player, allPlayers, globalTurn)) {
                 return 350000;
             }
@@ -533,7 +686,19 @@ export const AIManager = {
             return -500000;
         }
         if (tile.type === 'card') {
-            if (RequiemState.isSootState && !player.isReincarnated) return 600000; // 심판/염원 탐색
+            if (RequiemState.isSootState && !player.isReincarnated) {
+                if (this.hasReincarnatedRival(player)) {
+                    if (type === 'aggressive') return 850000;
+                    if (type === 'marathon') return 750000;
+                    return 650000;
+                }
+                return 480000; // 분기 1(윤회 공석): 0.5배 건설과 균형 평가
+            }
+            if (this.isHaloBeneficiary(player)) {
+                return (this.isHaloSpecialBeneficiary(player) || player.hasLibraryBuff || tiles[BOARD_TILES.LIBRARY]?.owner === player)
+                    ? 600000
+                    : 520000;
+            }
             if (player.hasLibraryBuff || tiles[BOARD_TILES.LIBRARY]?.owner === player) return 450000;
             return 280000;
         }
@@ -629,15 +794,15 @@ export const AIManager = {
     // 6. 보드 특수 기믹 의사결정 (빵주 / 호수 / 정령산 / 제단 / 셰이디 / 윤회)
     // ==========================================
     decideBbangjuSupport(player) {
-        if (player.aiType === 'marathon') return Math.random() < 0.75;
+        if (player.aiType === 'marathon') return player.money >= 3800000 && Math.random() < 0.60;
         if (player.aiType === 'aggressive') return Math.random() < 0.50;
-        return false;
+        return player.money >= 5100000 && Math.random() < 0.30;
     },
 
     decideBbangjuTakeover(player, reqCost) {
         if (player.money < reqCost) return false;
         if (player.aiType === 'defensive') {
-            return reqCost < 2000000 && (player.money - reqCost) >= 1500000;
+            return reqCost <= 2000000 && (player.money - reqCost) >= 700000;
         }
         return (player.money - reqCost) >= 600000;
     },
@@ -664,17 +829,26 @@ export const AIManager = {
         }
 
         if (player.aiType === 'defensive') {
-            if (globalTurn <= 12 && !RequiemState.isSootState && !player.hasRegretState && player.money >= rollFee + 1600000) {
+            if (globalTurn <= 15 && !player.hasRegretState && !player.hasKarmaState && player.money >= rollFee + 650000) {
                 return { action: 'roll', target: null };
             }
             return { action: 'rest', target: null };
         }
 
         // 운영형
-        if (globalTurn <= 15 && player.money >= rollFee + 500000) {
+        if (globalTurn <= 15 && !player.hasRegretState && player.money >= rollFee + 500000) {
             return { action: 'roll', target: null };
         }
         return { action: 'rest', target: null };
+    },
+
+    decideLakeManualFurryOpen(player, allPlayers = [], globalTurn = 1) {
+        if (!player || player.isBankrupt || globalTurn > 17) return false;
+        const margin = this.getSafetyMargin(player, globalTurn);
+        const minRemain = player.aiType === 'aggressive'
+            ? Math.max(300000, Math.round(margin * 0.6))
+            : Math.max(500000, Math.round(margin * 0.75));
+        return (player.money - GAME_CONSTANTS.FURRY_MANUAL_OPEN_FEE) >= minRemain;
     },
 
     decideMountainBuy(player, allPlayers = [], tiles = [], globalTurn = 1) {
@@ -682,14 +856,16 @@ export const AIManager = {
         const ownedNormal = tiles.filter(t => t.owner === player && t.type === 'normal');
 
         if (player.aiType === 'marathon') {
-            return player.money >= GAME_CONSTANTS.MOUNTAIN_FEE + 450000;
+            const hasBase = ownedNormal.length >= 2 || ownedNormal.some(t => t.level >= 2 || t.isSpecialToll);
+            return hasBase && player.money >= GAME_CONSTANTS.MOUNTAIN_FEE + 750000;
         }
         if (player.aiType === 'aggressive') {
             const hasGoodLand = ownedNormal.length >= 2 || ownedNormal.some(t => t.level >= 2 || t.isSpecialToll);
             return hasGoodLand && player.money >= GAME_CONSTANTS.MOUNTAIN_FEE + 350000;
         }
         if (player.aiType === 'defensive') {
-            return ownedNormal.length >= 3 && player.money >= 1800000;
+            const hasBase = ownedNormal.length >= 2 || ownedNormal.some(t => t.level >= 2 || t.isSpecialToll);
+            return hasBase && player.money >= GAME_CONSTANTS.MOUNTAIN_FEE + 550000;
         }
         return false;
     },
@@ -708,8 +884,13 @@ export const AIManager = {
         }
 
         if (player.aiType === 'defensive') {
-            if (myCount >= 3 && maxOtherCount < 2) return false; // 본인이 압도적 1위면 유지
-            return true;
+            const allJunk = player.treasureCards.every(tc =>
+                (tc.maxUses > 0 && tc.remainingUses === 0 && isTreasureDebuffActive(player, tc.id))
+            );
+            if (allJunk || player.money < 600000) return true;
+            if (myCount >= 3 && maxOtherCount < 3) return false;
+            if (myCount >= 2 && maxOtherCount <= myCount) return false;
+            return maxOtherCount >= 2 || myCount < maxOtherCount;
         }
 
         // 운영형: 횟수가 다 닳고 부작용만 남은 카드 위주이거나 자금 극심한 위기 시 교환
@@ -738,17 +919,20 @@ export const AIManager = {
     decideReincarnationSkill(player, tiles = []) {
         const enemyOwned = tiles.filter(t => t.type === 'normal' && t.owner && t.owner !== player);
         if (enemyOwned.length === 0 || player.money <= 0) return false;
-        const cost = Math.floor(player.money * 0.25);
+        const cost = Math.floor(player.money * GAME_CONSTANTS.REINCARNATION_SKILL_COST_RATE);
         const remain = player.money - cost;
-        const hasHighValue = enemyOwned.some(t => t.level >= 2 || t.isSpecialToll);
+        const lv2PlusCount = enemyOwned.filter(t => t.level >= 2).length;
+        const lv2PlusRatio = lv2PlusCount / enemyOwned.length;
+        const hasSpecial = enemyOwned.some(t => t.level >= 3 || t.isSpecialToll);
 
         if (player.aiType === 'aggressive') {
-            return remain >= 200000 && (hasHighValue || cost <= 600000);
+            return remain >= 150000 && (lv2PlusRatio >= 0.50 || (enemyOwned.length >= 2 && (lv2PlusCount >= 2 || hasSpecial)) || cost <= 600000);
         }
         if (player.aiType === 'defensive') {
-            return remain >= 1000000 && hasHighValue;
+            return remain >= 300000 && (lv2PlusRatio >= 0.50 || (lv2PlusCount >= 2 && hasSpecial));
         }
-        return remain >= 500000 && hasHighValue;
+        // marathon (운영형)
+        return remain >= 350000 && lv2PlusRatio >= 0.50 && (enemyOwned.length >= 2 || hasSpecial);
     },
 
     // ==========================================
@@ -757,11 +941,14 @@ export const AIManager = {
     decideLibraryCardChoice(player, cards, ctx) {
         if (!cards || cards.length === 0) return null;
         const tiles = ctx.tiles || [];
-        const allPlayers = ctx.allPlayers || [];
+        const hasReincarnatedRival = this.hasReincarnatedRival(player);
+        const isHaloBenefit = this.isHaloBeneficiary(player);
 
         const scoreCard = (c) => {
             if (c.id >= 500) return 2000;
-            if (RequiemState.isSootState && !player.isReincarnated && (c.id === CARD_IDS.SPEC_JUDGMENT || c.id === CARD_IDS.SPEC_CULT_WISH)) return 1900;
+            if (RequiemState.isSootState && !player.isReincarnated && (c.id === CARD_IDS.SPEC_JUDGMENT || c.id === CARD_IDS.SPEC_CULT_WISH)) {
+                return hasReincarnatedRival ? 1950 : 1850;
+            }
             if (c.id === CARD_IDS.SPEC_ODYSSEY) return 1750;
             if (c.id === CARD_IDS.SPEC_TAKE_DAYA) return 1550;
             if (c.id === CARD_IDS.SPEC_WOLF_STEAL) return 1350;
@@ -770,13 +957,15 @@ export const AIManager = {
             if (c.id === CARD_IDS.SPEC_SMUGGLER_BADGE || c.id === CARD_IDS.SPEC_MOON_FLOWER || c.id === CARD_IDS.SPEC_ORIGIN_ELIF) return 1050;
             if (c.id === CARD_IDS.HONOR_CITIZEN_SUPPORT) {
                 const cnt = tiles.filter(t => t.owner === player && t.type === 'normal').length;
-                return cnt >= 5 ? 1250 : 450;
+                return (cnt >= 5 ? 1250 : 450) + (isHaloBenefit ? 250 : 0);
             }
             if (c.id === CARD_IDS.HOMELESS_SUPPORT) {
                 const cnt = tiles.filter(t => t.owner === player && t.type === 'normal').length;
-                return cnt <= 3 ? 1250 : 450;
+                return (cnt <= 3 ? 1250 : 450) + (isHaloBenefit ? 250 : 0);
             }
-            if (c.id === CARD_IDS.PRAISE_FOR_YOU || c.id === CARD_IDS.FESTIVAL || c.id === CARD_IDS.GOLDIE_LOTTERY) return 950;
+            if (c.id === CARD_IDS.PRAISE_FOR_YOU || c.id === CARD_IDS.FESTIVAL || c.id === CARD_IDS.GOLDIE_LOTTERY) {
+                return 950 + (isHaloBenefit ? 250 : 0);
+            }
             if (c.id === CARD_IDS.MAYO_DEAL || c.id === CARD_IDS.LANDMARK_CONTRACT || c.id === CARD_IDS.UPGRADE_CONTRACT || c.id === CARD_IDS.BUILD_CONTRACT) return 900;
             if (c.id === CARD_IDS.SIST_DEAL) return player.money >= 1500000 ? 600 : -300;
             if (c.id === CARD_IDS.TAX_LAND || c.id === CARD_IDS.TAX_BUILD || c.id === CARD_IDS.CREPE_CLEANING || c.id === CARD_IDS.RIOT || c.id === CARD_IDS.MOVE_VOLCANICA || c.id === CARD_IDS.MOVE_VOID) return -400;
@@ -817,7 +1006,7 @@ export const AIManager = {
         const candidates = tiles.filter(t => t.owner && t.owner !== player && !t.owner.isBankrupt && t.type === 'normal' && t.level < 4);
         if (candidates.length === 0) return null;
         const margin = this.getSafetyMargin(player, globalTurn, tiles);
-        const reqReserve = player.aiType === 'defensive' ? 1200000 : Math.round(margin * 0.5);
+        const reqReserve = player.aiType === 'defensive' ? Math.round(margin * 0.60) : Math.round(margin * 0.5);
 
         const scored = candidates.map(t => {
             const cost = t.basePrice + Math.round(calculateToll(t, player) * 1.5);
@@ -909,7 +1098,7 @@ export const AIManager = {
             const escapeCard = inv.find(c => c.id === CARD_IDS.NER_ESCAPE);
             if (escapeCard) {
                 if (globalTurn <= 15) return escapeCard;
-                if (player.aiType !== 'defensive' && danger.maxToll < 1200000) return escapeCard;
+                if (danger.maxToll < (player.aiType === 'defensive' ? Math.max(1000000, player.money * 0.45) : 1200000)) return escapeCard;
             }
             // 볼케니카 수감 중에도 사용 가능한 견제/건설 카드만 제한적으로 판단
             const landmarkOnly = inv.find(c => c.id === CARD_IDS.LANDMARK_CONTRACT);
@@ -954,9 +1143,12 @@ export const AIManager = {
             }
         }
 
-        // 5. [45: 마요의 암거래]
+        // 5. [45: 마요의 암거래] (후회·죄업 방어형과 그을음 0.5배 구간에서는 과지출 억제)
         const mayoCard = inv.find(c => c.id === CARD_IDS.MAYO_DEAL);
-        if (mayoCard && (player.aiType !== 'defensive' || player.money >= 2500000)) {
+        const allowMayo = player.aiType !== 'defensive'
+            ? !(RequiemState.isSootState && !player.isReincarnated && !this.hasReincarnatedRival(player))
+            : (player.money >= 1300000 && !player.hasRegretState);
+        if (mayoCard && allowMayo) {
             if (this.selectMayoTarget(player, tiles, allPlayers, globalTurn)) {
                 return mayoCard;
             }
@@ -967,8 +1159,8 @@ export const AIManager = {
         if (mariCard) {
             const targetEnemy = this.selectMariTargetPlayer(player, tiles, allPlayers);
             if (targetEnemy) {
-                const hasLv2Plus = tiles.some(t => t.owner === targetEnemy && t.level >= 2);
-                if (player.aiType !== 'defensive' || hasLv2Plus || globalTurn >= 12) {
+                const hasHighThreat = tiles.some(t => t.owner === targetEnemy && (t.level >= 2 || t.isSpecialToll));
+                if (player.aiType !== 'defensive' || hasHighThreat || globalTurn >= 10) {
                     return mariCard;
                 }
             }
@@ -1003,7 +1195,8 @@ export const AIManager = {
             if (player.pos + bestStep >= 40) bestScore += this.getExpectedStartBonus(player);
 
             const dangerNear = this.evaluateDangerAhead(player, tiles, 2, 7);
-            if (bestScore >= 350000 || (dangerNear.maxToll >= 500000 && bestScore > -100000)) {
+            const evadeTollThreshold = (this.hasReincarnatedRival(player) || player.hasRegretState) ? 350000 : 500000;
+            if (bestScore >= 350000 || (dangerNear.maxToll >= evadeTollThreshold && bestScore > -100000)) {
                 return shroudCard;
             }
         }
@@ -1012,7 +1205,8 @@ export const AIManager = {
         const rufoCard = inv.find(c => c.id === CARD_IDS.RUFO_DICE);
         if (rufoCard && !player.hasRufoDiceBuff) {
             const dangerNear = this.evaluateDangerAhead(player, tiles, 2, 7);
-            if (dangerNear.dangerCount >= 1 && dangerNear.maxToll >= 400000) {
+            const rufoTollThreshold = (this.hasReincarnatedRival(player) || player.hasRegretState) ? 320000 : 400000;
+            if (dangerNear.dangerCount >= 1 && dangerNear.maxToll >= rufoTollThreshold) {
                 return rufoCard;
             }
             const farBestStep = this.decideRelativeMoveCard(player, [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18], tiles, allPlayers, globalTurn);
@@ -1030,5 +1224,99 @@ export const AIManager = {
         }
 
         return null;
+    },
+
+    // ==========================================
+    // 9. 망가진 제단 2회차+ 방문 시 차원열쇠카드 칸 선택
+    // ==========================================
+    decideAltarCardPortal(player, tiles, allPlayers = [], globalTurn = 1) {
+        const startBonus = this.getExpectedStartBonus(player);
+        let bestId = CARD_TILE_IDS[0];
+        let bestScore = -Infinity;
+
+        const prevPos = player.pos;
+        for (const tid of CARD_TILE_IDS) {
+            const tile = tiles[tid];
+            if (!tile) continue;
+            let score = this.scoreLandingTile(player, tile, tiles, allPlayers, globalTurn);
+            if ((tid < prevPos || tid === BOARD_TILES.START) && tid !== prevPos) {
+                score += startBonus;
+            }
+            // 착지 후 전방 2~7칸 고위험 통행료 구간을 약간 반영해 안정적인 차원카드 칸 우선
+            let nextThreat;
+            try {
+                player.pos = tid;
+                nextThreat = this.evaluateDangerAhead(player, tiles, 2, 7);
+            } finally {
+                player.pos = prevPos;
+            }
+            score -= Math.round((nextThreat?.maxToll || 0) * 0.15);
+            if (score > bestScore) {
+                bestScore = score;
+                bestId = tid;
+            }
+        }
+        return bestId;
+    },
+
+    // ==========================================
+    // 10. 잠수·이탈 유저 대체 AI 성향 자동 결정 (현금·영토·특수카드·버프 종합)
+    // ==========================================
+    chooseReplacementAiArchetype(player, tiles = []) {
+        if (!player) return 'aggressive';
+        const money = Number(player.money) || 0;
+        const ownedNormal = tiles.filter(t => t.owner === player && t.type === 'normal');
+        const highTierCount = ownedNormal.filter(t => t.level >= 3).length;
+        const specialTollCount = ownedNormal.filter(t => t.isSpecialToll).length;
+        const ownedSpecialCount = tiles.filter(t => t.owner === player && t.type !== 'normal').length;
+        const ownsDaya = tiles[BOARD_TILES.DAYA]?.owner === player;
+        const ownsTheater = tiles[BOARD_TILES.THEATER]?.owner === player;
+        const ownsLake = tiles[BOARD_TILES.LAKE]?.owner === player;
+
+        const inv = Array.isArray(player.inventory) ? player.inventory : [];
+        const treasures = Array.isArray(player.treasureCards) ? player.treasureCards : [];
+        const buffEntries = player.buffs ? Object.values(player.buffs).reduce((sum, arr) => sum + (Array.isArray(arr) ? arr.length : 0), 0) : 0;
+
+        const offensiveCardIds = new Set([
+            CARD_IDS.MAYO_DEAL,
+            CARD_IDS.MARI_SWITCH,
+            CARD_IDS.LANDMARK_CONTRACT,
+            CARD_IDS.UPGRADE_CONTRACT,
+            CARD_IDS.RUFO_DICE
+        ]);
+        const offensiveCardCount = inv.filter(c => offensiveCardIds.has(c.id)).length;
+
+        let aggressiveScore = 0;
+        aggressiveScore += money >= 3500000 ? 35 : (money >= 2000000 ? 18 : 0);
+        aggressiveScore += highTierCount * 15 + specialTollCount * 14;
+        aggressiveScore += (ownsDaya ? 18 : 0) + (ownsTheater ? 8 : 0);
+        aggressiveScore += treasures.length * 8 + offensiveCardCount * 8;
+        aggressiveScore += (player.hasErpinDiceBuff || player.hasRufoDiceBuff) ? 10 : 0;
+        aggressiveScore += player.hasSistDiscountBuff ? 12 : 0;
+        if (player.loanCount > 0) aggressiveScore -= 25 * player.loanCount;
+        if (money < 1200000) aggressiveScore -= 20;
+
+        let defensiveScore = 0;
+        defensiveScore += player.loanCount * 30;
+        defensiveScore += money < 1500000 ? 28 : (money < 2500000 ? 10 : 0);
+        defensiveScore += ownedNormal.length <= 2 ? 18 : 0;
+        defensiveScore += highTierCount === 0 ? 10 : 0;
+        defensiveScore += (player.hasVipShield ? 15 : 0) + (ownsLake ? 10 : 0) + Math.min(buffEntries, 4) * 5;
+        if (money >= 5000000 && player.loanCount === 0) defensiveScore -= 15;
+
+        let marathonScore = 5;
+        marathonScore += ownedNormal.length * 9 + ownedSpecialCount * 14;
+        marathonScore += (player.isBbangjuChief ? 22 : 0);
+        marathonScore += (player.hasMountainBuff ? 16 : 0) + (player.hasOriginElif ? 20 : 0) + (player.hasLibraryBuff ? 12 : 0);
+        marathonScore += inv.length * 6 + treasures.length * 6 + Math.min(buffEntries, 4) * 5;
+        if (money >= 1500000 && money < 4500000) marathonScore += 14;
+
+        const candidates = [
+            { type: 'aggressive', score: aggressiveScore },
+            { type: 'defensive', score: defensiveScore },
+            { type: 'marathon', score: marathonScore }
+        ];
+        candidates.sort((a, b) => b.score - a.score);
+        return candidates[0].type;
     }
 };

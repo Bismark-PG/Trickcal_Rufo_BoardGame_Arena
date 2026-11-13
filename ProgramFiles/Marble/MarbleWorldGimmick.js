@@ -31,6 +31,9 @@ export const WorldGimmickManager = {
     get isFurryBeach() { return getActiveWorld().isFurryBeach; },
     set isFurryBeach(v) { getActiveWorld().isFurryBeach = v; },
 
+    get furryManualOpenUsed() { return Boolean(getActiveWorld().furryManualOpenUsed); },
+    set furryManualOpenUsed(v) { getActiveWorld().furryManualOpenUsed = Boolean(v); },
+
     get furryBeachFeeMultiplier() { return getActiveWorld().furryBeachFeeMultiplier; },
     set furryBeachFeeMultiplier(v) { getActiveWorld().furryBeachFeeMultiplier = v; },
 
@@ -41,6 +44,7 @@ export const WorldGimmickManager = {
         w.bbangjuState = 'recruiting';
         w.bbangjuChiefs = [];
         w.isFurryBeach = false;
+        w.furryManualOpenUsed = false;
         w.furryBeachFeeMultiplier = 1.0;
         resetBbangjuVisits();
         resetOdysseyState();
@@ -66,23 +70,23 @@ export const WorldGimmickManager = {
         if (result.changed && !RequiemState.isSootState && !RequiemState.isHaloState) {
             const gText = getGimmickText();
             if (result.newPhase === 'day') {
-                RuntimePopup.showToast(gText.TIME_START_DAY, 3000);
+                RuntimePopup.showToast(gText.TIME_START_DAY, 3800);
             } else if (result.newPhase === 'night') {
-                RuntimePopup.showToast(gText.TIME_START_NIGHT, 3000);
+                RuntimePopup.showToast(gText.TIME_START_NIGHT, 3800);
             } else if (result.newPhase === 'none' && result.prevPhase !== 'none') {
-                RuntimePopup.showToast(gText.TIME_END_NORMAL, 2500);
+                RuntimePopup.showToast(gText.TIME_END_NORMAL, 3200);
             }
         }
     },
 
     // 플레이어의 자신의 턴 시작 시 그을음/빛무리 턴 카운트 차감 및 자연 전환 처리
-    advancePlayerTurn(player, globalTurn, allPlayers) {
-        return advanceRequiemOnTurnStart(player, globalTurn, allPlayers);
+    advancePlayerTurn(player, globalTurn, allPlayers, tiles = null) {
+        return advanceRequiemOnTurnStart(player, globalTurn, allPlayers, tiles);
     },
 
     // 특수 카드(심판의 시간 / 교주의 염원) 발동 시 즉시 빛무리 전환
-    triggerHaloByCard(allPlayers, cardUser, stateType) {
-        triggerHaloByCard(allPlayers, cardUser, stateType);
+    triggerHaloByCard(allPlayers, cardUser, stateType, ctx = null) {
+        triggerHaloByCard(allPlayers, cardUser, stateType, ctx);
     },
 
     getRemainingTimeTurns() {
@@ -107,13 +111,22 @@ export const WorldGimmickManager = {
         if (supporters.length > 0 && supporters.length < 4) {
             supporters.forEach(p => p.isBbangjuChief = true);
             this.bbangjuChiefs = supporters;
-            RuntimePopup.showToast(`${supporters.length}${gText.BBANGJU_RESOLVE_CHIEFS}`, 3000);
+            RuntimePopup.showToast(`${supporters.length}${gText.BBANGJU_RESOLVE_CHIEFS}`, 3800);
         } else if (supporters.length === 4) {
-            this.bbangjuChiefs = []; // 전원 완납 시 무효(공석)
-            RuntimePopup.showToast(gText.BBANGJU_RESOLVE_ALL_INVALID, 3000);
+            this.bbangjuChiefs = []; // 전원 완납 시 무효(공석) + 참여자 각자 위로금 75만 환급
+            const refund = GAME_CONSTANTS.BBANGJU_ALL_VACANT_REFUND || 750000;
+            supporters.forEach(p => {
+                if (!p.isBankrupt) {
+                    p.money += refund;
+                    if (p.tracker) {
+                        p.tracker.bbangjuVacantRefundTotal = (p.tracker.bbangjuVacantRefundTotal || 0) + refund;
+                    }
+                }
+            });
+            RuntimePopup.showToast(gText.BBANGJU_RESOLVE_ALL_INVALID, 4200);
         } else {
             this.bbangjuChiefs = []; // 납부자 없음 (공석)
-            RuntimePopup.showToast(gText.BBANGJU_RESOLVE_NONE, 3000);
+            RuntimePopup.showToast(gText.BBANGJU_RESOLVE_NONE, 3800);
         }
     },
 
@@ -125,3 +138,14 @@ export const WorldGimmickManager = {
         return TimeSlotSystem.getTimeMultiplier(tile, this.currentTime);
     }
 };
+
+export function syncFurryBeachFeeMultiplier(allPlayers = []) {
+    const hasKomi = WorldGimmickManager.isFurryBeach && (allPlayers || []).some(p =>
+        p && !p.isBankrupt && p.buffs && (
+            (Array.isArray(p.buffs['hold_komi']) && p.buffs['hold_komi'].length > 0) ||
+            (Array.isArray(p.buffs['todo_hold_komi']) && p.buffs['todo_hold_komi'].length > 0)
+        )
+    );
+    WorldGimmickManager.furryBeachFeeMultiplier = hasKomi ? 1.5 : 1.0;
+    return WorldGimmickManager.furryBeachFeeMultiplier;
+}

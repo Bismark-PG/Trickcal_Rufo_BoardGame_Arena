@@ -29,7 +29,7 @@ export function generateTiles() {
     TimeSlotSystem.initTiles(tiles); return tiles;
 }
 
-export function calculatePurchaseCost(tile, targetLevel, player = null) {
+export function calculatePurchaseCost(tile, targetLevel, player = null, options = {}) {
     if (targetLevel < 0 || targetLevel > 4) return 0;
     let rawCost = 0;
     if (tile.level === -1) {
@@ -43,31 +43,45 @@ export function calculatePurchaseCost(tile, targetLevel, player = null) {
     // [503: ???가 담긴 검] 버프 적용 시 영토 매입비 및 건설비 0.8배 하락
     const treasureMult = player ? getTreasurePurchaseMultiplier(player) : 1.0;
     // [그을음] 상태 적용 시 매입/건설비 0.5배 감소 (윤회 보유자는 제외)
-    const requiemMult = getRequiemPurchaseMultiplier(player);
+    const requiemMult = options.ignoreSoot ? 1.0 : getRequiemPurchaseMultiplier(player);
     return Math.round(rawCost * treasureMult * requiemMult);
 }
 
-export function calculateToll(tile, payer) {
-    if (tile.level < 0) return 0; 
+export function calculateTollBreakdown(tile, payer) {
+    const empty = {
+        total: 0,
+        totalNoHalo: 0,
+        mountainExtra: 0,
+        dayNightExtra: 0,
+        dayNightPhase: null,
+        sootExtra: 0,
+        haloPayerDelta: 0
+    };
+    if (!tile || tile.level < 0) return empty;
 
-    if (tile.id === BOARD_TILES.THEATER) return 0; 
-    if (tile.id === BOARD_TILES.MONATIUM_25) { 
+    if (tile.id === BOARD_TILES.THEATER) return empty;
+    if (tile.id === BOARD_TILES.MONATIUM_25) {
         let baseToll = GAME_CONSTANTS.TOLL_MONATIUM_0;
         if (tile.level === 1) baseToll = GAME_CONSTANTS.TOLL_MONATIUM_1;
         if (tile.level === 2) baseToll = GAME_CONSTANTS.TOLL_MONATIUM_2;
-        return applySpecialTileTollModifiers(baseToll, tile, payer);
+        return { ...empty, total: applySpecialTileTollModifiers(baseToll, tile, payer) };
     }
-    if (tile.id === BOARD_TILES.LAKE) return applySpecialTileTollModifiers(GAME_CONSTANTS.TOLL_LAKE, tile, payer);
-    if (tile.id === BOARD_TILES.LIBRARY) return applySpecialTileTollModifiers(GAME_CONSTANTS.TOLL_LIBRARY, tile, payer);
-    if (tile.id === BOARD_TILES.DAYA) return applySpecialTileTollModifiers(GAME_CONSTANTS.TOLL_DAYA, tile, payer);
+    if (tile.id === BOARD_TILES.LAKE) return { ...empty, total: applySpecialTileTollModifiers(GAME_CONSTANTS.TOLL_LAKE, tile, payer) };
+    if (tile.id === BOARD_TILES.LIBRARY) return { ...empty, total: applySpecialTileTollModifiers(GAME_CONSTANTS.TOLL_LIBRARY, tile, payer) };
+    if (tile.id === BOARD_TILES.DAYA) return { ...empty, total: applySpecialTileTollModifiers(GAME_CONSTANTS.TOLL_DAYA, tile, payer) };
 
     let baseCost = tile.level === 0 ? tile.basePrice : BUILDING_COSTS[tile.side][tile.level - 1];
-    let finalMultiplier = 0; 
-    
+    let finalMultiplier = 0;
+
     if (tile.level >= 0 && tile.level <= 4) finalMultiplier += MULTIPLIERS.BUILDING[tile.level];
     if (tile.isSpecialToll) finalMultiplier += MULTIPLIERS.SPECIAL_TILE;
-    if (tile.owner && tile.owner.hasMountainBuff) finalMultiplier += MULTIPLIERS.MOUNTAIN_BUFF;
-    finalMultiplier += WorldGimmickManager.getGimmickMultiplier(tile);
+
+    const mountainDelta = (tile.owner && tile.owner.hasMountainBuff) ? MULTIPLIERS.MOUNTAIN_BUFF : 0;
+    finalMultiplier += mountainDelta;
+
+    const timeDelta = WorldGimmickManager.getGimmickMultiplier(tile);
+    const activeTimePhase = timeDelta > 0 ? WorldGimmickManager.currentTime : null;
+    finalMultiplier += timeDelta;
 
     // 폭동(22) / 축제개최(23) 통행료 배율 증감
     if (tile.owner && tile.owner.buffs) {
@@ -76,8 +90,8 @@ export function calculateToll(tile, payer) {
             ...(tile.owner.buffs['todo_buff_toll'] || [])
         ];
         tollBuffs.forEach(b => {
-            if (b.multiplier > 1) finalMultiplier += (b.multiplier - 1.0); 
-            else finalMultiplier -= (1.0 - b.multiplier); 
+            if (b.multiplier > 1) finalMultiplier += (b.multiplier - 1.0);
+            else finalMultiplier -= (1.0 - b.multiplier);
         });
     }
 
@@ -90,11 +104,40 @@ export function calculateToll(tile, payer) {
     finalMultiplier += getTreasureTollMultiplierDelta(tile, payer);
 
     // 그을음(+0.5) 및 윤회(+0.3), 빛무리 죄업(-0.5) / 후회(+0.5) 지불 통행료 배율 합산(가감)
-    finalMultiplier += getRequiemTollPayerDelta(tile, payer);
+    const requiemDelta = getRequiemTollPayerDelta(tile, payer);
+    finalMultiplier += requiemDelta;
 
     if (finalMultiplier < 0) finalMultiplier = 0;
+    const total = Math.round(baseCost * finalMultiplier);
 
-    return Math.round(baseCost * finalMultiplier);
+    const mountainExtra = mountainDelta > 0
+        ? Math.max(0, total - Math.round(baseCost * Math.max(0, finalMultiplier - mountainDelta)))
+        : 0;
+    const dayNightExtra = timeDelta > 0
+        ? Math.max(0, total - Math.round(baseCost * Math.max(0, finalMultiplier - timeDelta)))
+        : 0;
+    const sootDelta = (WorldGimmickManager.getActiveGimmickType() === 'soot' && requiemDelta > 0) ? requiemDelta : 0;
+    const sootExtra = sootDelta > 0
+        ? Math.max(0, total - Math.round(baseCost * Math.max(0, finalMultiplier - sootDelta)))
+        : 0;
+    const haloPayerDelta = WorldGimmickManager.getActiveGimmickType() === 'halo' ? requiemDelta : 0;
+    const totalNoHalo = haloPayerDelta !== 0
+        ? Math.round(baseCost * Math.max(0, finalMultiplier - haloPayerDelta))
+        : total;
+
+    return {
+        total,
+        totalNoHalo,
+        mountainExtra,
+        dayNightExtra,
+        dayNightPhase: activeTimePhase,
+        sootExtra,
+        haloPayerDelta
+    };
+}
+
+export function calculateToll(tile, payer) {
+    return calculateTollBreakdown(tile, payer).total;
 }
 
 export function applySpecialTileTollModifiers(baseToll, tile, payer) {

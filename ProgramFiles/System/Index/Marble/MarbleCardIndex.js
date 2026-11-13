@@ -2,7 +2,7 @@
 import { BOARD_TILES } from './MarbleBoardIndex.js';
 
 export const CARD_IDS = {
-    // 1. 일반 카드 (1 ~ 48)
+    // 1. 일반 카드 (1 ~ 50)
     MOVE_START: 1,
     MOVE_VOLCANICA: 2,
     MOVE_MOUNTAIN: 3,
@@ -33,29 +33,31 @@ export const CARD_IDS = {
     GOLDIE_LOTTERY: 25,
     HONOR_CITIZEN_SUPPORT: 26,
     HOMELESS_SUPPORT: 27,
+    GOLDIE_REALTY: 28,
 
-    LOOT_TIME: 28,
-    MAGIC_SCHOOL_REC: 29,
-    HUMOR_BOOK: 30,
-    UFC_VIP_GUEST: 31,
-    BBANGJU_RESEARCHER: 32,
-    RANK_2_PRIVILEGE: 33,
-    RIM_MEMORY: 34,
-    SHAYDI_BIG_EVENT: 35,
-    OTHERWORLD: 36,
+    LOOT_TIME: 29,
+    MAGIC_SCHOOL_REC: 30,
+    HUMOR_BOOK: 31,
+    UFC_VIP_GUEST: 32,
+    BBANGJU_RESEARCHER: 33,
+    RANK_2_PRIVILEGE: 34,
+    RIM_MEMORY: 35,
+    SHAYDI_BIG_EVENT: 36,
+    OTHERWORLD: 37,
+    PIRA_LOAN: 38,
 
-    VIP_CARD: 37,
-    NER_ESCAPE: 38,
-    LIBRARY_ASSIST: 39,
-    BUILD_CONTRACT: 40,
-    UPGRADE_CONTRACT: 41,
-    LANDMARK_CONTRACT: 42,
-    SIST_DEAL: 43,
-    GOLDIE_PROPOSAL: 44,
-    MAYO_DEAL: 45,
-    MARI_SWITCH: 46,
-    REVERSE_TIME: 47,
-    RUFO_DICE: 48,
+    VIP_CARD: 39,
+    NER_ESCAPE: 40,
+    LIBRARY_ASSIST: 41,
+    BUILD_CONTRACT: 42,
+    UPGRADE_CONTRACT: 43,
+    LANDMARK_CONTRACT: 44,
+    SIST_DEAL: 45,
+    GOLDIE_PROPOSAL: 46,
+    MAYO_DEAL: 47,
+    MARI_SWITCH: 48,
+    REVERSE_TIME: 49,
+    RUFO_DICE: 50,
 
     // 2. 특수 카드 - 일반/보물 관련 (101 ~ 114)
     SPEC_DOUBLE_DRAW: 101,
@@ -77,8 +79,8 @@ export const CARD_IDS = {
 
     // 3. 특수 카드 - 특수 칸(정령 호수 / 정령산) 관련 (201 ~ 206)
     SPEC_FURRY_OPEN: 201,
-    SPEC_KOMI_JUICE: 202,
-    SPEC_DIANA_PUNCH: 203,
+    SPEC_DIANA_PUNCH: 202,
+    SPEC_KOMI_JUICE: 203,
     SPEC_KIM_WORKER: 204,
     SPEC_FORGOTTEN_MEM: 205,
     SPEC_ORIGIN_ELIF: 206,
@@ -93,7 +95,7 @@ export const CARD_IDS = {
 };
 
 // ==========================================
-// 1. 일반 카드 (ID: 1 ~ 47) - 기획서 32~33p 순서 기준
+// 1. 일반 카드 (ID: 1 ~ 50) - 기획서 32~33p 순서 기준
 // ==========================================
 export const normalCards = [
     // [특수 칸 이동관련 / 발동] (1 ~ 10)
@@ -117,7 +119,7 @@ export const normalCards = [
     { id: 16, category: "normal", subType: "instant", actionType: "move_forward", maxSpaces: 3, name: "실라와 함께", desc: "원하는 수치만큼 최대 3칸까지 앞으로 이동할 수 있습니다." },
     { id: 17, category: "normal", subType: "instant", actionType: "move_backward", maxSpaces: 3, name: "전략적 후퇴", desc: "원하는 수치만큼 최대 3칸까지 뒤로 이동할 수 있습니다." },
 
-    // [플레이 관련 / 발동] (18 ~ 27)
+    // [플레이 관련 / 발동] (18 ~ 28)
     { id: 18, category: "normal", subType: "instant", actionType: "instant_steal_all", value: 300000, minFullTake: 150000, name: "그대를 위한 찬사", desc: "모든 플레이어로부터 30만 달러를 수금합니다. (15만 달러 이하 소지 시 전액, 파산 등 수금 불가 상태 제외)" },
     { id: 19, category: "normal", subType: "instant", actionType: "tax_land", value: 100000, name: "탈세점검 - 토지세", desc: "보유한 영토의 수 * 10만 달러만큼 납부합니다." },
     { id: 20, category: "normal", subType: "instant", actionType: "tax_build", valArr: [0, 10000, 30000, 50000, 100000], name: "크레페의 청소", desc: "보유한 건물의 개수(1단계: 1만, 2단계: 3만, 3단계: 5만, 랜드마크: 10만)만큼 비용을 냅니다." },
@@ -128,31 +130,33 @@ export const normalCards = [
     { id: 25, category: "normal", subType: "instant", actionType: "lottery", multiplier: 200000, name: "골디의 고급복권", desc: "주사위 1개를 굴려 눈금 수 * 20만 달러를 받습니다." },
     { id: 26, category: "normal", subType: "instant", actionType: "instant_receive", value: 1500000, fallbackValue: 500000, minTerritory: 5, name: "명예시민 지원금", desc: "보유한 영토가 5개 이상이라면 150만 달러를 지급받습니다. (5개 미만일 경우 50만 달러 지급)" },
     { id: 27, category: "normal", subType: "instant", actionType: "instant_receive", value: 1500000, fallbackValue: 500000, maxTerritory: 3, name: "노숙시민 지원금", desc: "보유한 영토가 3개 이하라면 150만 달러를 지급받습니다. (3개 초과일 경우 50만 달러 지급)" },
+    { id: 28, category: "normal", subType: "instant", actionType: "goldie_realty", name: "골디의 부동산명함", desc: "발동 시점의 대출 원금이 0.5배로 감소하지만, 보유 영토 중 건설 단계가 가장 높은 영토 한 곳의 건설 단계가 2단계 하락합니다. (오두막 이하 제외)" },
 
-    // [플레이 관련 / 보유] (28 ~ 36)
-    { id: 28, category: "normal", subType: "hold", actionType: "hold_immune", targetId: BOARD_TILES.MONATIUM_25, name: "약탈의 시간이다!", desc: "모나티엄 25에 도착시 통행료를 면제받습니다." },
-    { id: 29, category: "normal", subType: "hold", actionType: "hold_immune", targetId: BOARD_TILES.ASHUR, name: "마법학교 추천서", desc: "에슈르의 빵집에 도착시 통행료를 면제받습니다." },
-    { id: 30, category: "normal", subType: "hold", actionType: "hold_immune", targetId: BOARD_TILES.RIM_HOUSE, name: "깔깔호호 유머집", desc: "림의 집에 도착시 통행료를 면제받습니다." },
-    { id: 31, category: "normal", subType: "hold", actionType: "hold_immune", targetId: BOARD_TILES.UFC, name: "UFC 명예손놈", desc: "UFC직영점에 도착시 통행료를 면제받습니다." },
-    { id: 32, category: "normal", subType: "hold", actionType: "hold_bbangju", name: "빵주 연구원", desc: "빵주의 기본 이용료를 면제받습니다. (정비반장에게 납부하는 요금 제외)" },
-    { id: 33, category: "normal", subType: "hold", actionType: "hold_immune", targetId: BOARD_TILES.DAYA, name: "서열 2위의 특권", desc: "다야의 궁전 통행료를 면제받습니다. (인수/서열싸움으로 보유 시 파괴)" },
-    { id: 34, category: "normal", subType: "hold", actionType: "hold_shaydi", name: "림의 기역", desc: "셰이디의 차원의 효과를 무시할 수 있습니다." },
-    { id: 35, category: "normal", subType: "hold", actionType: "hold_event", name: "셰이디의 빅 이벤트", desc: "셰이디의 차원에 도착 시, 플레이어를 한 명 데려올 수 있습니다." },
-    { id: 36, category: "normal", subType: "hold", actionType: "hold_reverse", name: "이면세계", desc: "자신이 보유한 모든 영토의 시간대가 모두 역전됩니다." },
+    // [플레이 관련 / 보유] (29 ~ 38)
+    { id: 29, category: "normal", subType: "hold", actionType: "hold_immune", targetId: BOARD_TILES.MONATIUM_25, name: "약탈의 시간이다!", desc: "모나티엄 25에 도착시 통행료를 면제받습니다." },
+    { id: 30, category: "normal", subType: "hold", actionType: "hold_immune", targetId: BOARD_TILES.ASHUR, name: "마법학교 추천서", desc: "에슈르의 빵집에 도착시 통행료를 면제받습니다." },
+    { id: 31, category: "normal", subType: "hold", actionType: "hold_immune", targetId: BOARD_TILES.RIM_HOUSE, name: "깔깔호호 유머집", desc: "림의 집에 도착시 통행료를 면제받습니다." },
+    { id: 32, category: "normal", subType: "hold", actionType: "hold_immune", targetId: BOARD_TILES.UFC, name: "UFC 명예손놈", desc: "UFC직영점에 도착시 통행료를 면제받습니다." },
+    { id: 33, category: "normal", subType: "hold", actionType: "hold_bbangju", name: "빵주 연구원", desc: "빵주의 기본 이용료를 면제받습니다. (정비반장에게 납부하는 요금 제외)" },
+    { id: 34, category: "normal", subType: "hold", actionType: "hold_immune", targetId: BOARD_TILES.DAYA, name: "서열 2위의 특권", desc: "다야의 궁전 통행료를 면제받습니다. (인수/서열싸움으로 보유 시 파괴)" },
+    { id: 35, category: "normal", subType: "hold", actionType: "hold_shaydi", name: "림의 기역", desc: "셰이디의 차원의 효과를 무시할 수 있습니다." },
+    { id: 36, category: "normal", subType: "hold", actionType: "hold_event", name: "셰이디의 빅 이벤트", desc: "셰이디의 차원에 도착 시, 플레이어를 한 명 데려올 수 있습니다." },
+    { id: 37, category: "normal", subType: "hold", actionType: "hold_reverse", name: "이면세계", desc: "자신이 보유한 모든 영토의 시간대가 모두 역전됩니다." },
+    { id: 38, category: "normal", subType: "hold", actionType: "hold_pira_loan", name: "피라의 대부업명함", desc: "보유 시 앞으로 실행되는 대출 원금과 원금 완납 후 전환되는 이자 원금이 0.5배로 감소하지만 대출 이자율이 5%로 유지·상승합니다. 획득 즉시 남아 있는 대출 원금도 0.5배가 됩니다." },
 
-    // [플레이 관련 / 사용] (37 ~ 48)
-    { id: 37, category: "normal", subType: "use", actionType: "use_vip", name: "VIP카드", desc: "통행료가 얼마든 1회 면제할 수 있습니다." },
-    { id: 38, category: "normal", subType: "use", actionType: "use_escape", name: "네르의 소환장", desc: "볼케니카에서 즉시 탈출할 수 있습니다." },
-    { id: 39, category: "normal", subType: "use", actionType: "use_library", name: "셰럼의 일일조교", desc: "마녀 도서관에서 능력을 얻을 시 통행료를 지불하지 않습니다. (1회)" },
-    { id: 40, category: "normal", subType: "use", actionType: "use_build", name: "건축계약서", desc: "보유한 영토 중 마을 미만인 곳 하나에 무료로 마을(2단계)까지 건설합니다." },
-    { id: 41, category: "normal", subType: "use", actionType: "use_upgrade", name: "증축계약서", desc: "보유한 건물이 있는 영토(오두막·마을) 중 하나의 건설 단계를 무료로 올립니다." },
-    { id: 42, category: "normal", subType: "use", actionType: "use_landmark", name: "엘드르유산등록서", desc: "보유한 왕국(3단계) 중 하나를 골라 무료로 엘리프 조각상으로 증축합니다." },
-    { id: 43, category: "normal", subType: "use", actionType: "use_discount", name: "시스트의 거래", desc: "획득 시 강제 50만 달러 지불 후, 매입/건설/증축비를 0.5배만 납부합니다." },
-    { id: 44, category: "normal", subType: "use", actionType: "use_sell", name: "골디의 제안", desc: "보유한 영토 중 하나를 매입가+건설비 합의 1.5배 가격으로 매각합니다." },
-    { id: 45, category: "normal", subType: "use", actionType: "use_takeover", name: "마요의 암거래", desc: "상대를 고른 후 상대의 영토 하나를 토지 매입가 + 통행료의 1.5배를 내고 인수합니다. (엘리프 조각상 불가)" },
-    { id: 46, category: "normal", subType: "use", actionType: "use_destroy", name: "마리의 스위치", desc: "상대를 한 명 고른 후 상대의 건물 하나를 랜덤으로 철거하여 건설 단계를 2단계 낮춥니다. (엘리프 조각상 포함, 2단계 이하는 토지만 소유)" },
-    { id: 47, category: "normal", subType: "use", actionType: "use_reverse_one", name: "주야역전", desc: "보유한 영토 중 하나를 골라 시간대를 역전시킵니다." },
-    { id: 48, category: "normal", subType: "use", actionType: "use_dice_cheat", name: "루포의 주사위", desc: "1회에 한해 던지는 주사위가 3개가 되고, 1개의 눈은 6으로 고정됩니다." }
+    // [플레이 관련 / 사용] (39 ~ 50)
+    { id: 39, category: "normal", subType: "use", actionType: "use_vip", name: "VIP카드", desc: "통행료가 얼마든 1회 면제할 수 있습니다." },
+    { id: 40, category: "normal", subType: "use", actionType: "use_escape", name: "네르의 소환장", desc: "볼케니카에서 즉시 탈출할 수 있습니다." },
+    { id: 41, category: "normal", subType: "use", actionType: "use_library", name: "셰럼의 일일조교", desc: "마녀 도서관에서 능력을 얻을 시 통행료를 지불하지 않습니다. (1회)" },
+    { id: 42, category: "normal", subType: "use", actionType: "use_build", name: "건축계약서", desc: "보유한 영토 중 마을 미만인 곳 하나에 무료로 마을(2단계)까지 건설합니다." },
+    { id: 43, category: "normal", subType: "use", actionType: "use_upgrade", name: "증축계약서", desc: "보유한 건물이 있는 영토(오두막·마을) 중 하나의 건설 단계를 무료로 올립니다." },
+    { id: 44, category: "normal", subType: "use", actionType: "use_landmark", name: "엘드르유산등록서", desc: "보유한 왕국(3단계) 중 하나를 골라 무료로 엘리프 조각상으로 증축합니다." },
+    { id: 45, category: "normal", subType: "use", actionType: "use_discount", name: "시스트의 거래", desc: "획득 시 강제 50만 달러 지불 후, 매입/건설/증축비를 0.5배만 납부합니다." },
+    { id: 46, category: "normal", subType: "use", actionType: "use_sell", name: "골디의 제안", desc: "보유한 영토 중 하나를 매입가+건설비 합의 1.5배 가격으로 매각합니다." },
+    { id: 47, category: "normal", subType: "use", actionType: "use_takeover", name: "마요의 암거래", desc: "상대를 고른 후 상대의 영토 하나를 토지 매입가 + 통행료의 1.5배를 내고 인수합니다. (엘리프 조각상 불가)" },
+    { id: 48, category: "normal", subType: "use", actionType: "use_destroy", name: "마리의 스위치", desc: "상대를 한 명 고른 후 상대의 건물 하나를 랜덤으로 철거하여 건설 단계를 2단계 낮춥니다. (엘리프 조각상 포함, 2단계 이하는 토지만 소유)" },
+    { id: 49, category: "normal", subType: "use", actionType: "use_reverse_one", name: "주야역전", desc: "보유한 영토 중 하나를 골라 시간대를 역전시킵니다." },
+    { id: 50, category: "normal", subType: "use", actionType: "use_dice_cheat", name: "루포의 주사위", desc: "이번 턴 동안 던지는 주사위가 3개가 되고, 1개의 눈은 6으로 고정됩니다. (검 부작용 무시 · 3개 중 2개 이상 같으면 더블 판정)" }
 ];
 
 // ==========================================
@@ -179,12 +183,12 @@ export const specialCards = [
     { id: 113, category: "special", subType: "instant", actionType: "spec_judgment", name: "심판의 시간", desc: "그을음을 빛무리 상태로 변화시키며, 몽환살이를 획득하고 주사위를 한 번 더 굴립니다." },
     { id: 114, category: "special", subType: "instant", actionType: "spec_wish", name: "교주의 염원", desc: "그을음을 빛무리 상태로 변화시키며, 염원살이를 획득하고 주사위를 한 번 더 굴립니다." },
 
-    // [정령 호수 관련 / 발동] (201 ~ 203)
+    // [정령 호수 관련 / 발동] (201 ~ 202)
     { id: 201, category: "special_tile", subType: "instant", actionType: "spec_furry_open", name: "퍼리비이치 개장", desc: "정령 호수가 퍼리비이치로 변화합니다. (정령 호수 소유자 전용)" },
-    { id: 202, category: "special_tile", subType: "instant", actionType: "spec_komi_juice", name: "코미주스 한잔해", desc: "퍼리비이치의 입장료가 1.5배 상승합니다." },
-    { id: 203, category: "special_tile", subType: "instant", actionType: "spec_diana", name: "디아나의 꿀밤", desc: "퍼리비이치 상태가 정령 호수로 복구됩니다. (비소유자 전용)" },
+    { id: 202, category: "special_tile", subType: "instant", actionType: "spec_diana", name: "디아나의 꿀밤", desc: "퍼리비이치 상태가 정령 호수로 복구됩니다. (비소유자 전용)" },
 
-    // [정령 호수 관련 / 보유] (204)
+    // [정령 호수 관련 / 보유] (203 ~ 204)
+    { id: 203, category: "special_tile", subType: "hold", actionType: "hold_komi", name: "코미주스 한잔해", desc: "보유 시 퍼리비이치 상태일 때 입장료가 1.5배로 증가합니다." },
     { id: 204, category: "special_tile", subType: "hold", actionType: "hold_worker", name: "김씨노동기", desc: "퍼리비이치의 강제 휴식 효과를 받지 않습니다. (비소유자 전용)" },
 
     // [정령산 관련 / 보유] (205 ~ 206)

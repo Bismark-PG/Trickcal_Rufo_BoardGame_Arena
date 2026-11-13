@@ -23,6 +23,9 @@ export const CardUILang = {
         TOLL_BUFF_RIOT: "[왕국폭동] 2턴간 보유한 영토의 통행료가 0.5배로 하락합니다!",
         TOLL_BUFF_FESTIVAL: "[축제개최] 2턴간 보유한 영토의 통행료가 1.5배로 상승합니다!",
         OTHERWORLD_APPLIED: "[이면세계] 보유한 모든 영토의 시간대(낮/밤)가 역전되었습니다!",
+        GOLDIE_REALTY_APPLIED: "[골디의 부동산명함] 남은 대출 원금이 0.5배로 감소하고 최고 등급 건물 단계가 2단계 하락했습니다!",
+        GOLDIE_REALTY_NO_DOWNGRADE: "[골디의 부동산명함] 남은 대출 원금이 0.5배로 감소했습니다! (오두막 이하 영토만 보유해 건물 단계 유지)",
+        PIRA_LOAN_APPLIED: "[피라의 대부업명함] 대출 원금이 0.5배로 감소하고, 대출 이자율이 5%로 상승합니다!",
         REVERSE_ONE_APPLIED: "영토의 시간대(낮/밤)가 역전되었습니다!",
 
         // 턴 시작 위기 및 파산
@@ -46,11 +49,20 @@ export const CardUILang = {
 
         // 셰이디의 차원
         SHAYDI_TITLE: "셰이디의 차원",
-        SHAYDI_DESC: "셰이디의 차원에 갇혔습니다! (1턴 강제 휴식)",
+        SHAYDI_DESC: "셰이디의 차원에 갇혔습니다! (다음 턴 탈출 미니게임 진행)",
         SHAYDI_EVADE: "[림의 기역] 효과로 차원을 무사히 빠져나옵니다!",
         SHAYDI_TARGET_TITLE: "셰이디의 빅 이벤트 발동!",
         SHAYDI_TARGET_DESC: "셰이디의 차원으로 끌어들일 플레이어를 선택하세요.",
-        SHAYDI_PULLED: "셰이디의 빅 이벤트에 의해 차원으로 끌려왔습니다! (1턴 강제 휴식)",
+        SHAYDI_PULLED: "셰이디의 빅 이벤트에 의해 차원으로 끌려왔습니다! (다음 턴 탈출 미니게임 진행)",
+        SHAYDI_GAME_TITLE: "셰이디의 장난",
+        SHAYDI_GAME_SUBTITLE: "심심한데 나랑 게임하나 하고갈래?",
+        SHAYDI_GAME_UP: "업",
+        SHAYDI_GAME_DOWN: "다운",
+        SHAYDI_GAME_DESC_UP: "주사위를 굴려서 제시된 숫자보다 큰 숫자를 띄우면 즉시 탈출!",
+        SHAYDI_GAME_DESC_DOWN: "주사위를 굴려서 제시된 숫자보다 작은 숫자를 띄우면 즉시 탈출!",
+        SHAYDI_GAME_ROLL_BTN: "주사위 굴리기",
+        SHAYDI_ESCAPE_SUCCESS: "셰이디의 장난 돌파! 차원에서 즉시 탈출해 이동합니다!",
+        SHAYDI_ESCAPE_FAIL: "탈출 실패! 이번 턴은 휴식합니다.",
 
         // 인벤토리 & 사용 UI
         BTN_INVENTORY: "카드 사용",
@@ -101,6 +113,7 @@ export const CardUILang = {
         SPEC_INTRUDE_DESC: "차원 열쇠 카드 칸을 제외한 원하는 칸으로 즉시 이동합니다.",
         SPEC_TIME_ACCEL_TOAST: "[시간가속] 남은 시간대가 최대 2턴 단축되었으며, 남은 현재 시간대 동안 주사위를 2번 굴립니다!",
         SPEC_TIME_ACCEL_EXTRA_ROLL: "[시간가속] 효과로 주사위를 한 번 더 굴릴 수 있습니다!",
+        DOUBLE_BONUS_ROLL: "더블! 주사위를 한 번 더 굴립니다! (턴당 최대 1회)",
         SPEC_TIME_ACCEL_FAIL: "현재 진행 중인 시간대(낮/밤)가 없어 사용할 수 없습니다.",
         SPEC_ODYSSEY_FAIL: "현재 보물 카드를 획득할 수 있는 조건이 아닙니다.",
         SPEC_WOLF_TITLE: "애증의 늑대",

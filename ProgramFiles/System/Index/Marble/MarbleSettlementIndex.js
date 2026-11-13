@@ -33,10 +33,11 @@ export const SettlementLang = {
         ITEM_LIBRARY: "마녀 도서관 (10만 × 총 카드칸 도착 횟수)",
         ITEM_DAYA: "다야의 궁전 (10만 × 보유 유지 턴)",
 
-        ITEM_BBANGJU_CHIEF: "빵주 정비반장 ((기본 100만 + 10만 × 이용 횟수) ÷ 반장 수)",
+        ITEM_BBANGJU_CHIEF: "빵주 정비반장 ((기본 150만 + 20만 × 이용 횟수) ÷ 반장 수)",
         ITEM_KIM_WORKER: "김씨노동기 (25만 × 내 퍼리비이치 도착 횟수 수금)",
         ITEM_MOON_FLOWER: "달바라기 한 송이 (25만 × 최다 방문자 횟수 수금)",
         ITEM_ORIGIN_ELIF: "태초의 엘리프 (10만 × 정령산 효과 유지 턴)",
+        ITEM_LAP_LEADER: "최다 순회자 보너스 (순회 횟수 × 15만, 동률 시 알현실 최인접)",
         ITEM_STATE_STEAL_PAID: "타 플레이어 보유 카드(김씨노동기/달바라기) 수금 차감",
 
         ITEM_LOAN_PRINCIPAL: "대출 원금 상납",

@@ -1,17 +1,18 @@
 // ProgramFiles/Lobby/RoomManager.js
 // 온라인 WebSocket 서버 연동 + 오프라인 로컬 엔진 폴백을 통합 제공하는 방/매치 매니저
 
-import { getGameMeta } from '../System/GameRegistry.js';
+import { getGameMeta, pickRandomBotName } from '../System/GameRegistry.js';
 import { LangState } from '../System/LanguageManager.js';
 import { LobbyLang } from '../System/Index/LobbyIndex.js';
 import { GAME_CONSTANTS } from '../System/Index/Marble/MarblePriceIndex.js';
 import { NetworkClient } from '../System/NetworkClient.js';
+import { SystemLogManager } from '../System/Log/SystemLogManager.js';
 import { MarbleGameEngine } from '../Marble/MarbleEngine.js';
 
 const SLOT_COLORS = ['#e74c3c', '#3498db', '#f1c40f', '#9b59b6', '#2ecc71', '#e67e22'];
 const AI_ARCHETYPES = ['random', 'aggressive', 'defensive', 'marathon'];
 const MOCK_NAMES = ['에르핀', '네르', '다야', '티그', '루포', '슈로', '코미', '버터'];
-const CODE_CHARS = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+const CODE_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
 const SERVER_ERROR_TO_KEY = {
     EMPTY_CODE: 'ERR_EMPTY_CODE',
@@ -23,6 +24,7 @@ const SERVER_ERROR_TO_KEY = {
     NOT_ENOUGH_PLAYERS: 'TOAST_NEED_MIN_PLAYERS',
     NEED_HUMAN: 'TOAST_NEED_MIN_PLAYERS',
     NOT_ALL_READY: 'TOAST_NEED_MIN_PLAYERS',
+    GAME_IN_DEVELOPMENT: 'ERR_GAME_IN_DEVELOPMENT',
     INVALID_NICKNAME: 'NICK_EMPTY_ERR'
 };
 
@@ -50,6 +52,13 @@ function mapServerError(errorCode) {
     return SERVER_ERROR_TO_KEY[errorCode] || errorCode || 'ERR_NOT_FOUND';
 }
 
+function getDefaultCustomOptions() {
+    return {
+        maxTurn: GAME_CONSTANTS.MAX_TURN,
+        initialMoney: GAME_CONSTANTS.INITIAL_MONEY
+    };
+}
+
 export const RoomManager = {
     localPlayer: {
         id: 'local_player_1',
@@ -58,7 +67,7 @@ export const RoomManager = {
 
     // 오프라인/온라인 통합 캐시 상태
     rooms: [], // 오프라인 방 캐시
-    onlineRooms: [], // 온라인 방 목록 캐시
+    onlineRoomsByGame: {}, // 게임별 온라인 방 목록 캐시 { [gameId]: room[] }
     seededGames: new Set(),
     currentRoomId: null,
     onlineCurrentRoom: null,
@@ -125,8 +134,9 @@ export const RoomManager = {
 
             NetworkClient.subscribe('LOBBY_ROOMS', (msg) => {
                 if (Array.isArray(msg.rooms)) {
-                    this.onlineRooms = msg.rooms;
-                    this._emitUi('LOBBY_ROOMS', msg);
+                    const gid = msg.gameId || msg.rooms[0]?.gameId || 'marble';
+                    this.onlineRoomsByGame[gid] = msg.rooms;
+                    this._emitUi('LOBBY_ROOMS', { ...msg, gameId: gid });
                 }
             });
 
@@ -210,8 +220,8 @@ export const RoomManager = {
         if (this.isOnline()) {
             const res = await NetworkClient.request('GET_ROOMS', { gameId });
             if (res.ok && res.data?.rooms) {
-                this.onlineRooms = res.data.rooms;
-                return this.onlineRooms;
+                this.onlineRoomsByGame[gameId] = res.data.rooms;
+                return this.onlineRoomsByGame[gameId];
             }
         }
         return this.getRoomsByGame(gameId);
@@ -239,11 +249,11 @@ export const RoomManager = {
         return true;
     },
 
-    generateUniqueCode(prefix = 'RM') {
-        const p = (prefix || 'RM').slice(0, 3).toUpperCase();
-        for (let attempt = 0; attempt < 100; attempt++) {
+    generateUniqueCode(prefix = 'ROOM') {
+        const p = String(prefix || 'ROOM').slice(0, 4).toUpperCase().padEnd(4, 'X');
+        for (let attempt = 0; attempt < 200; attempt++) {
             let suffix = '';
-            for (let i = 0; i < 4; i++) {
+            for (let i = 0; i < 6; i++) {
                 suffix += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
             }
             const candidate = `${p}${suffix}`;
@@ -251,7 +261,7 @@ export const RoomManager = {
                 return candidate;
             }
         }
-        return `${p}${Math.floor(1000 + Math.random() * 9000)}`;
+        return `${p}${Math.floor(100000 + Math.random() * 900000)}`;
     },
 
     seedSampleRooms(gameId) {
@@ -259,26 +269,41 @@ export const RoomManager = {
         this.seededGames.add(gameId);
 
         const meta = getGameMeta(gameId);
-        if (!meta || meta.status !== 'active') return;
+        if (!meta || (!meta.lobbyEnabled && meta.status !== 'active')) return;
 
         const lang = LangState.current;
-        const samples = lang === 'en'
-            ? [
-                { code: 'MRB101', title: 'Beginners Welcome! Friendly Match', host: 'Erpin', max: 4, aiCount: 1, isPrivate: false },
-                { code: 'MRB204', title: 'Fast 2-Player Tactics', host: 'Ner', max: 2, aiCount: 0, isPrivate: false },
-                { code: 'MRB777', title: 'Secret Cult Practice Room', host: 'Rufo', max: 4, aiCount: 2, isPrivate: true }
-            ]
-            : (lang === 'ja'
+        const samples = gameId === 'unos'
+            ? (lang === 'en'
                 ? [
-                    { code: 'MRB101', title: '初心者歓迎！まったりマルチ', host: 'エルフィン', max: 4, aiCount: 1, isPrivate: false },
-                    { code: 'MRB204', title: 'サクッと2人対戦部屋', host: 'ネル', max: 2, aiCount: 0, isPrivate: false },
-                    { code: 'MRB777', title: '教団秘密練習ルーム', host: 'ルポ', max: 4, aiCount: 2, isPrivate: true }
+                    { code: 'UNOSSMP101', title: 'UNOS 1v1 Lobby Test Room', host: 'Rufo', max: 2, aiCount: 0, isPrivate: false },
+                    { code: 'UNOSSMP777', title: 'Private 1v1 Tactics Test', host: 'Suro', max: 2, aiCount: 1, isPrivate: true }
                 ]
-                : [
-                    { code: 'MRB101', title: '초보 환영! 즐겁게 한 판 하실 분', host: '에르핀', max: 4, aiCount: 1, isPrivate: false },
-                    { code: 'MRB204', title: '빠른 2인 전략전 테스트', host: '네르', max: 2, aiCount: 0, isPrivate: false },
-                    { code: 'MRB777', title: '교단 비밀 연습실', host: '루포', max: 4, aiCount: 2, isPrivate: true }
-                ]);
+                : (lang === 'ja'
+                    ? [
+                        { code: 'UNOSSMP101', title: 'ウノス 1対1 テストルーム', host: 'ルポ', max: 2, aiCount: 0, isPrivate: false },
+                        { code: 'UNOSSMP777', title: '秘密の1対1練習ルーム', host: 'シュロ', max: 2, aiCount: 1, isPrivate: true }
+                    ]
+                    : [
+                        { code: 'UNOSSMP101', title: '우노스 1대1 대기방 테스트', host: '루포', max: 2, aiCount: 0, isPrivate: false },
+                        { code: 'UNOSSMP777', title: '우노스 비공개 1대1 연습실', host: '슈로', max: 2, aiCount: 1, isPrivate: true }
+                    ]))
+            : (lang === 'en'
+                ? [
+                    { code: 'EMRBSMP101', title: 'Beginners Welcome! Friendly Match', host: 'Erpin', max: 4, aiCount: 1, isPrivate: false },
+                    { code: 'EMRBSMP204', title: 'Fast 2-Player Tactics', host: 'Ner', max: 2, aiCount: 0, isPrivate: false },
+                    { code: 'EMRBSMP777', title: 'Secret Cult Practice Room', host: 'Rufo', max: 4, aiCount: 2, isPrivate: true }
+                ]
+                : (lang === 'ja'
+                    ? [
+                        { code: 'EMRBSMP101', title: '初心者歓迎！まったりマルチ', host: 'エルフィン', max: 4, aiCount: 1, isPrivate: false },
+                        { code: 'EMRBSMP204', title: 'サクッと2人対戦部屋', host: 'ネル', max: 2, aiCount: 0, isPrivate: false },
+                        { code: 'EMRBSMP777', title: '教団秘密練習ルーム', host: 'ルポ', max: 4, aiCount: 2, isPrivate: true }
+                    ]
+                    : [
+                        { code: 'EMRBSMP101', title: '초보 환영! 즐겁게 한 판 하실 분', host: '에르핀', max: 4, aiCount: 1, isPrivate: false },
+                        { code: 'EMRBSMP204', title: '빠른 2인 전략전 테스트', host: '네르', max: 2, aiCount: 0, isPrivate: false },
+                        { code: 'EMRBSMP777', title: '교단 비밀 연습실', host: '루포', max: 4, aiCount: 2, isPrivate: true }
+                    ]));
 
         samples.forEach((s, idx) => {
             const roomId = `sample_${gameId}_${idx + 1}`;
@@ -296,17 +321,18 @@ export const RoomManager = {
                 aiType: null
             };
             for (let a = 1; a <= s.aiCount && a < s.max; a++) {
+                const usedNames = slots.filter(sl => sl.type !== 'empty' && sl.name).map(sl => sl.name);
                 slots[a] = {
                     slotIndex: a,
                     type: 'ai',
                     id: `sample_ai_${idx}_${a}`,
-                    name: `AI ${a}`,
+                    name: pickRandomBotName(usedNames),
                     color: SLOT_COLORS[a % SLOT_COLORS.length],
                     isHost: false,
                     isReady: true,
                     isMockHuman: false,
                     isConnected: true,
-                    aiType: AI_ARCHETYPES[(idx + a) % AI_ARCHETYPES.length]
+                    aiType: AI_ARCHETYPES[Math.floor(Math.random() * AI_ARCHETYPES.length)]
                 };
             }
 
@@ -323,10 +349,7 @@ export const RoomManager = {
                 countdownSec: 0,
                 isSample: true,
                 createdAt: Date.now() - (samples.length - idx) * 10000,
-                customOptions: {
-                    maxTurn: GAME_CONSTANTS.MAX_TURN,
-                    initialMoney: GAME_CONSTANTS.INITIAL_MONEY
-                },
+                customOptions: getDefaultCustomOptions(),
                 slots
             });
         });
@@ -334,7 +357,7 @@ export const RoomManager = {
 
     getRoomsByGame(gameId) {
         if (this.isOnline()) {
-            return this.onlineRooms.filter(r => r.gameId === gameId);
+            return (this.onlineRoomsByGame[gameId] || []).filter(r => r.gameId === gameId);
         }
         this.seedSampleRooms(gameId);
         return this.rooms
@@ -369,10 +392,12 @@ export const RoomManager = {
     },
 
     async createRoom({ gameId, title, isPrivate = false, password = '', maxPlayers = 4, customOptions = null }) {
+        void customOptions;
         const trimmedTitle = (title || '').trim().slice(0, 32);
         if (!trimmedTitle) {
             return { ok: false, errorCode: 'ERR_TITLE_EMPTY' };
         }
+        const fixedOptions = getDefaultCustomOptions();
 
         if (this.isOnline()) {
             const res = await NetworkClient.request('CREATE_ROOM', {
@@ -381,7 +406,7 @@ export const RoomManager = {
                 isPrivate,
                 password,
                 maxPlayers,
-                customOptions
+                customOptions: fixedOptions
             });
             if (!res.ok) {
                 return { ok: false, errorCode: mapServerError(res.error) };
@@ -426,10 +451,7 @@ export const RoomManager = {
             countdownSec: 0,
             isSample: false,
             createdAt: Date.now(),
-            customOptions: customOptions || {
-                maxTurn: GAME_CONSTANTS.MAX_TURN,
-                initialMoney: GAME_CONSTANTS.INITIAL_MONEY
-            },
+            customOptions: fixedOptions,
             slots
         };
 
@@ -454,14 +476,14 @@ export const RoomManager = {
     },
 
     async joinRoomByCode(rawCode, expectedGameId = null, password = '') {
-        const normalized = (rawCode || '').trim().toUpperCase();
+        const normalized = (rawCode || '').replace(/\s+/g, '').trim().toUpperCase();
         if (!normalized) {
             return { ok: false, errorCode: 'ERR_EMPTY_CODE' };
         }
 
         if (this.isOnline()) {
             const res = await NetworkClient.request('JOIN_ROOM_BY_CODE', {
-                gameId: expectedGameId || 'marble',
+                gameId: expectedGameId || null,
                 code: normalized,
                 password
             });
@@ -473,6 +495,10 @@ export const RoomManager = {
             return { ok: true, room: res.data.room };
         }
 
+        if (!expectedGameId) {
+            this.seedSampleRooms('marble');
+            this.seedSampleRooms('unos');
+        }
         const room = this.rooms.find(r => r.code.toUpperCase() === normalized);
         return this._joinOfflineRoom(room, expectedGameId);
     },
@@ -562,7 +588,11 @@ export const RoomManager = {
         if (!target || target.type !== 'human') return { ok: false };
         if (target.isHost) {
             const check = this.canStart(room);
-            return { ok: check.canStart, errorCode: check.canStart ? null : 'TOAST_NEED_MIN_PLAYERS', startOfflineNow: check.canStart };
+            return {
+                ok: check.canStart,
+                errorCode: check.canStart ? null : (check.reason || 'TOAST_NEED_MIN_PLAYERS'),
+                startOfflineNow: check.canStart
+            };
         }
         target.isReady = !target.isReady;
         return { ok: true };
@@ -576,12 +606,12 @@ export const RoomManager = {
         }
         const room = this.getCurrentRoom();
         if (!room || !room.slots[slotIndex] || room.slots[slotIndex].type !== 'empty') return false;
-        const aiNum = slotIndex + 1;
+        const usedNames = room.slots.filter(s => s.type !== 'empty' && s.name).map(s => s.name);
         room.slots[slotIndex] = {
             slotIndex,
             type: 'ai',
             id: `ai_${room.id}_${slotIndex}`,
-            name: `AI ${aiNum}`,
+            name: pickRandomBotName(usedNames),
             color: getNextUnusedColor(room, slotIndex),
             isHost: false,
             isReady: true,
@@ -603,12 +633,12 @@ export const RoomManager = {
         let changed = false;
         room.slots.forEach(s => {
             if (s.type === 'empty') {
-                const aiNum = s.slotIndex + 1;
+                const usedNames = room.slots.filter(sl => sl.type !== 'empty' && sl.name).map(sl => sl.name);
                 room.slots[s.slotIndex] = {
                     slotIndex: s.slotIndex,
                     type: 'ai',
                     id: `ai_${room.id}_${s.slotIndex}`,
-                    name: `AI ${aiNum}`,
+                    name: pickRandomBotName(usedNames),
                     color: getNextUnusedColor(room, s.slotIndex),
                     isHost: false,
                     isReady: true,
@@ -690,14 +720,16 @@ export const RoomManager = {
     },
 
     async updateCustomOptions(customOptions) {
+        void customOptions;
+        const fixedOptions = getDefaultCustomOptions();
         if (this.isOnline()) {
-            const res = await NetworkClient.request('UPDATE_OPTIONS', { customOptions });
+            const res = await NetworkClient.request('UPDATE_OPTIONS', { customOptions: fixedOptions });
             if (res.ok && res.data?.room) this.onlineCurrentRoom = res.data.room;
             return res.ok;
         }
         const room = this.getCurrentRoom();
         if (!room) return false;
-        room.customOptions = { ...room.customOptions, ...customOptions };
+        room.customOptions = fixedOptions;
         return true;
     },
 
@@ -742,9 +774,14 @@ export const RoomManager = {
     },
 
     canStart(room = this.getCurrentRoom()) {
+        const meta = room ? getGameMeta(room.gameId) : null;
         const s = this.getReadinessSummary(room);
+        if (meta && meta.gameSupported === false) {
+            return { canStart: false, reason: 'ERR_GAME_IN_DEVELOPMENT', summary: s };
+        }
         return {
             canStart: s.hasMinPlayers && s.allHumansReady,
+            reason: (s.hasMinPlayers && s.allHumansReady) ? null : 'TOAST_NEED_MIN_PLAYERS',
             summary: s
         };
     },
@@ -753,9 +790,12 @@ export const RoomManager = {
     startLocalGameSession(room) {
         this.stopLocalGameSession();
         const myId = this.localPlayer.id;
+        let currentViewerId = myId;
         const resolveViewer = (eng) => {
+            if (!eng) return currentViewerId;
             const active = eng.turnManager?.getCurrentPlayer();
             if (active && !active.isAi()) {
+                currentViewerId = active.id;
                 return active.id;
             }
             return myId;
@@ -767,16 +807,43 @@ export const RoomManager = {
             callbacks: {
                 onStateChange: (eng) => {
                     const viewer = resolveViewer(eng);
+                    currentViewerId = viewer;
                     const snap = eng.getSnapshotForPlayer(viewer);
                     snap.viewerId = viewer;
                     this.activeSnapshot = snap;
                     this._emitGame('STATE', snap);
                 },
                 onEvent: (event) => {
+                    const viewer = this.localEngine ? resolveViewer(this.localEngine) : currentViewerId;
+                    if (event?.targetPlayerId && event.targetPlayerId !== viewer) {
+                        return;
+                    }
+                    if (event?.type === 'GAME_OVER' && event.matchLogData) {
+                        const logGameId = room?.gameId || 'marble';
+                        SystemLogManager.recordGameResult(logGameId, event.matchLogData).catch(() => {});
+                        if (logGameId === 'marble') {
+                            SystemLogManager.recordGameResult('marble_10', event.matchLogData).catch(() => {});
+                        }
+                    }
                     this._emitGame('EVENT', event);
                 },
                 onTimerTick: (tick) => {
                     this._emitGame('TIMER', tick);
+                },
+                onPlayerAfkKick: ({ playerId, aiType }) => {
+                    const kickPayload = {
+                        roomId: room?.id || 'local_marble',
+                        gameId: room?.gameId || 'marble',
+                        reason: 'AFK_KICKED',
+                        aiType
+                    };
+                    if (playerId === this.localPlayer.id || (room?.slots || []).filter(s => s.type === 'human' && !s.isMockHuman).length <= 1) {
+                        this.stopLocalGameSession();
+                        this.currentRoomId = null;
+                        this.activeSnapshot = null;
+                        this._emitUi('KICKED_FROM_ROOM', kickPayload);
+                        this._emitGame('KICKED', kickPayload);
+                    }
                 }
             }
         });
@@ -807,7 +874,9 @@ export const RoomManager = {
         }
         if (this.localEngine) {
             const active = this.localEngine.turnManager?.getCurrentPlayer();
-            const actorId = (active && !active.isAi()) ? active.id : this.localPlayer.id;
+            const actorId = (action?.type === 'AFK_RETURN')
+                ? (this.activeSnapshot?.viewerId || this.localPlayer.id)
+                : ((active && !active.isAi()) ? active.id : this.localPlayer.id);
             return this.localEngine.handleAction(actorId, action);
         }
         return { ok: false, error: 'NO_ACTIVE_SESSION' };
