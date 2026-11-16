@@ -1,16 +1,15 @@
 // ProgramFiles/Lobby/RoomManager.js
 // 온라인 WebSocket 서버 연동 + 오프라인 로컬 엔진 폴백을 통합 제공하는 방/매치 매니저
 
-import { getGameMeta, pickRandomBotName } from '../System/GameRegistry.js';
+import { getGameMeta, pickRandomBotName, AI_DIFFICULTIES, normalizeAiDifficulty } from '../System/GameRegistry.js';
 import { LangState } from '../System/LanguageManager.js';
 import { LobbyLang } from '../System/Index/LobbyIndex.js';
-import { GAME_CONSTANTS } from '../System/Index/Marble/MarblePriceIndex.js';
+import { GAME_CONSTANTS, getModeConfig, normalizeMarbleMode } from '../System/Index/Marble/MarblePriceIndex.js';
 import { NetworkClient } from '../System/NetworkClient.js';
 import { SystemLogManager } from '../System/Log/SystemLogManager.js';
 import { MarbleGameEngine } from '../Marble/MarbleEngine.js';
 
 const SLOT_COLORS = ['#e74c3c', '#3498db', '#f1c40f', '#9b59b6', '#2ecc71', '#e67e22'];
-const AI_ARCHETYPES = ['random', 'aggressive', 'defensive', 'marathon'];
 const MOCK_NAMES = ['에르핀', '네르', '다야', '티그', '루포', '슈로', '코미', '버터'];
 const CODE_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
@@ -39,7 +38,8 @@ function createEmptySlot(slotIndex) {
         isReady: false,
         isMockHuman: false,
         isConnected: true,
-        aiType: null
+        aiType: null,
+        aiDifficulty: null
     };
 }
 
@@ -52,10 +52,13 @@ function mapServerError(errorCode) {
     return SERVER_ERROR_TO_KEY[errorCode] || errorCode || 'ERR_NOT_FOUND';
 }
 
-function getDefaultCustomOptions() {
+function getDefaultCustomOptions(raw = null) {
+    const gameMode = normalizeMarbleMode(raw?.gameMode);
+    const modeCfg = getModeConfig(gameMode);
     return {
-        maxTurn: GAME_CONSTANTS.MAX_TURN,
-        initialMoney: GAME_CONSTANTS.INITIAL_MONEY
+        gameMode,
+        maxTurn: modeCfg.maxTurn || GAME_CONSTANTS.MAX_TURN,
+        initialMoney: (modeCfg.initialMoneyByOrder && modeCfg.initialMoneyByOrder[0]) || GAME_CONSTANTS.INITIAL_MONEY
     };
 }
 
@@ -245,6 +248,7 @@ export const RoomManager = {
         if (cur) {
             const mySlot = this.getMySlot(cur);
             if (mySlot) mySlot.name = this.localPlayer.name;
+            this._emitUi('ROOM_UPDATED', cur);
         }
         return true;
     },
@@ -322,6 +326,7 @@ export const RoomManager = {
             };
             for (let a = 1; a <= s.aiCount && a < s.max; a++) {
                 const usedNames = slots.filter(sl => sl.type !== 'empty' && sl.name).map(sl => sl.name);
+                const sampleDiff = AI_DIFFICULTIES[Math.floor(Math.random() * AI_DIFFICULTIES.length)];
                 slots[a] = {
                     slotIndex: a,
                     type: 'ai',
@@ -332,7 +337,8 @@ export const RoomManager = {
                     isReady: true,
                     isMockHuman: false,
                     isConnected: true,
-                    aiType: AI_ARCHETYPES[Math.floor(Math.random() * AI_ARCHETYPES.length)]
+                    aiType: 'random',
+                    aiDifficulty: sampleDiff
                 };
             }
 
@@ -392,12 +398,11 @@ export const RoomManager = {
     },
 
     async createRoom({ gameId, title, isPrivate = false, password = '', maxPlayers = 4, customOptions = null }) {
-        void customOptions;
         const trimmedTitle = (title || '').trim().slice(0, 32);
         if (!trimmedTitle) {
             return { ok: false, errorCode: 'ERR_TITLE_EMPTY' };
         }
-        const fixedOptions = getDefaultCustomOptions();
+        const fixedOptions = getDefaultCustomOptions(customOptions);
 
         if (this.isOnline()) {
             const res = await NetworkClient.request('CREATE_ROOM', {
@@ -598,9 +603,10 @@ export const RoomManager = {
         return { ok: true };
     },
 
-    async fillSlotWithAi(slotIndex, aiType = 'random') {
+    async fillSlotWithAi(slotIndex, aiDifficulty = 'mild') {
+        const normDiff = normalizeAiDifficulty(aiDifficulty, 'mild');
         if (this.isOnline()) {
-            const res = await NetworkClient.request('ADD_AI', { slotIndex, aiType });
+            const res = await NetworkClient.request('ADD_AI', { slotIndex, aiType: normDiff, aiDifficulty: normDiff });
             if (res.ok && res.data?.room) this.onlineCurrentRoom = res.data.room;
             return res.ok;
         }
@@ -617,7 +623,8 @@ export const RoomManager = {
             isReady: true,
             isMockHuman: false,
             isConnected: true,
-            aiType: AI_ARCHETYPES.includes(aiType) ? aiType : 'random'
+            aiType: 'random',
+            aiDifficulty: normDiff
         };
         return true;
     },
@@ -644,7 +651,8 @@ export const RoomManager = {
                     isReady: true,
                     isMockHuman: false,
                     isConnected: true,
-                    aiType: 'random'
+                    aiType: 'random',
+                    aiDifficulty: 'mild'
                 };
                 changed = true;
             }
@@ -679,8 +687,11 @@ export const RoomManager = {
         const room = this.getCurrentRoom();
         const slot = room?.slots[slotIndex];
         if (!slot || slot.type !== 'ai') return false;
-        const curIdx = AI_ARCHETYPES.indexOf(slot.aiType || 'random');
-        slot.aiType = AI_ARCHETYPES[(curIdx + 1) % AI_ARCHETYPES.length];
+        const curDiff = normalizeAiDifficulty(slot.aiDifficulty || slot.aiType, 'mild');
+        const curIdx = AI_DIFFICULTIES.indexOf(curDiff);
+        const nextDiff = AI_DIFFICULTIES[(curIdx + 1) % AI_DIFFICULTIES.length];
+        slot.aiDifficulty = nextDiff;
+        slot.aiType = 'random';
         return true;
     },
 
@@ -720,16 +731,24 @@ export const RoomManager = {
     },
 
     async updateCustomOptions(customOptions) {
-        void customOptions;
-        const fixedOptions = getDefaultCustomOptions();
+        const cur = this.getCurrentRoom();
+        if (!cur || cur.hostId !== this.localPlayer.id) {
+            return false;
+        }
+        const merged = { ...(cur?.customOptions || {}), ...(customOptions || {}) };
+        const fixedOptions = getDefaultCustomOptions(merged);
         if (this.isOnline()) {
             const res = await NetworkClient.request('UPDATE_OPTIONS', { customOptions: fixedOptions });
-            if (res.ok && res.data?.room) this.onlineCurrentRoom = res.data.room;
+            if (res.ok && res.data?.room) {
+                this.onlineCurrentRoom = res.data.room;
+                this._emitUi('ROOM_UPDATED', res.data.room);
+            }
             return res.ok;
         }
         const room = this.getCurrentRoom();
         if (!room) return false;
         room.customOptions = fixedOptions;
+        this._emitUi('ROOM_UPDATED', room);
         return true;
     },
 

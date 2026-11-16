@@ -3,6 +3,8 @@ import { RoomManager } from './RoomManager.js';
 import { getGameMeta } from '../System/GameRegistry.js';
 import { LangState } from '../System/LanguageManager.js';
 import { LobbyLang } from '../System/Index/LobbyIndex.js';
+import { MenuLang } from '../System/Index/MainMenuIndex.js';
+import { AudioManager, SettingsManager } from '../System/System.js';
 
 export function escapeHtml(str) {
     return String(str ?? '')
@@ -50,6 +52,7 @@ export function renderGameMainPage(container, config) {
 
     const render = () => {
         const text = LobbyLang[LangState.current] || LobbyLang.ko;
+        const menuText = MenuLang[LangState.current] || MenuLang.ko;
         const rooms = RoomManager.getPublicRooms(gameId);
         const gameTitle = text[titleKey] || gameId;
         const gameBadge = text[badgeKey] || '';
@@ -91,28 +94,29 @@ export function renderGameMainPage(container, config) {
         container.innerHTML = `
             <div style="width: 100%; height: 100%; box-sizing: border-box; padding: 42px 60px; display: flex; flex-direction: column; position: relative;">
                 <!-- 상단 헤더 -->
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px;">
-                    <div style="display: flex; align-items: center; gap: 24px;">
-                        <button id="btn-back-arena" style="font-family: inherit; padding: 14px 26px; font-size: 22px; font-weight: bold; background: #165b7a; color: #fff; border: none; border-radius: 12px; cursor: pointer;">${escapeHtml(text.BACK_TO_ARENA)}</button>
-                        <div>
-                            <div style="display: flex; align-items: center; gap: 14px;">
-                                <h1 style="margin: 0; font-size: 46px; color: #165b7a;">${escapeHtml(gameTitle)}</h1>
-                                <span style="padding: 6px 14px; border-radius: 20px; background: ${meta.accentColor}; color: #fff; font-size: 18px; font-weight: bold;">${escapeHtml(gameBadge)}</span>
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 28px; flex-wrap: nowrap;">
+                    <div style="display: flex; align-items: center; gap: 20px; min-width: 0; flex: 1;">
+                        <button id="btn-back-arena" style="font-family: inherit; padding: 14px 24px; font-size: 21px; font-weight: bold; background: #165b7a; color: #fff; border: none; border-radius: 12px; cursor: pointer; white-space: nowrap; flex-shrink: 0;">${escapeHtml(text.BACK_TO_ARENA)}</button>
+                        <div style="min-width: 0;">
+                            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: nowrap;">
+                                <h1 style="margin: 0; font-size: 42px; color: #165b7a; white-space: nowrap;">${escapeHtml(gameTitle)}</h1>
+                                <span style="padding: 6px 14px; border-radius: 20px; background: ${meta.accentColor}; color: #fff; font-size: 18px; font-weight: bold; white-space: nowrap; flex-shrink: 0;">${escapeHtml(gameBadge)}</span>
                             </div>
-                            <p style="margin: 6px 0 0 0; font-size: 21px; color: #4a5568;">${escapeHtml(text.GAME_MAIN_SUBTITLE)}</p>
+                            <p style="margin: 6px 0 0 0; font-size: 20px; color: #4a5568; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(text.GAME_MAIN_SUBTITLE)}</p>
                         </div>
                     </div>
 
                     <!-- 닉네임 설정 & 네트워크 상태 바 -->
-                    <div style="display: flex; align-items: center; gap: 14px;">
-                        <div id="net-status-badge" style="padding: 12px 18px; border-radius: 14px; font-size: 18px; font-weight: bold; color: #fff; background: ${RoomManager.isOnline() ? '#27ae60' : (RoomManager.getNetworkStatus().status === 'reconnecting' ? '#d35400' : '#7f8c8d')};">
+                    <div style="display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; flex-shrink: 0;">
+                        <div id="net-status-badge" style="padding: 12px 16px; border-radius: 14px; font-size: 17px; font-weight: bold; color: #fff; white-space: nowrap; flex-shrink: 0; background: ${RoomManager.isOnline() ? '#27ae60' : (RoomManager.getNetworkStatus().status === 'reconnecting' ? '#d35400' : '#7f8c8d')};">
                             ${escapeHtml(RoomManager.isOnline() ? (text.NET_ONLINE || '🟢 온라인') : (RoomManager.getNetworkStatus().status === 'reconnecting' ? (text.NET_RECONNECTING || '🟡 재연결 중') : (text.NET_OFFLINE || '🟠 오프라인 AI 모드')))}
                         </div>
-                        <div style="display: flex; align-items: center; gap: 12px; background: #216a8c; padding: 14px 22px; border-radius: 16px; color: #fff;">
-                            <span style="font-size: 19px; font-weight: bold;">${escapeHtml(text.NICKNAME_LABEL)}:</span>
-                            <input id="input-nickname" type="text" maxlength="16" value="${escapeHtml(RoomManager.localPlayer.name)}" style="font-family: inherit; width: 180px; padding: 8px 12px; font-size: 20px; border-radius: 8px; border: none; outline: none;">
-                            <button id="btn-save-nick" style="font-family: inherit; padding: 8px 18px; font-size: 19px; font-weight: bold; background: #f39c12; color: #fff; border: none; border-radius: 8px; cursor: pointer;">${escapeHtml(text.BTN_CHANGE_NICK)}</button>
+                        <div style="display: flex; align-items: center; gap: 10px; background: #216a8c; padding: 11px 16px; border-radius: 14px; color: #fff; flex-shrink: 0;">
+                            <span style="font-size: 17px; font-weight: bold; white-space: nowrap;">${escapeHtml(text.NICKNAME_LABEL)}:</span>
+                            <input id="input-nickname" type="text" maxlength="16" value="${escapeHtml(RoomManager.localPlayer.name)}" style="font-family: inherit; width: 150px; padding: 7px 10px; font-size: 18px; border-radius: 8px; border: none; outline: none;">
+                            <button id="btn-save-nick" style="font-family: inherit; padding: 7px 14px; font-size: 17px; font-weight: bold; background: #f39c12; color: #fff; border: none; border-radius: 8px; cursor: pointer; white-space: nowrap; flex-shrink: 0;">${escapeHtml(text.BTN_CHANGE_NICK)}</button>
                         </div>
+                        <button id="btn-lobby-settings" style="font-family: inherit; padding: 13px 20px; font-size: 19px; font-weight: bold; background: #165b7a; color: #fff; border: none; border-radius: 14px; cursor: pointer; white-space: nowrap; flex-shrink: 0;">${escapeHtml(text.BTN_ROOM_SETTINGS || menuText.SETTINGS)}</button>
                     </div>
                 </div>
 
@@ -215,6 +219,27 @@ export function renderGameMainPage(container, config) {
                         </div>
                     </div>
                 </div>
+                <!-- 로비 설정 팝업 (메인 메뉴 설정과 동일) -->
+                <div id="popup-lobby-settings" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; padding: 50px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 1000; width: 500px; border: 5px solid #165b7a; color: #1a202c;">
+                    <h2 style="margin-top:0; font-size: 36px; text-align: center; color: #165b7a;">${escapeHtml(menuText.SETTINGS)}</h2>
+                    <div style="font-size: 24px; margin-bottom: 20px;"><label>${escapeHtml(menuText.BGM)}: <input type="range" id="lobby-bgm-slider" min="0" max="1" step="0.1" value="${AudioManager.bgmPlayer.volume}" style="width:100%;"></label></div>
+                    <div style="font-size: 24px; margin-bottom: 30px;"><label>${escapeHtml(menuText.SFX)}: <input type="range" id="lobby-sfx-slider" min="0" max="1" step="0.1" value="${AudioManager.sfxVolume}" style="width:100%;"></label></div>
+
+                    <div style="font-size: 24px; margin-bottom: 30px; text-align: center;">
+                        <p style="margin:0 0 10px 0;">${escapeHtml(menuText.FONT)}</p>
+                        <button id="lobby-font-gothic" type="button" style="font-family: 'Malgun Gothic', sans-serif; padding: 10px 20px; font-size: 20px; cursor: pointer;">${escapeHtml(menuText.FONT_GOTHIC)}</button>
+                        <button id="lobby-font-gulim" type="button" style="font-family: 'Gulim', 'Dotum', sans-serif; padding: 10px 20px; font-size: 20px; cursor: pointer;">${escapeHtml(menuText.FONT_GULIM)}</button>
+                    </div>
+
+                    <div style="font-size: 24px; margin-bottom: 30px; text-align: center;">
+                        <p style="margin:0 0 10px 0;">${escapeHtml(menuText.LANG)}</p>
+                        <button id="lobby-lang-ko" type="button" style="padding: 10px; font-size: 18px; font-family: inherit; cursor: pointer;">한글</button>
+                        <button id="lobby-lang-en" type="button" style="padding: 10px; font-size: 18px; font-family: inherit; cursor: pointer;">Eng</button>
+                        <button id="lobby-lang-ja" type="button" style="padding: 10px; font-size: 18px; font-family: inherit; cursor: pointer;">日本語</button>
+                    </div>
+
+                    <button id="close-lobby-settings" type="button" style="font-family: inherit; width: 100%; padding: 15px; font-size: 24px; background: #e74c3c; color: white; border: none; border-radius: 10px; cursor: pointer;">${escapeHtml(menuText.CLOSE)}</button>
+                </div>
                 ${showAfkPenalty ? `
                 <div id="modal-afk-penalty" style="position: absolute; inset: 0; background: rgba(0,0,0,0.58); z-index: 9600; display: flex; align-items: center; justify-content: center; opacity: ${afkPenaltyFaded ? 1 : 0}; transition: opacity 0.35s ease;">
                     <div style="width: 580px; max-width: 90vw; background: #165b7a; border: 4px solid #e74c3c; border-radius: 24px; padding: 38px 40px; box-shadow: 0 20px 50px rgba(0,0,0,0.55); color: #fff; text-align: center;">
@@ -262,6 +287,30 @@ export function renderGameMainPage(container, config) {
             showLobbyToast(container, `${text.NICK_UPDATED} ${RoomManager.localPlayer.name}`);
         };
         container.querySelector('#btn-save-nick').onclick = saveNick;
+
+        const lobbySettingsPopup = container.querySelector('#popup-lobby-settings');
+        const openLobbySettingsBtn = container.querySelector('#btn-lobby-settings');
+        const closeLobbySettingsBtn = container.querySelector('#close-lobby-settings');
+        if (openLobbySettingsBtn && lobbySettingsPopup) {
+            openLobbySettingsBtn.onclick = () => { lobbySettingsPopup.style.display = 'block'; };
+        }
+        if (closeLobbySettingsBtn && lobbySettingsPopup) {
+            closeLobbySettingsBtn.onclick = () => { lobbySettingsPopup.style.display = 'none'; };
+        }
+        const lobbyBgmSlider = container.querySelector('#lobby-bgm-slider');
+        if (lobbyBgmSlider) lobbyBgmSlider.oninput = (e) => AudioManager.setBGMVolume(e.target.value);
+        const lobbySfxSlider = container.querySelector('#lobby-sfx-slider');
+        if (lobbySfxSlider) lobbySfxSlider.oninput = (e) => AudioManager.setSFXVolume(e.target.value);
+        const lobbyFontGothic = container.querySelector('#lobby-font-gothic');
+        if (lobbyFontGothic) lobbyFontGothic.onclick = () => SettingsManager.toggleFont(false);
+        const lobbyFontGulim = container.querySelector('#lobby-font-gulim');
+        if (lobbyFontGulim) lobbyFontGulim.onclick = () => SettingsManager.toggleFont(true);
+        const lobbyLangKo = container.querySelector('#lobby-lang-ko');
+        if (lobbyLangKo) lobbyLangKo.onclick = () => LangState.set('ko');
+        const lobbyLangEn = container.querySelector('#lobby-lang-en');
+        if (lobbyLangEn) lobbyLangEn.onclick = () => LangState.set('en');
+        const lobbyLangJa = container.querySelector('#lobby-lang-ja');
+        if (lobbyLangJa) lobbyLangJa.onclick = () => LangState.set('ja');
 
         // 모달 제어
         const createModal = container.querySelector('#modal-create-room');

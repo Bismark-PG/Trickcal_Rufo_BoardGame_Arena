@@ -11,7 +11,7 @@ import { CardUILang } from '../System/Index/Marble/MarbleCardUIIndex.js';
 import { GimmickLang } from '../System/Index/Marble/MarbleGimmickIndex.js';
 import { SettlementLang } from '../System/Index/Marble/MarbleSettlementIndex.js';
 import { CardIndex } from '../System/Index/Marble/MarbleCardIndex.js';
-import { GAME_CONSTANTS } from '../System/Index/Marble/MarblePriceIndex.js';
+import { GAME_CONSTANTS, getModeConfig, normalizeMarbleMode } from '../System/Index/Marble/MarblePriceIndex.js';
 
 export function pickLangDict(langMap, lang = LangState.current) {
     if (!langMap) return {};
@@ -151,10 +151,13 @@ export function createMarbleWorldMetrics() {
     };
 }
 
-export function createMarbleWorldState() {
+export function createMarbleWorldState(gameMode = 'ember') {
+    const normalizedMode = normalizeMarbleMode(gameMode);
+    const modeCfg = getModeConfig(normalizedMode);
     return {
+        gameMode: normalizedMode,
         currentTurn: 1,
-        maxTurn: 20,
+        maxTurn: modeCfg.maxTurn,
         currentTime: 'none',
         timeSlot: {
             currentPhase: 'none',
@@ -162,7 +165,9 @@ export function createMarbleWorldState() {
             hasDayFinished: false,
             hasNightFinished: false
         },
-        bbangjuState: 'recruiting',
+        bbangjuState: modeCfg.enableBbangjuChief
+            ? 'recruiting'
+            : ((modeCfg.bbangjuOpenTurn || 1) > 1 ? 'locked' : 'finished'),
         bbangjuChiefs: [],
         globalBbangjuVisits: 0,
         isFurryBeach: false,
@@ -259,7 +264,8 @@ export function formatMoney(amount, lang = LangState.current) {
 
 export function getTileName(tile, worldState = null, lang = LangState.current) {
     const world = worldState || getActiveWorld();
-    if (tile.id === BOARD_TILES.BBANGJU && (world?.currentTurn ?? 1) < 4) {
+    const modeCfg = getModeConfig(world?.gameMode);
+    if (tile.id === BOARD_TILES.BBANGJU && modeCfg.enableBbangjuChief && (world?.currentTurn ?? 1) < 4) {
         return BbangjuWorkshopName[lang] || BbangjuWorkshopName.ko;
     }
     const names = BoardNames[tile.id];
@@ -284,8 +290,8 @@ export const RuntimePopup = {
     showNormalPopup(title, desc, showCloseBtn, onEndCallback) {
         getRuntimePort().showNormalPopup(title, desc, showCloseBtn, onEndCallback);
     },
-    showBuyPopup(tile, costs, playerMoney, onBuyCallback, onCancelCallback) {
-        getRuntimePort().showBuyPopup(tile, costs, playerMoney, onBuyCallback, onCancelCallback);
+    showBuyPopup(tile, costs, playerMoney, onBuyCallback, onCancelCallback, maxAllowedLvl = null) {
+        getRuntimePort().showBuyPopup(tile, costs, playerMoney, onBuyCallback, onCancelCallback, maxAllowedLvl);
     },
     showCrisisPopup(toll, canSellCover, onSell, onLoan) {
         getRuntimePort().showCrisisPopup(toll, canSellCover, onSell, onLoan);

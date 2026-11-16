@@ -39,7 +39,8 @@ export const GAME_CONSTANTS = {
     LAP_COMBO_STEP_START_LAP: 5,
     LAP_COMBO_STEP_BASE: 1000000,
     LAP_COMBO_STEP_INCREMENT: 100000,
-    THINK_TIME: 10,         // 기본 고민 시간 (굴리기 전 10초 / 굴리기 후 10초)
+    THINK_TIME: 10,         // 기본 고민 시간 (굴리기 전 및 일반 선택 10초)
+    BUY_THINK_TIME: 15,     // 영토 구매·건설·확장·인수 고민 시간 (15초, 굴림 10초와 합산 총 25초 사용 가능)
 
     // 월드 기믹 (시간대) 턴 설정
     TIME_DAY_START_TURN: 10,    // 낮 시간대 시작 글로벌 턴 (10턴)
@@ -100,12 +101,16 @@ export const GAME_CONSTANTS = {
     SIST_DEAL_COST: 500000,   // 시스트의 거래 획득 시 강제 지불 비용 (50만)
     
     // 대출 관련 상수
-    LOAN_MAX_COUNT: 2,         // 최대 대출 횟수
-    LOAN_CRISIS_BONUS: 750000, // 대출 시 추가 지급되는 1순회 보너스 고정값 (START_BONUS 동일)
-    LOAN_INTEREST_RATE: 0.025, // 기본 턴당 이자율 2.5%
-    LOAN_PIRA_INTEREST_RATE: 0.05, // 피라의 대부업명함 보유 시 턴당 이자율 5%
-    LOAN_PIRA_AMOUNT_MULT: 0.5,    // 피라의 대부업명함 보유 시 대출 원금 배율 0.5배
-    LOAN_REPAY_PERCENTS: [10, 25, 50, 75, 100], // 턴 시작 중도 상환 선택 비율(%) (원금 기준)
+    LOAN_MAX_COUNT: 2,                 // 최대 대출 횟수
+    LOAN_CRISIS_BONUS: 750000,         // 대출 시 추가 지급되는 보너스 고정값
+    LOAN_FIXED_INTEREST_RATE: 0.10,    // 대출 실행 시 고정 이자율 10%
+    LOAN_PIRA_FIXED_INTEREST_RATE: 0.20, // 피라의 대부업명함 보유 시 고정 이자율 20%
+    LOAN_SETTLEMENT_RATE: 0.025,       // 미상환 정산 경과 턴당 기본 이율 2.5% (모드별 오버라이드 사용)
+    LOAN_PIRA_SETTLEMENT_MULT: 2,      // 피라의 대부업명함 보유 시 정산 미상환 이율 배수 (2배)
+    LOAN_INTEREST_RATE: 0.025,         // 하위 호환용 기본 정산 이율 2.5%
+    LOAN_PIRA_INTEREST_RATE: 0.05,     // 하위 호환용 피라 이율 5%
+    LOAN_PIRA_AMOUNT_MULT: 0.5,        // 피라의 대부업명함 보유 시 대출 원금 배율 0.5배
+    LOAN_REPAY_PERCENTS: [10, 20, 30, 40, 50, 60, 70, 80, 90, 100], // 턴 시작 중도 상환 선택 비율(%) (원리금 균등 10% 단위)
 
     // 그을음/윤회·빛무리 기본 파라미터
     REINCARNATION_SKILL_COST_RATE: 0.10,
@@ -113,30 +118,229 @@ export const GAME_CONSTANTS = {
     HALO_POSITIVE_MULT: 2.0        // 빛무리 수혜자 긍정 효과 배율
 };
 
+// ==========================================
+// 게임 모드 3종 정의 (스피드: mode 1 / 기본: mode 2 / 불씨: mode 3)
+// ==========================================
+export const MARBLE_MODES = {
+    speed: {
+        id: 'speed',
+        modeIndex: 1,
+        maxTurn: 10,
+        estimatedMinutes: '10~15',
+        gridUnits: 11,
+        boardTexture: './Resource/Texture/Marble/Board_Mode_Speed.png',
+        excludedTileIds: [1, 8, 13, 16, 21, 23, 31, 39], // 1열(1,8), 2열(13,16), 3열(21,23), 4열(31,39) 총 8칸 제외 -> 32칸
+        activeTileCount: 32,
+        initialMoney: 5000000,
+        initialMoneyByOrder: [5000000, 5250000, 5500000, 5750000],
+        firstLapBonusByOrder: [700000, 800000, 900000, 1000000],
+        startBonus: 1250000,       // 2회차 순회 보상 (100 + (2-1)*25 = 125만)
+        lapBonus3: 1500000,        // 3회차 순회 보상 (150만)
+        lapBonus4: 1750000,        // 4회차 순회 보상 (175만)
+        lapBonus5PlusStep: 250000, // 5회차+: 100만 + (횟수 - 1) * 25만
+        loanSettlementRate: 0.05,  // 미상환 정산 이율: 경과 턴당 5%
+        timeDayStartTurn: 4,       // 4~6턴 낮(3턴), 7~9턴 밤(3턴), 10턴 통상
+        timeSlotDuration: 3,
+        worldGimmickEndTurn: 10,
+        enableBbangjuChief: false, // 정비반장 모집/정산 없음 (3턴 자동 개방, 1~2턴 도착 시 50만 지불 즉시 전체 개방)
+        bbangjuOpenTurn: 3,
+        bbangjuEarlyOpenFee: 500000,
+        bbangjuSupportInstallment: 0,
+        bbangjuDirectPurchase: 0,
+        settleBbangjuBase: 0,
+        settleBbangjuUnit: 0,
+        enableTreasureAndRequiem: false, // 보물 카드 및 그을음/빛무리/윤회 미등장
+        cardNormalProb: 85,        // 차원 열쇠 카드 확률: 일반 85% / 특수 15%
+        cardSpecialProb: 15,
+        firstVisitMaxLevel: 3,     // 3턴부터 (또는 1순회 완료 시 즉시) 왕국(Lv.3)까지 한 번에 건설 허용
+        firstVisitUnlockTurn: 3,   // 전원 1~2턴 마을(Lv.2) 제한 -> 1회 순회 완료 또는 3턴부터 왕국(Lv.3) 해금
+        firstVisitUnlockOnFirstLap: true,
+        altarWarpToRandomCardTile: true // 망가진 제단 도착 시 랜덤 차원 열쇠 칸 워프
+    },
+    basic: {
+        id: 'basic',
+        modeIndex: 2,
+        maxTurn: 15,
+        estimatedMinutes: '20~25',
+        gridUnits: 12,
+        boardTexture: './Resource/Texture/Marble/Board_Mode_Basic.png',
+        excludedTileIds: [8, 13, 23, 31], // 1열(8:수인의 숲), 2열(13:수인의 숲 협곡), 3열(23:정령산 지하), 4열(31:마녀왕국거리) 총 4칸 제외 -> 36칸
+        activeTileCount: 36,
+        initialMoney: 5500000,
+        initialMoneyByOrder: [5500000, 5750000, 6000000, 6250000],
+        firstLapBonusByOrder: [650000, 750000, 850000, 950000],
+        startBonus: 850000,        // 2회차 순회 보상 (85만)
+        lapBonus3: 1000000,        // 3회차 순회 보상 (100만)
+        lapBonus4: 1200000,        // 4회차 순회 보상 (120만)
+        lapBonus5PlusStep: 150000, // 5회차+: 120만 + (횟수 - 4) * 15만
+        loanSettlementRate: 0.03,  // 미상환 정산 이율: 경과 턴당 3%
+        timeDayStartTurn: 5,       // 5~9턴 낮(5턴), 10~14턴 밤(5턴), 15턴 통상
+        timeSlotDuration: 5,
+        worldGimmickEndTurn: 15,
+        enableBbangjuChief: true,  // 정비반장 기믹 활성화 (지원금 회당 25만, 즉시 구매 100만)
+        bbangjuOpenTurn: 4,
+        bbangjuEarlyOpenFee: 0,
+        bbangjuSupportInstallment: 250000,
+        bbangjuDirectPurchase: 1000000,
+        settleBbangjuBase: 750000, // 기본 모드 빵주 정산 보너스: 75만 + 10만 * 전체 이용 횟수
+        settleBbangjuUnit: 100000,
+        enableTreasureAndRequiem: false, // 보물 카드 및 그을음/빛무리/윤회 미등장
+        cardNormalProb: 90,        // 차원 열쇠 카드 확률: 일반 90% / 특수 10%
+        cardSpecialProb: 10,
+        firstVisitMaxLevel: 3,     // 4턴부터 (또는 1순회 완료 시 즉시) 왕국(Lv.3)까지 한 번에 프리패스 건설 허용
+        firstVisitUnlockTurn: 4,   // 1~3턴은 첫 방문 시 마을(Lv.2)까지만 건설 -> 1회 순회 완료 또는 4턴부터 왕국(Lv.3) 해금
+        firstVisitUnlockOnFirstLap: true,
+        turn1Order12MaxLevel: 2,
+        altarWarpToRandomCardTile: true // 망가진 제단 도착 시 랜덤 차원 열쇠 칸 워프
+    },
+    ember: {
+        id: 'ember',
+        modeIndex: 3,
+        maxTurn: 20,
+        estimatedMinutes: '25~30',
+        gridUnits: 13,
+        boardTexture: './Resource/Texture/Marble/Board_Mode_Ember.png',
+        excludedTileIds: [],
+        activeTileCount: 40,
+        initialMoney: 5000000,
+        initialMoneyByOrder: [5000000, 5250000, 5500000, 5750000],
+        firstLapBonusByOrder: [500000, 600000, 700000, 800000],
+        startBonus: 750000,        // 2회차 순회 보상 (75만)
+        lapBonus3: 850000,         // 3회차 순회 보상 (85만)
+        lapBonus4: 1000000,        // 4회차 순회 보상 (100만)
+        lapBonus5PlusStep: 100000, // 5회차+: 100만 + (횟수 - 4) * 10만
+        loanSettlementRate: 0.025, // 미상환 정산 이율: 경과 턴당 2.5%
+        timeDayStartTurn: 10,      // 10~14턴 낮(5턴), 15~19턴 밤(5턴), 20턴 통상
+        timeSlotDuration: 5,
+        worldGimmickEndTurn: 20,
+        enableBbangjuChief: true,  // 정비반장 기믹 활성화 (지원금 회당 50만, 즉시 구매 200만)
+        bbangjuOpenTurn: 4,
+        bbangjuEarlyOpenFee: 0,
+        bbangjuSupportInstallment: 500000,
+        bbangjuDirectPurchase: 2000000,
+        settleBbangjuBase: 1500000, // 불씨 모드 빵주 정산 보너스: 150만 + 20만 * 전체 이용 횟수
+        settleBbangjuUnit: 200000,
+        enableTreasureAndRequiem: true, // 보물 카드 및 그을음/빛무리/윤회 전체 등장
+        cardNormalProb: 85,        // 차원 열쇠 카드 확률: 보물 미개방 시 85/15, 개방 시 70/10/20
+        cardSpecialProb: 10,
+        firstVisitMaxLevel: 2,     // 첫 방문 시 마을(Lv.2)까지 건설 허용
+        turn1Order12MaxLevel: 2,
+        altarWarpToRandomCardTile: false // 망가진 제단: 1회차 보물 개방, 2회차+ 확정 보물 포탈
+    }
+};
+
+export function normalizeMarbleMode(mode) {
+    if (!mode) return 'ember';
+    const raw = String(mode).trim().toLowerCase();
+    if (raw === 'speed' || raw === 'casual' || raw === '1' || raw === 'mode1') return 'speed';
+    if (raw === 'basic' || raw === '2' || raw === 'mode2') return 'basic';
+    return 'ember';
+}
+
+export function getModeConfig(mode = 'ember') {
+    const key = normalizeMarbleMode(mode);
+    return MARBLE_MODES[key] || MARBLE_MODES.ember;
+}
+
+export function isTileExcludedInMode(tileId, mode = 'ember') {
+    const cfg = getModeConfig(mode);
+    const ex = cfg.excludedTileIds || [];
+    return ex.includes(Number(tileId));
+}
+
+export function getActiveBoardSize(tilesOrMode = 'ember') {
+    if (Array.isArray(tilesOrMode) && tilesOrMode.length > 0 && typeof tilesOrMode[0] === 'object') {
+        const activeCount = tilesOrMode.filter(t => !t?.isDisabled && t?.type !== 'disabled').length;
+        return activeCount > 0 ? activeCount : 40;
+    }
+    const cfg = getModeConfig(tilesOrMode || 'ember');
+    return cfg.activeTileCount || (40 - (cfg.excludedTileIds?.length || 0));
+}
+
 /**
- * 진행 순서·첫 바퀴 여부·직전 누적 순회 횟수(priorLaps)에 따른 기본 순회 보상을 산출한다.
- * @param {number} playerOrderIdx 0-based 좌석 인덱스
- * @param {boolean} hasFirstLapPassed 첫 바퀴 통과 완료 여부
- * @param {number} priorLaps 이번 통과 직전까지의 누적 순회 횟수
- * @returns {number}
+ * 모드별 비활성 칸(isDisabled)을 건너뛰며 deltaSteps만큼 이동한 최종 칸과 출발지(0번 칸) 통과 여부를 반환한다.
  */
-export function resolveLapBaseBonus(playerOrderIdx = 0, hasFirstLapPassed = false, priorLaps = 0) {
-    if (!hasFirstLapPassed) {
-        return GAME_CONSTANTS.FIRST_LAP_BONUS_BY_ORDER?.[playerOrderIdx] ?? GAME_CONSTANTS.START_BONUS;
+export function stepActiveBoardPos(startPos, deltaSteps, tilesOrMode = 'ember') {
+    let pos = ((Number(startPos) || 0) % 40 + 40) % 40;
+    const steps = Math.trunc(Number(deltaSteps) || 0);
+    if (steps === 0) return { pos, passedStart: false };
+
+    let isDisabledFn;
+    if (Array.isArray(tilesOrMode) && tilesOrMode.length > 0 && typeof tilesOrMode[0] === 'object') {
+        isDisabledFn = (idx) => Boolean(tilesOrMode[idx]?.isDisabled || tilesOrMode[idx]?.type === 'disabled');
+    } else if (Array.isArray(tilesOrMode)) {
+        isDisabledFn = (idx) => tilesOrMode.includes(idx);
+    } else if (tilesOrMode instanceof Set) {
+        isDisabledFn = (idx) => tilesOrMode.has(idx);
+    } else {
+        const cfg = getModeConfig(tilesOrMode || 'ember');
+        const ex = cfg.excludedTileIds || [];
+        isDisabledFn = (idx) => ex.includes(idx);
     }
-    const nextLap = Math.max(1, (Number(priorLaps) || 0) + 1);
-    const stepStart = GAME_CONSTANTS.LAP_COMBO_STEP_START_LAP || 5;
-    if (nextLap >= stepStart) {
-        const base = GAME_CONSTANTS.LAP_COMBO_STEP_BASE || 1000000;
-        const inc = GAME_CONSTANTS.LAP_COMBO_STEP_INCREMENT || 100000;
-        return base + (nextLap - (stepStart - 1)) * inc;
+
+    const dir = steps > 0 ? 1 : -1;
+    let remaining = Math.abs(steps);
+    let passedStart = false;
+    let guard = 0;
+    while (remaining > 0 && guard < 400) {
+        pos = (pos + dir + 40) % 40;
+        if (dir > 0 && pos === 0) {
+            passedStart = true;
+        }
+        if (!isDisabledFn(pos)) {
+            remaining--;
+        }
+        guard++;
     }
-    for (const tier of GAME_CONSTANTS.LAP_COMBO_TIERS || []) {
-        if (nextLap >= tier.minNextLap) {
-            return tier.bonus;
+    return { pos, passedStart };
+}
+
+export function getModeLoanSettlementRate(mode = 'ember') {
+    const cfg = getModeConfig(mode);
+    return cfg.loanSettlementRate ?? GAME_CONSTANTS.LOAN_SETTLEMENT_RATE ?? 0.025;
+}
+
+export function getMaxAllowedBuildLevel(currentTileLevel = -1, mode = 'ember', playerOrderIdx = null, globalTurn = null, hasFirstLapPassed = false) {
+    const cfg = getModeConfig(mode);
+    let firstMax = cfg.firstVisitMaxLevel || 2;
+    const turn = Number(globalTurn) || 1;
+    if (cfg.firstVisitUnlockTurn && turn < cfg.firstVisitUnlockTurn) {
+        const unlockedByLap = Boolean(cfg.firstVisitUnlockOnFirstLap && hasFirstLapPassed);
+        if (!unlockedByLap) {
+            firstMax = 2;
         }
     }
-    return GAME_CONSTANTS.START_BONUS;
+    if (firstMax >= 3) {
+        return currentTileLevel < 3 ? 3 : 4;
+    }
+    return currentTileLevel < 2 ? 2 : (currentTileLevel === 2 ? 3 : 4);
+}
+
+/**
+ * 진행 순서·첫 바퀴 여부·직전 누적 순회 횟수(priorLaps)·게임 모드에 따른 기본 순회 보상을 산출한다.
+ * - 스피드(speed): 1회차 70/80/90/100만 -> 2회차 125만 -> 3회차 150만 -> 4회차 175만 -> 5회차+ 100만+(횟수-1)*25만
+ * - 기본(basic):   1회차 65/75/85/95만 -> 2회차 85만  -> 3회차 100만 -> 4회차 120만 -> 5회차+ 120만+(횟수-4)*15만
+ * - 불씨(ember):   1회차 50/60/70/80만 -> 2회차 75만  -> 3회차 85만  -> 4회차 100만 -> 5회차+ 100만+(횟수-4)*10만
+ */
+export function resolveLapBaseBonus(playerOrderIdx = 0, hasFirstLapPassed = false, priorLaps = 0, mode = 'ember') {
+    const cfg = getModeConfig(mode);
+    const idx = Math.max(0, Math.min(3, Number(playerOrderIdx) || 0));
+    if (!hasFirstLapPassed || priorLaps <= 0) {
+        return cfg.firstLapBonusByOrder?.[idx] ?? cfg.startBonus ?? GAME_CONSTANTS.START_BONUS;
+    }
+    const nextLap = Math.max(1, (Number(priorLaps) || 0) + 1);
+    if (nextLap >= 5) {
+        const base = cfg.lapBonus4 || GAME_CONSTANTS.LAP_COMBO_STEP_BASE || 1000000;
+        const inc = cfg.lapBonus5PlusStep || GAME_CONSTANTS.LAP_COMBO_STEP_INCREMENT || 100000;
+        return base + (nextLap - 4) * inc;
+    }
+    if (nextLap >= 4) {
+        return cfg.lapBonus4 || 1000000;
+    }
+    if (nextLap >= 3) {
+        return cfg.lapBonus3 || 850000;
+    }
+    return cfg.startBonus || GAME_CONSTANTS.START_BONUS;
 }
 
 // 산정배율 관련

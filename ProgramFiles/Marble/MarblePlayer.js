@@ -1,12 +1,13 @@
-import { GAME_CONSTANTS } from '../System/Index/Marble/MarblePriceIndex.js';
+import { GAME_CONSTANTS, stepActiveBoardPos, getModeConfig, getModeLoanSettlementRate } from '../System/Index/Marble/MarblePriceIndex.js';
 import { BOARD_TILES } from '../System/Index/Marble/MarbleBoardIndex.js';
 import { CARD_IDS } from '../System/Index/Marble/MarbleCardIndex.js';
-import { RuntimePopup, getCardUIText } from './MarbleRuntime.js';
+import { normalizeAiDifficulty } from '../System/GameRegistry.js';
+import { RuntimePopup, getCardUIText, getActiveWorld } from './MarbleRuntime.js';
 import { processTreasureTurnStart } from './MarbleCardTreasure.js';
 import { WorldGimmickManager } from './MarbleWorldGimmick.js';
 
 export class Player {
-    constructor(id, name, color, initialMoney, index, aiType = null) {
+    constructor(id, name, color, initialMoney, index, aiType = null, aiDifficulty = null) {
         this.id = id; this.name = name; this.color = color; this.money = initialMoney;
         this.playerIndex = index; this.territoryCount = 0; this.pos = 0; 
 
@@ -23,10 +24,14 @@ export class Player {
         this.loanCount = 0;      
         this.loanPrincipal = 0; 
         this.loanInterestPrincipal = 0;
-        this.loanInterest = 0;  
+        this.loanInterest = 0;
+        this.loanRecords = []; // 건별 대출 내역 [{ turn, principal, fixedInterest, isPira }]
         this.hasPiraCard = false;
+        this._handAcquireCounter = 0;
         
-        this.aiType = aiType; this.marathonSkipNext = false;
+        this.aiType = aiType;
+        this.aiDifficulty = aiType ? normalizeAiDifficulty(aiDifficulty, 'nuclear') : null;
+        this.marathonSkipNext = false;
         this.afkWarningCount = 0;         // 누적 잠수 경고 횟수 (1회 경고 후 재발 시 강제 퇴장)
         this.consecutiveTimeouts = 0;     // 연속 무응답 턴 수 (3턴 이상 시 AI 대체 판정)
         this.isAfkAuto = false;           // 1차 잠수 판정으로 임시 AI 자동 플레이 중인 여부
@@ -149,9 +154,14 @@ export class Player {
     }
 
     isAi() { return this.aiType !== null; }
-    move(spaces) {
-        const oldPos = this.pos; this.pos = (this.pos + spaces) % 40;
-        return (oldPos + spaces) >= 40; 
+    move(spaces, tiles = null) {
+        const { pos: nextPos, passedStart } = stepActiveBoardPos(
+            this.pos,
+            spaces,
+            tiles || getActiveWorld()?.gameMode || 'ember'
+        );
+        this.pos = nextPos;
+        return passedStart;
     }
     buyProperty(tile, targetLevel, cost) {
         if (this.money >= cost) {
@@ -192,6 +202,11 @@ export class Player {
         return actualPaid;
     }
 
+    nextCardAcquireSeq() {
+        this._handAcquireCounter = (this._handAcquireCounter || 0) + 1;
+        return this._handAcquireCounter;
+    }
+
     hasPiraLoanBuff() {
         return Boolean(
             this.hasPiraCard ||
@@ -199,21 +214,43 @@ export class Player {
         );
     }
 
-    getLoanInterestRate() {
+    getFixedLoanInterestRate() {
         if (this.hasPiraLoanBuff()) {
-            return GAME_CONSTANTS.LOAN_PIRA_INTEREST_RATE || 0.05;
+            return GAME_CONSTANTS.LOAN_PIRA_FIXED_INTEREST_RATE ?? 0.20;
         }
-        // 일반 대출은 원금(loanPrincipal) 잔존 시에만 2.5% 이자 부과, 원금 완납 후 전환된 이자 원금(loanInterestPrincipal)은 무이자(0%)
-        if ((Number(this.loanPrincipal) || 0) > 0) {
-            return GAME_CONSTANTS.LOAN_INTEREST_RATE || 0.025;
+        return GAME_CONSTANTS.LOAN_FIXED_INTEREST_RATE ?? 0.10;
+    }
+
+    getLoanSettlementRate(mode = null) {
+        const resolvedMode = mode || getActiveWorld()?.gameMode || 'ember';
+        const baseRate = getModeLoanSettlementRate(resolvedMode);
+        const mult = this.hasPiraLoanBuff() ? (GAME_CONSTANTS.LOAN_PIRA_SETTLEMENT_MULT || 2) : 1;
+        return baseRate * mult;
+    }
+
+    getLoanInterestRate(mode = null) {
+        if (mode) return this.getLoanSettlementRate(mode);
+        return this.getFixedLoanInterestRate();
+    }
+
+    _syncLoanAggregates() {
+        if (Array.isArray(this.loanRecords)) {
+            this.loanRecords = this.loanRecords.filter(r =>
+                (Math.round(Number(r?.principal) || 0) > 0) ||
+                (Math.round(Number(r?.fixedInterest) || 0) > 0)
+            );
+            this.loanPrincipal = this.loanRecords.reduce((s, r) => s + Math.max(0, Math.round(Number(r.principal) || 0)), 0);
+            this.loanInterest = this.loanRecords.reduce((s, r) => s + Math.max(0, Math.round(Number(r.fixedInterest) || 0)), 0);
+            this.loanInterestPrincipal = 0;
+        } else {
+            this.loanPrincipal = Math.max(0, Math.round(Number(this.loanPrincipal) || 0));
+            this.loanInterest = Math.max(0, Math.round(Number(this.loanInterest) || 0));
+            this.loanInterestPrincipal = 0;
         }
-        return 0;
     }
 
     getActiveRepayPrincipal() {
-        const realPrin = Math.max(0, Math.round(Number(this.loanPrincipal) || 0));
-        if (realPrin > 0) return realPrin;
-        return Math.max(0, Math.round(Number(this.loanInterestPrincipal) || 0));
+        return Math.max(0, Math.round(Number(this.loanPrincipal) || 0));
     }
 
     getTotalPrincipalBalance() {
@@ -237,146 +274,216 @@ export class Player {
     getLoanRepayOptions() {
         const totalDebt = this.getTotalLoanDebt();
         if (totalDebt <= 0) return [];
-        const activePrincipal = this.getActiveRepayPrincipal();
-        const percents = GAME_CONSTANTS.LOAN_REPAY_PERCENTS || [10, 25, 50, 75, 100];
-        const opts = percents.map(pct => {
-            const amount = activePrincipal <= 0
-                ? 0
-                : (pct >= 100 ? activePrincipal : Math.max(1, Math.round((activePrincipal * pct) / 100)));
+        const percents = GAME_CONSTANTS.LOAN_REPAY_PERCENTS || [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+        return percents.map(pct => {
+            const isFull = pct >= 100;
+            const amount = isFull
+                ? totalDebt
+                : Math.min(totalDebt, Math.max(1, Math.round((totalDebt * pct) / 100)));
             return {
-                mode: 'principal',
+                mode: isFull ? 'all' : 'combined',
                 pct,
                 amount,
-                affordable: activePrincipal > 0 && amount > 0 && this.money >= amount
+                affordable: totalDebt > 0 && amount > 0 && this.money >= amount
             };
         });
-        opts.push({
-            mode: 'all',
-            pct: 'all',
-            amount: totalDebt,
-            affordable: totalDebt > 0 && this.money >= totalDebt
-        });
-        return opts;
     }
 
     /**
-     * 대출 중도 상환 처리:
-     * - pct = 10/25/50/75/100: '원금(loanPrincipal, 없을 경우 전환 이자 원금 loanInterestPrincipal)'만 기준으로 상환
-     *   -> 원금을 모두 갚으면 남아 있던 이자가 새로운 원금(loanInterestPrincipal)으로 전환
-     * - pct = 'all': 현재 남아 있는 원금 + 누적 이자 전액 완납
+     * 대출 중도 상환 처리 (원리금 균등 상환, 10%~100% 10% 단위):
+     * - pct = 10..100 또는 'all': 남은 총 부채(원금 + 고정 이자)의 pct%를 상환하며,
+     *   여러 건의 대출이 있을 경우 먼저 실행한 건(FIFO)부터 원금·고정이자를 비율대로 동시 차감한다.
      */
     repayLoanByPercent(percentOrMode) {
+        this._syncLoanAggregates();
         const prevPrincipal = Math.max(0, Math.round(Number(this.loanPrincipal) || 0));
-        const prevConverted = Math.max(0, Math.round(Number(this.loanInterestPrincipal) || 0));
         const prevInterest = Math.max(0, Math.round(Number(this.loanInterest) || 0));
-        const totalDebt = prevPrincipal + prevConverted + prevInterest;
+        const totalDebt = prevPrincipal + prevInterest;
         if (totalDebt <= 0 || this.isBankrupt) {
             return { ok: false, paid: 0, principalPaid: 0, interestPaid: 0, convertedInterest: 0 };
         }
 
-        if (percentOrMode === 'all') {
-            if (this.money < totalDebt) {
-                return { ok: false, paid: 0, principalPaid: 0, interestPaid: 0, convertedInterest: 0 };
-            }
-            const principalPaid = prevPrincipal + prevConverted;
-            const interestPaid = prevInterest;
-            this.money -= totalDebt;
-            this.loanPrincipal = 0;
-            this.loanInterestPrincipal = 0;
-            this.loanInterest = 0;
-            if (this.tracker) {
-                this.tracker.loanRepayCount = (this.tracker.loanRepayCount || 0) + 1;
-                this.tracker.loanRepaidTotal = (this.tracker.loanRepaidTotal || 0) + totalDebt;
-                this.tracker.loanPrincipalRepaidTotal = (this.tracker.loanPrincipalRepaidTotal || 0) + principalPaid;
-                this.tracker.loanInterestRepaidTotal = (this.tracker.loanInterestRepaidTotal || 0) + interestPaid;
-                this.tracker.loanFullClearedCount = (this.tracker.loanFullClearedCount || 0) + 1;
-            }
-            return {
-                ok: true,
-                mode: 'all',
-                pct: 'all',
-                paid: totalDebt,
-                principalPaid,
-                interestPaid,
-                convertedInterest: 0,
-                remainingPrincipal: 0,
-                remainingInterest: 0,
-                fullCleared: true
-            };
+        const pct = percentOrMode === 'all' ? 100 : Number(percentOrMode);
+        if (!Number.isFinite(pct) || pct <= 0) {
+            return { ok: false, paid: 0, principalPaid: 0, interestPaid: 0, convertedInterest: 0 };
         }
 
-        const pct = Number(percentOrMode);
-        const usingConverted = prevPrincipal <= 0 && prevConverted > 0;
-        const activeBase = usingConverted ? prevConverted : prevPrincipal;
-        const rawPay = pct >= 100 ? activeBase : Math.round((activeBase * pct) / 100);
-        const payAmount = Math.min(activeBase, Math.max(0, rawPay));
-        if (activeBase <= 0 || payAmount <= 0 || this.money < payAmount) {
+        const isFull = pct >= 100;
+        const payAmount = isFull
+            ? totalDebt
+            : Math.min(totalDebt, Math.max(1, Math.round((totalDebt * pct) / 100)));
+        if (payAmount <= 0 || this.money < payAmount) {
             return { ok: false, paid: 0, principalPaid: 0, interestPaid: 0, convertedInterest: 0 };
         }
 
         this.money -= payAmount;
-        const principalPaid = payAmount;
-        let newPrincipal = prevPrincipal;
-        let newConverted = prevConverted;
-        let newInterest = prevInterest;
-        let convertedInterest = 0;
+        let principalPaid = 0;
+        let interestPaid = 0;
 
-        const convMult = this.hasPiraLoanBuff() ? (GAME_CONSTANTS.LOAN_PIRA_AMOUNT_MULT || 0.5) : 1;
-        if (!usingConverted) {
-            newPrincipal = Math.max(0, prevPrincipal - payAmount);
-            if (newPrincipal === 0 && newInterest > 0) {
-                convertedInterest = Math.round(newInterest * convMult);
-                newConverted = prevConverted + convertedInterest;
-                newInterest = 0;
+        if (isFull) {
+            principalPaid = prevPrincipal;
+            interestPaid = prevInterest;
+            this.loanRecords = [];
+            this.loanPrincipal = 0;
+            this.loanInterestPrincipal = 0;
+            this.loanInterest = 0;
+        } else if (Array.isArray(this.loanRecords) && this.loanRecords.length > 0) {
+            let rem = payAmount;
+            for (const rec of this.loanRecords) {
+                if (rem <= 0) break;
+                const recPrin = Math.max(0, Math.round(Number(rec.principal) || 0));
+                const recInt = Math.max(0, Math.round(Number(rec.fixedInterest) || 0));
+                const recTot = recPrin + recInt;
+                if (recTot <= 0) continue;
+                if (rem >= recTot) {
+                    principalPaid += recPrin;
+                    interestPaid += recInt;
+                    rec.principal = 0;
+                    rec.fixedInterest = 0;
+                    rem -= recTot;
+                } else {
+                    const ratio = rem / recTot;
+                    let pPay = Math.min(recPrin, Math.round(recPrin * ratio));
+                    let iPay = rem - pPay;
+                    if (iPay > recInt) {
+                        iPay = recInt;
+                        pPay = rem - iPay;
+                    }
+                    rec.principal = Math.max(0, recPrin - pPay);
+                    rec.fixedInterest = Math.max(0, recInt - iPay);
+                    principalPaid += pPay;
+                    interestPaid += iPay;
+                    rem = 0;
+                }
             }
+            this._syncLoanAggregates();
         } else {
-            newConverted = Math.max(0, prevConverted - payAmount);
-            if (newConverted === 0 && newInterest > 0) {
-                convertedInterest = Math.round(newInterest * convMult);
-                newConverted = convertedInterest;
-                newInterest = 0;
+            const ratio = payAmount / totalDebt;
+            let pPay = Math.min(prevPrincipal, Math.round(prevPrincipal * ratio));
+            let iPay = payAmount - pPay;
+            if (iPay > prevInterest) {
+                iPay = prevInterest;
+                pPay = payAmount - iPay;
             }
+            principalPaid = pPay;
+            interestPaid = iPay;
+            this.loanPrincipal = Math.max(0, prevPrincipal - pPay);
+            this.loanInterest = Math.max(0, prevInterest - iPay);
+            this.loanInterestPrincipal = 0;
         }
 
-        this.loanPrincipal = newPrincipal;
-        this.loanInterestPrincipal = newConverted;
-        this.loanInterest = newInterest;
-
+        const fullCleared = this.getTotalLoanDebt() === 0;
         if (this.tracker) {
             this.tracker.loanRepayCount = (this.tracker.loanRepayCount || 0) + 1;
             this.tracker.loanRepaidTotal = (this.tracker.loanRepaidTotal || 0) + payAmount;
             this.tracker.loanPrincipalRepaidTotal = (this.tracker.loanPrincipalRepaidTotal || 0) + principalPaid;
-            if (convertedInterest > 0) {
-                this.tracker.loanInterestConvertedCount = (this.tracker.loanInterestConvertedCount || 0) + 1;
-                this.tracker.loanInterestConvertedTotal = (this.tracker.loanInterestConvertedTotal || 0) + convertedInterest;
-            }
-            if (newPrincipal === 0 && newConverted === 0 && newInterest === 0) {
+            this.tracker.loanInterestRepaidTotal = (this.tracker.loanInterestRepaidTotal || 0) + interestPaid;
+            if (fullCleared) {
                 this.tracker.loanFullClearedCount = (this.tracker.loanFullClearedCount || 0) + 1;
             }
         }
 
-        const remainingPrincipal = newPrincipal + newConverted;
         return {
             ok: true,
-            mode: 'principal',
-            pct,
+            mode: isFull ? 'all' : 'combined',
+            pct: isFull ? 100 : pct,
             paid: payAmount,
             principalPaid,
-            interestPaid: 0,
-            convertedInterest,
-            remainingPrincipal,
-            remainingInterest: newInterest,
-            fullCleared: remainingPrincipal === 0 && newInterest === 0
+            interestPaid,
+            convertedInterest: 0,
+            remainingPrincipal: this.loanPrincipal,
+            remainingInterest: this.loanInterest,
+            fullCleared
+        };
+    }
+
+    /**
+     * [50: 골디의 부동산명함] 사용 시 현재 남은 대출금(원금 + 고정 이자)을 0.5배로 감면한다.
+     */
+    applyGoldieRealtyDebtReduction() {
+        this._syncLoanAggregates();
+        const prevPrincipal = this.loanPrincipal;
+        const prevInterest = this.loanInterest;
+        const prevDebt = prevPrincipal + prevInterest;
+
+        if (Array.isArray(this.loanRecords) && this.loanRecords.length > 0) {
+            this.loanRecords.forEach(rec => {
+                rec.principal = Math.round((Number(rec.principal) || 0) * 0.5);
+                rec.fixedInterest = Math.round((Number(rec.fixedInterest) || 0) * 0.5);
+            });
+            this._syncLoanAggregates();
+        } else {
+            this.loanPrincipal = Math.round(prevPrincipal * 0.5);
+            this.loanInterest = Math.round(prevInterest * 0.5);
+            this.loanInterestPrincipal = 0;
+        }
+
+        const nextDebt = this.getTotalLoanDebt();
+        return {
+            prevDebt,
+            nextDebt,
+            reducedTotal: Math.max(0, prevDebt - nextDebt),
+            reducedPrincipal: Math.max(0, prevPrincipal - this.loanPrincipal),
+            reducedInterest: Math.max(0, prevInterest - this.loanInterest)
+        };
+    }
+
+    /**
+     * 게임 종료 정산 시 미상환 대출금(잔여 원금 + 경과 턴 기반 정산 이자)을 계산한다.
+     * - 정산까지 완납하지 못한 각 대출 건의 잔여 원금에 대해
+     *   (종료 턴 - 대출 실행 턴) * 모드별 정산 이율 * (피라 보유 시 2배) 를 적용한다.
+     */
+    computeSettlementLoanBreakdown(endTurn = null, gameMode = null) {
+        if (this.isBankrupt) {
+            return { principal: 0, interest: 0, total: 0, baseRate: 0 };
+        }
+        this._syncLoanAggregates();
+        const world = getActiveWorld();
+        const mode = gameMode || world?.gameMode || 'ember';
+        const modeCfg = getModeConfig(mode);
+        const resolvedEndTurn = Number(endTurn) || Number(world?.currentTurn) || modeCfg.maxTurn || 20;
+        const baseRate = getModeLoanSettlementRate(mode);
+        const piraMult = GAME_CONSTANTS.LOAN_PIRA_SETTLEMENT_MULT || 2;
+
+        if (Array.isArray(this.loanRecords) && this.loanRecords.length > 0) {
+            let principal = 0;
+            let interest = 0;
+            for (const rec of this.loanRecords) {
+                const recPrin = Math.max(0, Math.round(Number(rec.principal) || 0));
+                if (recPrin <= 0) continue;
+                const loanTurn = Math.max(1, Number(rec.turn) || 1);
+                const elapsedTurns = Math.max(0, resolvedEndTurn - loanTurn);
+                const mult = rec.isPira ? piraMult : 1;
+                principal += recPrin;
+                interest += Math.round(recPrin * elapsedTurns * baseRate * mult);
+            }
+            return {
+                principal,
+                interest,
+                total: principal + interest,
+                baseRate
+            };
+        }
+
+        const principal = this.getTotalPrincipalBalance();
+        if (principal <= 0) {
+            return { principal: 0, interest: 0, total: 0, baseRate };
+        }
+        const events = this.tracker?.loanEvents || [];
+        const fallbackTurn = events.length > 0 ? (Number(events[0].turn) || 1) : 1;
+        const elapsedTurns = Math.max(0, resolvedEndTurn - fallbackTurn);
+        const mult = this.hasPiraLoanBuff() ? piraMult : 1;
+        const interest = Math.round(principal * elapsedTurns * baseRate * mult);
+        return {
+            principal,
+            interest,
+            total: principal + interest,
+            baseRate
         };
     }
 
     processTurnInterest(globalTurn = null) {
-        // 1. 대출 이자 부과 (기본 2.5%, 피라의 대부업명함 보유 시 5%)
-        // 대출 원금이 있으면 원금 기준, 원금 완납 후 전환 이자 원금만 있으면 해당 금액 기준
-        const interestBase = this.loanPrincipal > 0 ? this.loanPrincipal : this.loanInterestPrincipal;
-        if (interestBase > 0) {
-            this.loanInterest += (interestBase * this.getLoanInterestRate());
-        }
+        // 대출은 실행 시 고정 이자(10%/20%)가 부여되고, 미상환 시 정산 시점에만 경과 턴 이자가 산정되므로 턴마다 누적하지 않는다.
 
         // 2. 보물 카드 매 턴 시작 효과 (왕관 +15만, 지팡이 -15만 부작용, 활 2회 굴림 초기화)
         processTreasureTurnStart(this);

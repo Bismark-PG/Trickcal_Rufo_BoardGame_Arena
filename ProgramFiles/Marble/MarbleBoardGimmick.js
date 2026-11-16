@@ -24,7 +24,7 @@ import {
     getPositiveEffectMultiplier,
     recordHaloPositiveGain
 } from './MarbleRequiem.js';
-import { GAME_CONSTANTS, BUILDING_COSTS, MULTIPLIERS } from '../System/Index/Marble/MarblePriceIndex.js';
+import { GAME_CONSTANTS, BUILDING_COSTS, MULTIPLIERS, getModeConfig } from '../System/Index/Marble/MarblePriceIndex.js';
 import { BOARD_TILES, CARD_TILE_IDS } from '../System/Index/Marble/MarbleBoardIndex.js';
 import { CARD_IDS } from '../System/Index/Marble/MarbleCardIndex.js';
 
@@ -64,10 +64,33 @@ export const BoardGimmickHandlers = {
         const gText = getGimmickText();
         const thinkTime = getPlayerThinkTime(player);
         const globalTurn = ctx.turnManager ? ctx.turnManager.globalTurn : 1;
-        const worldMetrics = getActiveWorld()?.metrics;
+        const activeWorld = getActiveWorld();
+        const worldMetrics = activeWorld?.metrics;
+        const modeCfg = getModeConfig(activeWorld?.gameMode);
 
         player.altarVisitCount = (player.altarVisitCount || 0) + 1;
         if (worldMetrics) worldMetrics.altarVisitTotal = (worldMetrics.altarVisitTotal || 0) + 1;
+
+        // 스피드/기본 모드: 매 방문마다 즉시 랜덤한 차원 열쇠 칸으로 이동 (순회 통과 시 순회 보상 지급, 확정 보물 없음)
+        if (modeCfg.altarWarpToRandomCardTile) {
+            if (!player.hasVisitedAltar) {
+                player.hasVisitedAltar = true;
+                if (worldMetrics) worldMetrics.altarFirstVisits++;
+            }
+            if (worldMetrics) worldMetrics.altarPortalUses++;
+            const targetId = CARD_TILE_IDS[Math.floor(Math.random() * CARD_TILE_IDS.length)];
+            if ((targetId < player.pos || targetId === BOARD_TILES.START) && targetId !== player.pos) {
+                applyLapPassBonus(player, { showBlockedToast: true });
+            }
+            player.pos = targetId;
+            player._altarGuaranteedTreasure = false;
+            RuntimePopup.showToast(`[${player.name}] ${gText.ALTAR_PORTAL_MOVE_TOAST}`, 3200);
+            ctx.updateRender();
+            refreshUI();
+            scheduleGameTask(() => ctx.handleTileArrival(player), 1200);
+            return;
+        }
+
         const isSecondOrMoreVisit = player.altarVisitCount >= 2;
 
         // 1. 최초 방문 시 보물 확률 개방 트리거
@@ -247,7 +270,7 @@ export const BoardGimmickHandlers = {
             return;
         }
 
-        ctx.turnTimer.start(getPlayerThinkTime(p));
+        ctx.turnTimer.start(getPlayerThinkTime(p, GAME_CONSTANTS.BUY_THINK_TIME));
         RuntimePopup.showChoicePopup(text.MOUNTAIN_TITLE, text.MOUNTAIN_DESC, [
             { text: text.BTN_YES, color: '#3498db', action: () => {
                 if (p.money >= GAME_CONSTANTS.MOUNTAIN_FEE) {
@@ -261,20 +284,88 @@ export const BoardGimmickHandlers = {
         ]);
     },
 
-    // 30: 빵주 (1~3턴: 빵주 정비소 / 4턴~: 빵주)
+    // 30: 빵주 (불씨/기본 1~3턴: 빵주 정비소 / 스피드 1~2턴: 50만 조기 개방 가능 / 3턴(스피드)·4턴(기본/불씨)~: 빵주)
     [BOARD_TILES.BBANGJU]: (ctx) => {
         const gText = getGimmickText();
         const text = getMarbleText();
         const cText = getCardUIText();
         const thinkTime = getPlayerThinkTime(ctx.player);
+        const buyThinkTime = getPlayerThinkTime(ctx.player, GAME_CONSTANTS.BUY_THINK_TIME);
+        const modeCfg = getModeConfig(getActiveWorld()?.gameMode);
+        const directPurchase = modeCfg.bbangjuDirectPurchase || GAME_CONSTANTS.BBANGJU_DIRECT_PURCHASE;
 
-        // 1~3턴: 빵주 정비소 기간
-        if (ctx.turnManager.globalTurn < 4) {
+        // 스피드 모드: 3턴부터 자동 개방되나, 1~2턴에 도착 시 50만 지불로 즉시 전체 개방 및 이용 가능
+        if (!modeCfg.enableBbangjuChief && WorldGimmickManager.bbangjuState === 'locked' && ctx.turnManager.globalTurn < (modeCfg.bbangjuOpenTurn || 3)) {
+            const earlyOpenFee = modeCfg.bbangjuEarlyOpenFee || 500000;
+            const executeEarlyOpenJump = (targetId) => {
+                ctx.player.money -= earlyOpenFee;
+                WorldGimmickManager.bbangjuState = 'finished';
+                addBbangjuVisit();
+                ctx.player.tracker.bbangjuUsageCount++;
+                if (targetId < ctx.player.pos || targetId === BOARD_TILES.START) {
+                    applyLapPassBonus(ctx.player, { showBlockedToast: true });
+                }
+                ctx.player.pos = targetId;
+                RuntimePopup.showToast(`${ctx.player.name}${gText.BBANGJU_SPEED_EARLY_OPEN_TOAST}`, 3400);
+                ctx.updateRender();
+                ctx.refreshUI();
+                scheduleGameTask(() => ctx.handleTileArrival(ctx.player), 1100);
+            };
+
+            if (ctx.player.isAi()) {
+                const targetId = AIManager.decidePortalDestination(ctx, false, earlyOpenFee);
+                if (targetId !== -1 && targetId !== BOARD_TILES.BBANGJU && ctx.player.money >= earlyOpenFee) {
+                    executeEarlyOpenJump(targetId);
+                } else {
+                    scheduleGameTask(ctx.proceedEndTurn, 1000);
+                }
+                return;
+            }
+
+            if (ctx.player.money < earlyOpenFee) {
+                ctx.turnTimer.start(thinkTime);
+                RuntimePopup.showNormalPopup(getTileName(ctx.tile), gText.BBANGJU_SPEED_LOCKED_NO_MONEY, true, ctx.proceedEndTurn);
+                return;
+            }
+
+            ctx.turnTimer.start(buyThinkTime);
+            RuntimePopup.showChoicePopup(gText.BBANGJU_SPEED_EARLY_OPEN_TITLE, gText.BBANGJU_SPEED_EARLY_OPEN_DESC, [
+                {
+                    text: gText.BBANGJU_SPEED_EARLY_OPEN_BTN,
+                    color: '#2ecc71',
+                    action: () => {
+                        ctx.turnTimer.stop();
+                        RuntimePopup.closeAll();
+                        ctx.turnTimer.start(thinkTime);
+                        RuntimePopup.showPortalPopup(ctx.tiles, (targetId) => {
+                            if (ctx.player.money >= earlyOpenFee) {
+                                ctx.turnTimer.stop();
+                                RuntimePopup.closeAll();
+                                executeEarlyOpenJump(targetId);
+                            } else {
+                                RuntimePopup.showToast(text.NOT_ENOUGH_MONEY, 2800, ctx.player.id);
+                                RuntimePopup.closeAll();
+                                ctx.proceedEndTurn();
+                            }
+                        }, ctx.proceedEndTurn, earlyOpenFee, false);
+                    }
+                },
+                { text: gText.BTN_REJECT, color: '#e74c3c', action: ctx.proceedEndTurn }
+            ]);
+            return;
+        }
+
+        if (!modeCfg.enableBbangjuChief && WorldGimmickManager.bbangjuState === 'locked') {
+            WorldGimmickManager.bbangjuState = 'finished';
+        }
+
+        // 1~3턴: 빵주 정비소 기간 (기본/불씨 모드)
+        if (modeCfg.enableBbangjuChief && ctx.turnManager.globalTurn < 4) {
             if (WorldGimmickManager.bbangjuState === 'recruiting' && ctx.player.isAi()) {
                 const isSupporter = ctx.player.bbangjuPaidTotal > 0;
                 const reqTakeoverCost = isSupporter
-                    ? (GAME_CONSTANTS.BBANGJU_DIRECT_PURCHASE - ctx.player.bbangjuPaidTotal)
-                    : GAME_CONSTANTS.BBANGJU_DIRECT_PURCHASE;
+                    ? (directPurchase - ctx.player.bbangjuPaidTotal)
+                    : directPurchase;
                 if (AIManager.decideBbangjuTakeover(ctx.player, reqTakeoverCost)) {
                     ctx.player.money -= reqTakeoverCost;
                     WorldGimmickManager.bbangjuState = 'occupied';
@@ -292,11 +383,14 @@ export const BoardGimmickHandlers = {
             if (WorldGimmickManager.bbangjuState === 'recruiting' && !ctx.player.isAi()) {
                 const isSupporter = ctx.player.bbangjuPaidTotal > 0;
                 const reqTakeoverCost = isSupporter
-                    ? (GAME_CONSTANTS.BBANGJU_DIRECT_PURCHASE - ctx.player.bbangjuPaidTotal)
-                    : GAME_CONSTANTS.BBANGJU_DIRECT_PURCHASE;
-                const descText = `${isSupporter ? gText.BBANGJU_TAKE_DESC_DISCOUNT : gText.BBANGJU_TAKE_DESC_FULL}\n\n${gText.BBANGJU_TAKE_COST_LABEL} ${formatMoney(reqTakeoverCost)}`;
+                    ? (directPurchase - ctx.player.bbangjuPaidTotal)
+                    : directPurchase;
+                const fullDesc = directPurchase === 1000000
+                    ? (gText.BBANGJU_TAKE_DESC_FULL_BASIC || gText.BBANGJU_TAKE_DESC_FULL.replace('200만', '100만').replace('2,000,000', '1,000,000').replace('200万', '100万'))
+                    : gText.BBANGJU_TAKE_DESC_FULL;
+                const descText = `${isSupporter ? gText.BBANGJU_TAKE_DESC_DISCOUNT : fullDesc}\n\n${gText.BBANGJU_TAKE_COST_LABEL} ${formatMoney(reqTakeoverCost)}`;
 
-                ctx.turnTimer.start(thinkTime);
+                ctx.turnTimer.start(buyThinkTime);
                 RuntimePopup.showChoicePopup(gText.BBANGJU_TAKE_TITLE, descText, [
                     { text: `${gText.BTN_ACCEPT} (${formatMoney(reqTakeoverCost)})`, color: '#2ecc71', action: () => {
                         if (ctx.player.money >= reqTakeoverCost) {
@@ -393,7 +487,7 @@ export const BoardGimmickHandlers = {
         const gText = getGimmickText();
         const text = getMarbleText();
         const tileName = getTileName(ctx.tile);
-        const thinkTime = getPlayerThinkTime(ctx.player);
+        const thinkTime = getPlayerThinkTime(ctx.player, GAME_CONSTANTS.BUY_THINK_TIME);
         const globalTurn = ctx.turnManager ? ctx.turnManager.globalTurn : 1;
 
         if (!ctx.tile.owner && ctx.player.isAi()) {
@@ -454,7 +548,7 @@ export const BoardGimmickHandlers = {
         const gText = getGimmickText();
         const text = getMarbleText();
         const tileName = getTileName(ctx.tile);
-        const thinkTime = getPlayerThinkTime(ctx.player);
+        const thinkTime = getPlayerThinkTime(ctx.player, GAME_CONSTANTS.BUY_THINK_TIME);
         const globalTurn = ctx.turnManager ? ctx.turnManager.globalTurn : 1;
         ctx.player.tracker.monatium25Visits++;
 
@@ -578,7 +672,7 @@ export const BoardGimmickHandlers = {
         }
 
         if (!ctx.tile.owner && !ctx.player.isAi()) {
-            ctx.turnTimer.start(thinkTime);
+            ctx.turnTimer.start(getPlayerThinkTime(ctx.player, GAME_CONSTANTS.BUY_THINK_TIME));
             RuntimePopup.showChoicePopup(tileName, `${formatMoney(GAME_CONSTANTS.LAKE_BUY)}${gText.ASK_BUY}`, [
                 { text: gText.BTN_ACCEPT, color: '#2ecc71', action: () => {
                     if (ctx.player.buyProperty(ctx.tile, 0, GAME_CONSTANTS.LAKE_BUY)) {
@@ -816,7 +910,7 @@ export const BoardGimmickHandlers = {
         }
 
         if (!ctx.tile.owner && !ctx.player.isAi()) {
-            ctx.turnTimer.start(thinkTime);
+            ctx.turnTimer.start(getPlayerThinkTime(ctx.player, GAME_CONSTANTS.BUY_THINK_TIME));
             RuntimePopup.showChoicePopup(tileName, `${formatMoney(GAME_CONSTANTS.LIBRARY_BUY)}${gText.ASK_BUY}`, [
                 { text: gText.BTN_ACCEPT, color: '#2ecc71', action: () => {
                     if (ctx.player.buyProperty(ctx.tile, 0, GAME_CONSTANTS.LIBRARY_BUY)) {
@@ -907,7 +1001,7 @@ export const BoardGimmickHandlers = {
         const gText = getGimmickText();
         const text = getMarbleText();
         const tileName = getTileName(ctx.tile);
-        const thinkTime = getPlayerThinkTime(ctx.player);
+        const thinkTime = getPlayerThinkTime(ctx.player, GAME_CONSTANTS.BUY_THINK_TIME);
 
         if (!ctx.tile.owner && ctx.player.isAi()) {
             const globalTurn = ctx.turnManager ? ctx.turnManager.globalTurn : 1;

@@ -2,7 +2,7 @@
 // 엘리아스 마블 게임 전용 경기 메트릭 추출, 마르코프 보물 기댓값 연산,
 // 1사이클 상세 로그 및 최근 100사이클 평균 밸런스 로그 생성 어댑터
 
-import { GAME_CONSTANTS, BUILDING_COSTS } from '../System/Index/Marble/MarblePriceIndex.js';
+import { GAME_CONSTANTS, BUILDING_COSTS, getModeConfig, getActiveBoardSize } from '../System/Index/Marble/MarblePriceIndex.js';
 import { BOARD_TILES, SPECIAL_TERRITORY_IDS } from '../System/Index/Marble/MarbleBoardIndex.js';
 import { CardIndex } from '../System/Index/Marble/MarbleCardIndex.js';
 import { processFinalSettlement, getSpecialTerritoryVillageToll } from './MarbleSettlement.js';
@@ -13,17 +13,44 @@ const ALL_CARDS_CATALOG = (CardIndex.ko || []).map(c => ({
     grade: c.id >= 500 ? 'treasure' : (c.id >= 100 ? 'special' : 'normal')
 }));
 
-export const MARBLE_LOG_FILES = {
-    CYCLE_DETAIL: '마블_100사이클_상세로그.md',
-    AVERAGE_100: '마블_100사이클_평균로그.md',
-    RAW_DATA: '마블_로그데이터.json'
+export const MARBLE_MODE1_LOG_FILES = {
+    CYCLE_DETAIL: '마블_모드1_100사이클_상세로그.md',
+    AVERAGE_100: '마블_모드1_100사이클_평균로그.md',
+    RAW_DATA: '마블_모드1_100사이클_로그데이터.json'
 };
 
-export const MARBLE_LOG_10_FILES = {
-    CYCLE_DETAIL: '마블_10사이클_상세로그.md',
-    AVERAGE_100: '마블_10사이클_평균로그.md',
-    RAW_DATA: '마블_10사이클_로그데이터.json'
+export const MARBLE_MODE1_LOG_10_FILES = {
+    CYCLE_DETAIL: '마블_모드1_10사이클_상세로그.md',
+    AVERAGE_100: '마블_모드1_10사이클_평균로그.md',
+    RAW_DATA: '마블_모드1_10사이클_로그데이터.json'
 };
+
+export const MARBLE_MODE2_LOG_FILES = {
+    CYCLE_DETAIL: '마블_모드2_100사이클_상세로그.md',
+    AVERAGE_100: '마블_모드2_100사이클_평균로그.md',
+    RAW_DATA: '마블_모드2_100사이클_로그데이터.json'
+};
+
+export const MARBLE_MODE2_LOG_10_FILES = {
+    CYCLE_DETAIL: '마블_모드2_10사이클_상세로그.md',
+    AVERAGE_100: '마블_모드2_10사이클_평균로그.md',
+    RAW_DATA: '마블_모드2_10사이클_로그데이터.json'
+};
+
+export const MARBLE_MODE3_LOG_FILES = {
+    CYCLE_DETAIL: '마블_모드3_100사이클_상세로그.md',
+    AVERAGE_100: '마블_모드3_100사이클_평균로그.md',
+    RAW_DATA: '마블_모드3_100사이클_로그데이터.json'
+};
+
+export const MARBLE_MODE3_LOG_10_FILES = {
+    CYCLE_DETAIL: '마블_모드3_10사이클_상세로그.md',
+    AVERAGE_100: '마블_모드3_10사이클_평균로그.md',
+    RAW_DATA: '마블_모드3_10사이클_로그데이터.json'
+};
+
+export const MARBLE_LOG_FILES = MARBLE_MODE3_LOG_FILES;
+export const MARBLE_LOG_10_FILES = MARBLE_MODE3_LOG_10_FILES;
 
 export const MARBLE_MAX_HISTORY = 100;
 export const MARBLE_10_MAX_HISTORY = 10;
@@ -344,8 +371,12 @@ export function buildMatchLogDataFromEngine(engine, rankedSettlement = null) {
         const totalRolls = tr.totalRolls || 0;
         const totalMovedSpaces = tr.totalMovedSpaces || 0;
         const avgMoveSpaces = totalRolls > 0 ? totalMovedSpaces / totalRolls : 0;
-        const rawLoanPrincipal = (Number(p.loanPrincipal) || 0) + (Number(p.loanInterestPrincipal) || 0);
-        const rawLoanInterest = Math.round(Number(p.loanInterest) || 0);
+        const rawLoanPrincipal = Number.isFinite(Number(res.loanPrincipal))
+            ? Number(res.loanPrincipal)
+            : ((Number(p.loanPrincipal) || 0) + (Number(p.loanInterestPrincipal) || 0));
+        const rawLoanInterest = Number.isFinite(Number(res.loanInterest))
+            ? Math.round(Number(res.loanInterest))
+            : Math.round(Number(p.loanInterest) || 0);
         const loanEvents = Array.isArray(tr.loanEvents) ? tr.loanEvents.map(e => ({ ...e })) : [];
 
         const discEntry = cashVsTotalAssetDisc.perKey.get(p) || { beforeRank: 4, afterRank: 4, diff: 0, pct: 0 };
@@ -357,6 +388,7 @@ export function buildMatchLogDataFromEngine(engine, rankedSettlement = null) {
             slotIndex: p.playerIndex || 1,
             isAi: p.isAi(),
             aiType: p.aiType || 'human',
+            aiDifficulty: p.isAi() ? (p.aiDifficulty || 'nuclear') : null,
             settlementRank: (settleEntry ? settleEntry.idx + 1 : allPlayers.length),
             tieAwareNetWorthRank: postNetWorthRankMap.get(p) ?? allPlayers.length,
             tieAwareTotalAssetRank: discEntry.afterRank,
@@ -820,7 +852,9 @@ export function buildMatchLogDataFromEngine(engine, rankedSettlement = null) {
     const voidEscapeSuccessCount = Number(wm.voidEscapeSuccessCount) || 0;
     const voidEscapeFailCount = Number(wm.voidEscapeFailCount) || 0;
     const voidEscapeFailProb = 79 / 144;
-    const voidBaseTurnLoss = (7 / 40) * (GAME_CONSTANTS.START_BONUS || 750000);
+    const modeCfg = getModeConfig(engine.world?.gameMode);
+    const activeBoardSize = getActiveBoardSize(engine.tiles || engine.world?.gameMode);
+    const voidBaseTurnLoss = (7 / activeBoardSize) * (modeCfg.startBonus || GAME_CONSTANTS.START_BONUS || 750000);
     const voidTrappedP = playerSnapshots.filter(p => (p.voidTrappedCount || 0) > 0);
     const voidUntrappedP = playerSnapshots.filter(p => (p.voidTrappedCount || 0) === 0);
     const voidAnalytics = {
@@ -848,6 +882,7 @@ export function buildMatchLogDataFromEngine(engine, rankedSettlement = null) {
 
     return {
         gameId: 'marble',
+        gameMode: engine.gameMode || engine.worldState?.gameMode || 'ember',
         timestamp: new Date().toISOString(),
         roomId: engine.roomId || 'local_marble',
         startBonusSetting: GAME_CONSTANTS.START_BONUS,
@@ -2812,12 +2847,14 @@ function formatSummaryLoanSectionLines(dLoan, popLoan = null, totalSimulated = 0
     lines.push(`  - 판당 평균 대출 횟수: \`${fmt4(src.loansPerMatchAvg)}회\` (1인당 평균 \`${fmt4(src.loansPerPlayerAvg)}회\`)`);
     lines.push(`  - 판당 발생 횟수 범위: 최소 ${src.matchLoanMin}회 ~ 최대 ${src.matchLoanMax}회`);
 
+    lines.push('');
     lines.push(`- **대출 이용률 및 사유 비중**`);
     lines.push(`  - 매치 기준 1회+ 발생률: \`${fmt4(src.matchLoanRatePct)}%\` (${src.matchesWithLoan}판 / ${totalSimulated}판)`);
     lines.push(`  - 플레이어 기준 이용률: \`${fmt4(src.borrowerRatePct)}%\` (${src.borrowerPlayers}/${src.totalPlayers}명)`);
     lines.push(`  - 통행료 부족 위기 대출: \`${fmt4(src.tollSharePct)}%\` (${src.tollLoans}회)`);
     lines.push(`  - 턴 시작 소지금 부족 긴급 대출: \`${fmt4(src.emergencySharePct)}%\` (${src.emergencyLoans}회)`);
 
+    lines.push('');
     if (src.singleLoanCount > 0) {
         lines.push(`- **판당·1회·개인별 대출 금액 범위**`);
         lines.push(`  - 판당 평균 대출 원금 (전체 매치): ${fmtPair(src.avgBorrowedPerMatch, dLoan.avgBorrowedPerMatch)}`);
@@ -2831,6 +2868,7 @@ function formatSummaryLoanSectionLines(dLoan, popLoan = null, totalSimulated = 0
         lines.push(`- **판당·1회·개인별 대출 금액 범위**: 실행된 대출 기록 없음`);
     }
 
+    lines.push('');
     lines.push(`[대출 최다 플레이어 vs 최소 플레이어 승률 비교 (횟수 우선·동률 시 대출금)]`);
     lines.push(`  - 매치 내 최다 대출 플레이어 승률: \`${fmt4(src.mostLoanWinRatePct)}%\` (${src.mostLoanWins}승 / ${src.mostLoanPlayers}표본)`);
     lines.push(`  - 매치 내 최소 대출 플레이어 승률: \`${fmt4(src.leastLoanWinRatePct)}%\` (${src.leastLoanWins}승 / ${src.leastLoanPlayers}표본)`);
@@ -2840,16 +2878,19 @@ function formatSummaryLoanSectionLines(dLoan, popLoan = null, totalSimulated = 0
         }
     }
 
+    lines.push('');
     lines.push(`- **정산 시점 대출금 보유 현황**`);
     lines.push(`  - 부채 보유자 비율: \`${fmt4(src.debtHolderRatePct)}%\` (${src.debtHolderPlayers}명 보유)`);
     lines.push(`  - 전체 플레이어 1인 평균 총부채(원금+이자): ${fmtPair(src.avgDebtAllPlayers, dLoan.avgDebtAllPlayers)} (개별 최소 \`${fmtMoney(src.minDebtAllPlayers)}\` ~ 최대 \`${fmtMoney(src.maxDebtAllPlayers)}\`)`);
     lines.push(`  - 부채 보유자 한정 평균 원리금: ${fmtPair(src.avgDebtHolders, dLoan.avgDebtHolders)} (원금 ${fmtPair(src.avgPrincipalHolders, dLoan.avgPrincipalHolders)} + 누적이자 ${fmtPair(src.avgInterestHolders, dLoan.avgInterestHolders)})`);
 
+    lines.push('');
     lines.push(`- **중도 상환 이용 실적 (턴 시작 10/25/50/75/100%)**`);
     lines.push(`  - 누적 상환 실행: 총 **${src.totalRepayCount || 0}회** (판당 평균 \`${fmt4(src.repayPerMatchAvg || 0)}회\`)`);
     lines.push(`  - 누적 상환 총액: ${fmtPair(src.totalRepaidAmount || 0, dLoan.totalRepaidAmount || 0)} (판당 평균 ${fmtPair(src.repaidPerMatchAvg || 0, dLoan.repaidPerMatchAvg || 0)})`);
     lines.push(`  - 원금 전액 완납 (잔여부채 0): ${src.totalFullClearedCount || 0}건 | 원금 완납 후 잔여이자→원금 전환: ${src.totalInterestConvertedCount || 0}건 (전환액 ${fmtMoney(src.totalInterestConvertedAmount || 0)})`);
 
+    lines.push('');
     lines.push(`- **역대 최다·최고 대출 기록**`);
     lines.push(`  - 개인 최다 대출 횟수: ${formatRecordTag(src.maxLoanCountRec, '회')}`);
     lines.push(`  - 개인 누적 최대 대출 원금: ${formatRecordTag(src.maxBorrowedRec, '원')}`);
@@ -2864,6 +2905,7 @@ function formatSummaryLoanSectionLines(dLoan, popLoan = null, totalSimulated = 0
         lines.push(`  - 판당 총 통행료 최저: \`${fmtMoney(tSrc.matchTollMin)}\`${tSrc.minMatchTollRec ? ` (\`${tSrc.minMatchTollRec.roomId}\`)` : ''}`);
         lines.push(`  - 판당 총 통행료 최대: \`${fmtMoney(tSrc.matchTollMax)}\`${tSrc.maxMatchTollRec ? ` (\`${tSrc.maxMatchTollRec.roomId}\`)` : ''}`);
         lines.push(`  - 판당 통행료 발생 건수: 평균 \`${fmt4(tSrc.matchTollCountAvg)}회\` (최소 ${tSrc.matchTollCountMin}회 ~ 최대 ${tSrc.matchTollCountMax}회)`);
+        lines.push('');
         lines.push(`- **단일 건 통행료 범위**`);
         lines.push(`  - 건당 평균 통행료: ${fmtPair(tSrc.avgSingleToll, dTolls?.avgSingleToll ?? tSrc.avgSingleToll)} (총 ${tSrc.totalTollsCount}건)`);
         lines.push(`  - 단일 건 최소 통행료: \`${fmtMoney(tSrc.minSingleToll)}\``);
@@ -2972,22 +3014,26 @@ function formatSummaryDiagnosticSectionLines(dExtras, dCards, popExtras = null, 
         lines.push(`  - ${n}: \`${fmt4(ex.buildingLevelAvgsPerMatch[i])}개\``);
     });
 
+    lines.push('');
     lines.push(`- **핵심 요충지 및 지위 보유자 승률**`);
     lines.push(`  - 엘리프 조각상(1개+) 보유자: \`${fmt4(ex.landmarkWinRatePct)}%\` (${ex.landmarkHolderWins}/${ex.landmarkHolders}승)`);
     lines.push(`  - 다야의 궁전 소유자: \`${fmt4(ex.dayaWinRatePct)}%\` (${ex.dayaWins}/${ex.dayaHolders}승)`);
     lines.push(`  - 빵주 정비반장 보유자: \`${fmt4(ex.bbangjuWinRatePct)}%\` (${ex.bbangjuWins}/${ex.bbangjuChiefs}승)`);
 
+    lines.push('');
     lines.push(`- **자산 대비 부채 및 미사용 카드 현황**`);
     lines.push(`  - 생존 총자산 대비 누적 부채 비율: \`${fmt4(ex.debtToGrossAssetPct)}%\``);
     lines.push(`  - 판당 미사용 인벤토리 카드: \`${fmt4(cs.unusedInventoryTotal / Math.max(1, matchCount))}장\` (총 드로우 대비 \`${fmt4(cs.unusedCardRatePct)}%\` 잔존)`);
 
     if (ex.lapStats) {
+        lines.push('');
         lines.push(`- **보드 순회 횟수 분포**`);
         lines.push(`  - 판당 순회 횟수 (4인 합계): ${fmtSeriesSpan(ex.lapStats.perMatch)}`);
         lines.push(`  - 개인별(1인당) 순회 횟수: ${fmtSeriesSpan(ex.lapStats.perPlayer)}`);
     }
 
     const gt = ex.gimmickTurnSharesPct;
+    lines.push('');
     lines.push(`- **개인 턴 기준 월드 기믹 체감 비중**`);
     lines.push(`  - 통상(맑음): \`${fmt4(gt.none)}%\``);
     lines.push(`  - 낮 기믹: \`${fmt4(gt.day)}%\``);
@@ -3070,18 +3116,21 @@ function formatSummaryFurryAndTreasureCardsLines(ga100, gaPop = null, totalSimul
     lines.push(`  - 정산 시점 퍼리비이치 유지율: \`${fmt4(f.endedOpenRatePct)}%\` (${f.endedOpenMatches}판)`);
     lines.push(`  - 판당 개장 횟수: ${fmtSeriesSpan(f.opensPerMatch)}`);
 
+    lines.push('');
     lines.push(`[전체 매치 기준 퍼리비이치 수익 vs 기대 비교]`);
     lines.push(`  - 실제 순수익: ${fmtMoneySeriesSpan(f.actualAll)}`);
     lines.push(`  - 기대 수익: ${fmtMoneySeriesSpan(f.expectedAll)}`);
     lines.push(`  - 오차율: ${fmtErrSummary(f.errorAll)}`);
 
     if (f.convertedMatches > 0) {
+        lines.push('');
         lines.push(`[개장 발생 매치(${f.convertedMatches}판) 기준 수익 vs 기대 비교]`);
         lines.push(`  - 실제 순수익: ${fmtMoneySeriesSpan(f.actualConverted)}`);
         lines.push(`  - 기대 수익: ${fmtMoneySeriesSpan(f.expectedConverted)}`);
         lines.push(`  - 오차율: ${fmtErrSummary(f.errorConverted)}`);
     }
 
+    lines.push('');
     lines.push(`- **퍼리비이치 세부 수익 항목 (전체 평균)**`);
     lines.push(`  - 입장료 평균: ${fmtMoney(f.entryTollAvg)}`);
     lines.push(`  - 직접 개장(50만) 평균: \`${fmt4(f.manualOpenAvg || 0)}회\` (비용 ${fmtMoney(f.manualOpenCostAvg || 0)})`);
@@ -3091,6 +3140,7 @@ function formatSummaryFurryAndTreasureCardsLines(ga100, gaPop = null, totalSimul
     lines.push(`  - 일반 휴식 횟수: ${fmt4(f.baselineRestAvg)}회`);
 
     if (gaPop) {
+        lines.push('');
         lines.push(`[${sampleCycles}사이클 표본 참고 비교]`);
         lines.push(`  - 변환율: \`${fmt4(f100.conversionRateAllPct)}%\``);
         lines.push(`  - 전체 실제 순수익: ${fmtMoney(f100.actualAll.mean)} vs 기대: ${fmtMoney(f100.expectedAll.mean)} (${fmtErrSummary(f100.errorAll)})`);
@@ -3116,6 +3166,7 @@ function formatSummaryMountainAndMemoryLines(ga100, gaPop = null, totalSimulated
     lines.push(`  - 매치 1회+ 구매율: \`${fmt4(m.buyMatchRatePct)}%\` (${m.buyMatches}판)`);
     lines.push(`  - 판당 구매 횟수: ${fmtSeriesSpan(m.buysPerMatch)}`);
 
+    lines.push('');
     lines.push(`[전체 매치 기준 정령산 투자/수익 vs 기대 비교]`);
     lines.push(`  - 투자 금액: ${fmtMoneySeriesSpan(m.investmentAll)}`);
     lines.push(`  - 추가 통행료 이득: ${fmtMoneySeriesSpan(m.tollExtraAll)}`);
@@ -3124,6 +3175,7 @@ function formatSummaryMountainAndMemoryLines(ga100, gaPop = null, totalSimulated
     lines.push(`  - 순수익 오차율: ${fmtErrSummary(m.errorAll)}`);
 
     if (m.buyMatches > 0) {
+        lines.push('');
         lines.push(`[구매 발생 매치(${m.buyMatches}판) 기준 투자/수익 vs 기대 비교]`);
         lines.push(`  - 투자 금액: ${fmtMoneySeriesSpan(m.investmentActive)}`);
         lines.push(`  - 추가 통행료 이득: ${fmtMoneySeriesSpan(m.tollExtraActive)}`);
@@ -3132,6 +3184,7 @@ function formatSummaryMountainAndMemoryLines(ga100, gaPop = null, totalSimulated
         lines.push(`  - 순수익 오차율: ${fmtErrSummary(m.errorActive)}`);
     }
     if (gaPop) {
+        lines.push('');
         lines.push(`[${sampleCycles}사이클 표본 참고 비교]`);
         lines.push(`  - 전체 투자: ${fmtMoney(m100.investmentAll.mean)}`);
         lines.push(`  - 추가 이득: ${fmtMoney(m100.tollExtraAll.mean)}`);
@@ -3144,6 +3197,7 @@ function formatSummaryMountainAndMemoryLines(ga100, gaPop = null, totalSimulated
     lines.push(`  - 판당 획득 횟수: ${fmtSeriesSpan(mo.acquiredPerMatch)} (총 ${mo.totalAcquired}건)`);
     lines.push(`  - 판당 회복 횟수: ${fmtSeriesSpan(mo.recoveredPerMatch)} (총 ${mo.totalRecovered}건)`);
 
+    lines.push('');
     lines.push(`[잊혀진 기억 변환율 vs 마르코프 기대 확률 비교]`);
     lines.push(`  - 실측 전체 변환율: \`${fmt4(mo.overallRatePct)}%\` (${mo.totalRecovered}/${mo.totalAcquired}건)`);
     lines.push(`  - 매치별 변환율: ${fmtSeriesSpan(mo.perMatchRate, '%')}`);
@@ -3151,6 +3205,7 @@ function formatSummaryMountainAndMemoryLines(ga100, gaPop = null, totalSimulated
     lines.push(`  - 변환율 오차율: ${fmtErrSummary(mo.recoveryError)}`);
 
     if (gaPop) {
+        lines.push('');
         lines.push(`[${sampleCycles}사이클 표본 참고 비교]`);
         lines.push(`  - 변환율: \`${fmt4(mo100.overallRatePct)}%\` (${mo100.totalRecovered}/${mo100.totalAcquired}) vs 기대 \`${fmt4(mo100.expectedRatePct)}%\` (${fmtErrSummary(mo100.recoveryError)})`);
     }
@@ -3161,6 +3216,7 @@ function formatSummaryMountainAndMemoryLines(ga100, gaPop = null, totalSimulated
     lines.push(`  - 전체 매치 등장 횟수: 총 **${mo.totalOriginDrawn}회** (매치당 평균 \`${fmt4(mo.overallOriginMatchPct)}%\`)`);
     lines.push(`  - 판당 획득 횟수: ${fmtSeriesSpan(mo.originDrawnPerMatch)}`);
 
+    lines.push('');
     lines.push(`[기억 회복자 1단계 최상위 선판정(50%) vs 실제 획득 비교]`);
     lines.push(`  - 선판정 적격 판정 횟수: \`${mo.eligibleRollsSum}회\``);
     lines.push(`  - 선판정 당첨(50% 독립 성공) 횟수: \`${mo.coinFlipWinsSum}회\``);
@@ -3169,6 +3225,7 @@ function formatSummaryMountainAndMemoryLines(ga100, gaPop = null, totalSimulated
     lines.push(`  - 적중률 오차율: ${fmtErrSummary(mo.condRateError)}`);
 
     if (gaPop) {
+        lines.push('');
         lines.push(`[${sampleCycles}사이클 표본 참고 비교]`);
         lines.push(`  - 전체 등장: ${mo100.totalOriginDrawn}회 (\`${fmt4(mo100.overallOriginMatchPct)}%\`)`);
         lines.push(`  - 조건부 적중률: \`${fmt4(mo100.overallCondRatePct)}%\` (${mo100.coinFlipWinsSum}/${mo100.eligibleRollsSum}, ${fmtErrSummary(mo100.condRateError)})`);
@@ -3197,33 +3254,39 @@ function formatSummarySootAndDayNightLines(ga100, gaPop = null, totalSimulated =
     lines.push(`  - 분기 1 (윤회 공석): ${s.branch1.matches}판`);
     lines.push(`  - 분기 2 (윤회 탄생): ${s.branch2.matches}판`);
 
+    lines.push('');
     lines.push(`[전체 매치 기준 그을음 손익 vs 기대 비교]`);
     lines.push(`  - 현금 순손익: 실제 ${fmtMoneySeriesSpan(s.cashAll)} vs 기대 ${fmtMoneySeriesSpan(s.expectedAll)} (${fmtErrSummary(s.errorCashAll)})`);
     lines.push(`  - 실질 손익(파괴가치 반영): 실제 ${fmtMoneySeriesSpan(s.totalAll)} vs 기대 ${fmtMoneySeriesSpan(s.expectedAll)} (${fmtErrSummary(s.errorTotalAll)})`);
 
     if (s.triggeredMatches > 0) {
+        lines.push('');
         lines.push(`[발동 매치(${s.triggeredMatches}판) 합산 손익 vs 기대 비교]`);
         lines.push(`  - 현금 순손익: 실제 ${fmtMoneySeriesSpan(s.cashTrig)} vs 기대 ${fmtMoneySeriesSpan(s.expectedTrig)} (${fmtErrSummary(s.errorCashTrig)})`);
         lines.push(`  - 실질 손익(파괴가치 반영): 실제 ${fmtMoneySeriesSpan(s.totalTrig)} vs 기대 ${fmtMoneySeriesSpan(s.expectedTrig)} (${fmtErrSummary(s.errorTotalTrig)})`);
 
         if (s.branch1.matches > 0) {
+            lines.push('');
             lines.push(`[분기 1: 윤회 공석 매치(${s.branch1.matches}판) 손익 비교]`);
             lines.push(`  - 실질 손익: 실제 ${fmtMoneySeriesSpan(s.branch1.total)} vs 단일 기대치 ${fmtMoneySeriesSpan(s.branch1.expected)} (${fmtErrSummary(s.branch1.errorTotal)})`);
         }
         if (s.branch2.matches > 0) {
             const b2 = s.branch2;
+            lines.push('');
             lines.push(`[분기 2: 윤회 발동자(보스) 세부 손익 및 견제 기대값 vs 실측 괴리감 (${b2.matches}판)]`);
             lines.push(`  - 실질 총순익: 실제 ${fmtMoneySeriesSpan(b2.bossTotal)} vs 기대 ${fmtMoneySeriesSpan(b2.bossExpected)} (${fmtErrSummary(b2.errorBossTotal)})`);
             lines.push(`  - 현금 순손익: 실제 ${fmtMoneySeriesSpan(b2.bossCash)}`);
             lines.push(`  - 윤회 통행료 수입 (그을음 추가수취): 실제 ${fmtMoneySeriesSpan(b2.bossTollActual)} vs 기대 ${fmtMoneySeriesSpan(b2.bossTollExpected)} (${fmtErrSummary(b2.errorBossToll)})`);
             lines.push(`  - 윤회 영토 파괴 견제 가치 (상대 자산손실): 실제 ${fmtMoneySeriesSpan(b2.destroyActual)} vs 기대 ${fmtMoneySeriesSpan(b2.destroyExpected)} (${fmtErrSummary(b2.errorDestroy)})`);
 
+            lines.push('');
             lines.push(`[분기 2: 비윤회 3인 연합 세부 손익 비교 (${b2.matches}판)]`);
             lines.push(`  - 3인 합산 실질 손익: 실제 ${fmtMoneySeriesSpan(b2.oppTotal)} vs 기대 ${fmtMoneySeriesSpan(b2.oppExpected)} (${fmtErrSummary(b2.errorOppTotal)})`);
             lines.push(`  - 3인 합산 현금 손익: 실제 ${fmtMoneySeriesSpan(b2.oppCash)}`);
         }
 
         const hc = s.haloConversion;
+        lines.push('');
         lines.push(`[그을음 중 빛무리 전환 카드([113/114]) 기대 vs 실제 비교]`);
         lines.push(`  - 드로우 시도 기회: ${hc.attempts}회`);
         lines.push(`  - 기대 획득 횟수(비율): ${hc.expectedDraws.toFixed(2)}회 (\`${fmt4(hc.expectedRatePct)}%\`)`);
@@ -3231,6 +3294,7 @@ function formatSummarySootAndDayNightLines(ga100, gaPop = null, totalSimulated =
         lines.push(`  - 전환율 오차율: ${fmtErrSummary(hc.errorRate)}`);
         lines.push(`  - 매치 기준 전환 성공률: \`${fmt4(hc.convertedMatchRatePct)}%\` (${hc.convertedMatches}/${s.triggeredMatches}판)`);
 
+        lines.push('');
         lines.push(`- **그을음 발동판 세부 거래 항목 평균**`);
         lines.push(`  - 마카샤 지원금: \`${fmtMoney(s.makashaTrig.mean)}\``);
         lines.push(`  - 영토 매입 할인 절감액: \`${fmtMoney(s.discountTrig.mean)}\``);
@@ -3239,12 +3303,14 @@ function formatSummarySootAndDayNightLines(ga100, gaPop = null, totalSimulated =
         lines.push(`  - 윤회 영토 파괴 손실 가치: \`${fmtMoney(s.destroyValTrig.mean)}\``);
         lines.push(`  - 그을음 추가 통행료 총 거래액: \`${fmtMoney(s.extraTollTrig.mean)}\``);
 
+        lines.push('');
         lines.push(`- **발동 매치 내 플레이어 개인별 손익 분포**`);
         lines.push(`  - 개인 현금 손익: ${fmtMoneySeriesSpan(s.playerCashTrig)}`);
         lines.push(`  - 개인 실질 손익(파괴 포함): ${fmtMoneySeriesSpan(s.playerTotalTrig)}`);
     }
 
     if (gaPop && s100.triggeredMatches > 0) {
+        lines.push('');
         lines.push(`[${sampleCycles}사이클 표본 참고 비교]`);
         lines.push(`  - 발동 매치: ${s100.triggeredMatches}판`);
         lines.push(`  - 현금 ${fmtMoney(s100.cashTrig.mean)} / 실질 ${fmtMoney(s100.totalTrig.mean)} vs 기대 ${fmtMoney(s100.expectedTrig.mean)} (${fmtErrSummary(s100.errorTotalTrig)})`);
@@ -3257,35 +3323,43 @@ function formatSummarySootAndDayNightLines(ga100, gaPop = null, totalSimulated =
     lines.push(`  - 카드 강제 전환: ${h.cardMatches}판 / 자연 전환: ${h.naturalMatches}판`);
     lines.push(`  - 세부 분기: 죄업 ${h.karmaMatches}판 / 후회 ${h.regretMatches}판 / 균등자연 ${h.naturalUniformMatches}판`);
 
+    lines.push('');
     lines.push(`[전체 매치 기준 빛무리 순손익 vs 기대 비교]`);
     lines.push(`  - 실제: ${fmtMoneySeriesSpan(h.all)} vs 기대: ${fmtMoneySeriesSpan(h.expectedAll)} (${fmtErrSummary(h.errorAll)})`);
 
     if (h.triggeredMatches > 0) {
+        lines.push('');
         lines.push(`[발동 매치(${h.triggeredMatches}판) 전체 합계 비교]`);
         lines.push(`  - 실제: ${fmtMoneySeriesSpan(h.trig)} vs 기대: ${fmtMoneySeriesSpan(h.expectedTrig)} (${fmtErrSummary(h.errorTrig)})`);
 
         if (h.debuffedMatches > 0) {
+            lines.push('');
             lines.push(`[죄업/후회 보유자 합산 (${h.debuffedMatches}판) 비교]`);
             lines.push(`  - 실제: ${fmtMoneySeriesSpan(h.debuffed)} vs 기대: ${fmtMoneySeriesSpan(h.debuffedExpected)} (${fmtErrSummary(h.errorDebuffed)})`);
+            lines.push('');
             lines.push(`[상대 3인(수혜자) 합산 (${h.debuffedMatches}판) 비교]`);
             lines.push(`  - 실제: ${fmtMoneySeriesSpan(h.opp)} vs 기대: ${fmtMoneySeriesSpan(h.oppExpected)} (${fmtErrSummary(h.errorOpp)})`);
 
             if (h.karmaMatches > 0) {
+                lines.push('');
                 lines.push(`[죄업 세부 비교 (${h.karmaMatches}판)]`);
                 lines.push(`  - 죄업 보유자: 실제 ${fmtMoney(h.karma.mean)} vs 기대 ${fmtMoney(h.karmaExpected.mean)} (${fmtErrSummary(h.errorKarma)})`);
                 lines.push(`  - 상대 3인 합계: 실제 ${fmtMoney(h.karmaOpp.mean)} vs 기대 ${fmtMoney(h.karmaOppExpected.mean)} (${fmtErrSummary(h.errorKarmaOpp)})`);
             }
             if (h.regretMatches > 0) {
+                lines.push('');
                 lines.push(`[후회 세부 비교 (${h.regretMatches}판)]`);
                 lines.push(`  - 후회 보유자: 실제 ${fmtMoney(h.regret.mean)} vs 기대 ${fmtMoney(h.regretExpected.mean)} (${fmtErrSummary(h.errorRegret)})`);
                 lines.push(`  - 상대 3인 합계: 실제 ${fmtMoney(h.regretOpp.mean)} vs 기대 ${fmtMoney(h.regretOppExpected.mean)} (${fmtErrSummary(h.errorRegretOpp)})`);
             }
         }
         if (h.naturalUniformMatches > 0) {
+            lines.push('');
             lines.push(`[윤회 공석 자연 빛무리 (${h.naturalUniformMatches}판 — 균일 수혜) 비교]`);
             lines.push(`  - 실제: ${fmtMoneySeriesSpan(h.naturalUniform)} vs 기대: ${fmtMoneySeriesSpan(h.naturalUniformExpected)} (${fmtErrSummary(h.errorNaturalUniform)})`);
         }
 
+        lines.push('');
         lines.push(`- **빛무리 발동판 세부 거래 항목 평균**`);
         lines.push(`  - 통행료 수취 증분: \`${fmtMoney(h.tollGainAvg)}\``);
         lines.push(`  - 긍정 효과 배율 증분: \`${fmtMoney(h.posGainAvg)}\``);
@@ -3295,6 +3369,7 @@ function formatSummarySootAndDayNightLines(ga100, gaPop = null, totalSimulated =
     }
 
     if (gaPop && h100.triggeredMatches > 0) {
+        lines.push('');
         lines.push(`[${sampleCycles}사이클 표본 참고 비교]`);
         lines.push(`  - 발동 매치: ${h100.triggeredMatches}판`);
         lines.push(`  - 실제 ${fmtMoney(h100.trig.mean)} vs 기대 ${fmtMoney(h100.expectedTrig.mean)} (${fmtErrSummary(h100.errorTrig)})`);
@@ -3307,15 +3382,18 @@ function formatSummarySootAndDayNightLines(ga100, gaPop = null, totalSimulated =
     lines.push(`  - 낮 활성 턴: ${dn.dayTurnsTotal}턴`);
     lines.push(`  - 밤 활성 턴: ${dn.nightTurnsTotal}턴`);
 
+    lines.push('');
     lines.push(`[전체 매치 기준 낮/밤 추가 통행료 vs 기대 비교]`);
     lines.push(`  - 실제: ${fmtMoneySeriesSpan(dn.totalAll)} vs 기대: ${fmtMoneySeriesSpan(dn.expectedAll)} (${fmtErrSummary(dn.errorAll)})`);
 
     if (dn.activeMatches > 0) {
+        lines.push('');
         lines.push(`[활성 매치(${dn.activeMatches}판) 기준 추가 통행료 vs 기대 비교]`);
         lines.push(`  - 전체 실제: ${fmtMoneySeriesSpan(dn.totalActive)} (낮 ${fmtMoneySeriesSpan(dn.dayActive)} / 밤 ${fmtMoneySeriesSpan(dn.nightActive)})`);
         lines.push(`  - 기대 통행료: ${fmtMoneySeriesSpan(dn.expectedActive)}`);
         lines.push(`  - 오차율: ${fmtErrSummary(dn.errorActive)}`);
 
+        lines.push('');
         lines.push(`- **활성 매치 플레이어별 손익 분포**`);
         lines.push(`  - 추가 수취액: ${fmtMoneySeriesSpan(dn.playerGainActive)}`);
         lines.push(`  - 추가 지불액: ${fmtMoneySeriesSpan(dn.playerLossActive)}`);
@@ -3323,6 +3401,7 @@ function formatSummarySootAndDayNightLines(ga100, gaPop = null, totalSimulated =
     }
 
     if (gaPop) {
+        lines.push('');
         lines.push(`[${sampleCycles}사이클 표본 참고 비교]`);
         lines.push(`  - 전체 실제: ${fmtMoney(dn100.totalAll.mean)} vs 기대: ${fmtMoney(dn100.expectedAll.mean)} (${fmtErrSummary(dn100.errorAll)})`);
     }
@@ -3434,23 +3513,27 @@ function formatSummaryAltarAndVoidLines(ga100, gaPop = null, totalSimulated = 0,
     lines.push(`  - 판당 전체 도착 횟수: ${fmtSeriesSpan(al.visits)} (주사위 ${fmtSeriesSpan(al.rollVisits)})`);
     lines.push(`  - 주사위 기대 도착 횟수: ${fmtSeriesSpan(al.expectedRollVisits)} (${fmtErrSummary(al.errorRollVisits)})`);
     lines.push(`  - 전체 기대 도착(카드포함): ${fmtSeriesSpan(al.expectedTotalVisits)} (${fmtErrSummary(al.errorTotalVisits)})`);
+    lines.push('');
     lines.push(`- **제단 보물 교환 현황**`);
     lines.push(`  - 판당 교환 횟수: ${fmtSeriesSpan(al.tradeCount)}`);
     lines.push(`  - 판당 교환 카드 수: ${fmtSeriesSpan(al.tradeCards)}`);
     lines.push(`  - 1인+ 교환 발생 매치 비율: \`${fmt4(al.traderMatchRatePct)}%\` (${al.traderMatches}판)`);
     if (al.traderMatches > 0) {
+        lines.push('');
         lines.push(`[최다 보물 교환자 합산 순손익 (제단 교환수익 + 그을음 손익) vs 기대 비교 (${al.traderMatches}판)]`);
         lines.push(`  - 최다 교환자 교환 보상 평균: ${fmtMoneySeriesSpan(al.topTraderRewardActual)}`);
         lines.push(`  - 최다 교환자 그을음 실질 손익 평균: ${fmtMoneySeriesSpan(al.topTraderSootActual)}`);
         lines.push(`  - 합산 실질 순손익: 실제 ${fmtMoneySeriesSpan(al.topTraderCombinedActual)} vs 기대 ${fmtMoneySeriesSpan(al.topTraderCombinedExpected)} (${fmtErrSummary(al.errorTopTraderCombined)})`);
         lines.push(`  - 최다 교환자가 윤회 발동자인 매치: ${al.topTraderReincarnatedCount}/${al.traderMatches}판 (\`${fmt4(clampPct((al.topTraderReincarnatedCount / al.traderMatches) * 100))}%\`)`);
         if (al.bossCompareMatches > 0) {
+            lines.push('');
             lines.push(`[분기 2(윤회 탄생) 교집합 ${al.bossCompareMatches}판: 최다 교환자 vs 윤회 보스 실질 손익 비교]`);
             lines.push(`  - 최다 교환자 합산 손익: ${fmtMoneySeriesSpan(al.topTraderInB2Actual)}`);
             lines.push(`  - 윤회 발동자(보스) 실질 총순익: ${fmtMoneySeriesSpan(al.reincarnatedBossActual)}`);
         }
     }
     if (gaPop && al100) {
+        lines.push('');
         lines.push(`[${sampleCycles}사이클 표본 참고 비교]`);
         lines.push(`  - 제단 도착: \`${fmt4(al100.visits.mean)}회\` (주사위 \`${fmt4(al100.rollVisits.mean)}회\` vs 기대 \`${fmt4(al100.expectedRollVisits.mean)}회\`, ${fmtErrSummary(al100.errorRollVisits)})`);
         lines.push(`  - 교환 횟수/카드: \`${fmt4(al100.tradeCount.mean)}회\` / \`${fmt4(al100.tradeCards.mean)}장\``);
@@ -3467,6 +3550,7 @@ function formatSummaryAltarAndVoidLines(ga100, gaPop = null, totalSimulated = 0,
     lines.push(`  - 전체 기대 도착(카드포함): ${fmtSeriesSpan(vg.expectedTotalVisits)} (${fmtErrSummary(vg.errorTotalVisits)})`);
     lines.push(`  - 총 갇힘 인원(끌려옴 포함): ${fmtSeriesSpan(vg.trappedCount)} (동반 끌려옴 ${fmtSeriesSpan(vg.pulledCount)} · 림 카드 회피 ${fmtSeriesSpan(vg.rimEvadedCount)})`);
     lines.push(`  - 셰이디의 장난(탈출 미니게임): 시도 ${fmtSeriesSpan(vg.challengeCount)} · 성공 ${fmtSeriesSpan(vg.escapeSuccessCount)} · 실패 ${fmtSeriesSpan(vg.escapeFailCount)} (탈출률 \`${fmt4(vg.escapeRatePct || 0)}%\` vs 이론 \`${fmt4(vg.expectedEscapeRatePct || 45.1389)}%\`)`);
+    lines.push('');
     lines.push(`- **차원 갇힘 피해량 및 승률 영향**`);
     lines.push(`  - 전체 매치 기준 차원 피해 총액: ${fmtMoneySeriesSpan(vg.damageAll)} (순회기회손실 ${fmtMoneySeriesSpan(vg.lapLossAll)} · 유지/이자손실 ${fmtMoneySeriesSpan(vg.upkeepLossAll)})`);
     lines.push(`  - 도착 기대 기반 기준 손실액 vs 실측 피해량: 기대 ${fmtMoneySeriesSpan(vg.expectedArrivalDamageAll)} vs 실제 ${fmtMoneySeriesSpan(vg.damageAll)} (${fmtErrSummary(vg.errorDamageAll)})`);
@@ -3475,6 +3559,7 @@ function formatSummaryAltarAndVoidLines(ga100, gaPop = null, totalSimulated = 0,
     }
     lines.push(`  - 차원 갇힘 경험자 승률: \`${fmt4(vg.trappedWinRatePct)}%\` (${vg.trappedWins}/${vg.trappedPlayers}승) vs 미경험자 승률: \`${fmt4(vg.untrappedWinRatePct)}%\` (${vg.untrappedWins}/${vg.untrappedPlayers}승)`);
     if (gaPop && vg100) {
+        lines.push('');
         lines.push(`[${sampleCycles}사이클 표본 참고 비교]`);
         lines.push(`  - 차원 도착: \`${fmt4(vg100.visits.mean)}회\` (주사위 \`${fmt4(vg100.rollVisits.mean)}회\` vs 기대 \`${fmt4(vg100.expectedRollVisits.mean)}회\`, ${fmtErrSummary(vg100.errorRollVisits)})`);
         lines.push(`  - 차원 피해량: ${fmtMoney(vg100.damageAll.mean)} (기대 ${fmtMoney(vg100.expectedArrivalDamageAll.mean)}, ${fmtErrSummary(vg100.errorDamageAll)})`);
@@ -3801,11 +3886,13 @@ export function renderAverage100LogText(cycles, meta = null, targetCycles = MARB
     lines.push(`  - 빛무리 자연 전환: ${extra.haloNatural}회`);
     lines.push(`  - 빛무리 카드 강제 전환: ${extra.haloCard}회`);
 
+    lines.push('');
     lines.push(`- **제단 및 포탈 기믹**`);
     lines.push(`  - 판당 첫 방문 인원: \`${fmt4(extra.altarFirstVisits / count)}명\``);
     lines.push(`  - 판당 2회차 포탈 이용: \`${fmt4(extra.altarPortalUses / count)}회\``);
     lines.push(`  - 판당 보물 카드 교환: \`${fmt4(extra.altarTradeCount / count)}회\``);
 
+    lines.push('');
     lines.push(`- **경제 압박 및 대출**`);
     lines.push(`  - 플레이어 파산률: \`${fmt4(bankruptRate)}%\``);
     lines.push(`  - 턴 시작 자금 위기 빈도: 판당 \`${fmt4(extra.crisisCount / count)}회\``);
@@ -3814,6 +3901,7 @@ export function renderAverage100LogText(cycles, meta = null, targetCycles = MARB
     const detailed100 = aggregateDetailedBatchMetrics(cycles);
     const hasPop = pop && pop.totalSimulated > count;
     const lapStatsSrc = (hasPop && pop.extras?.lapStats) ? pop.extras.lapStats : detailed100.extras?.lapStats;
+    lines.push('');
     lines.push(`- **통행료 및 순회 보상**`);
     lines.push(`  - 건당 평균 통행료: ${fmtMoney(avgTollPaid)}`);
     lines.push(`  - 1인당 최대 단일 통행료 평균: ${fmtMoney(avgMaxSingleToll)}`);
@@ -3823,6 +3911,7 @@ export function renderAverage100LogText(cycles, meta = null, targetCycles = MARB
     }
     lines.push(`  - 순회 보상 차단률(그을음 등): \`${fmt4(lapBlockRate)}%\` (지급 ${extra.lapBonus}회 / 통과 ${extra.lapPass}회)`);
 
+    lines.push('');
     lines.push(`- **카드 운용 현황**`);
     lines.push(`  - 판당 카드칸 도착: \`${fmt4(extra.cardsDrawn / count)}회\``);
     lines.push(`  - 판당 액티브 카드 사용: \`${fmt4(extra.activeCardsUsed / count)}회\` (도착 대비 \`${fmt4(activeUseRatio)}%\`)`);
@@ -3867,5 +3956,11 @@ export function createMarbleLogAdapter(maxCycles = MARBLE_MAX_HISTORY, fileNames
     };
 }
 
-export const MarbleLogAdapter = createMarbleLogAdapter(MARBLE_MAX_HISTORY, MARBLE_LOG_FILES, compactCyclesDensityPreserve);
-export const MarbleLog10Adapter = createMarbleLogAdapter(MARBLE_10_MAX_HISTORY, MARBLE_LOG_10_FILES, compactCyclesQuantilePreserve);
+export const MarbleMode1LogAdapter = createMarbleLogAdapter(MARBLE_MAX_HISTORY, MARBLE_MODE1_LOG_FILES, compactCyclesDensityPreserve);
+export const MarbleMode1Log10Adapter = createMarbleLogAdapter(MARBLE_10_MAX_HISTORY, MARBLE_MODE1_LOG_10_FILES, compactCyclesQuantilePreserve);
+export const MarbleMode2LogAdapter = createMarbleLogAdapter(MARBLE_MAX_HISTORY, MARBLE_MODE2_LOG_FILES, compactCyclesDensityPreserve);
+export const MarbleMode2Log10Adapter = createMarbleLogAdapter(MARBLE_10_MAX_HISTORY, MARBLE_MODE2_LOG_10_FILES, compactCyclesQuantilePreserve);
+export const MarbleMode3LogAdapter = createMarbleLogAdapter(MARBLE_MAX_HISTORY, MARBLE_MODE3_LOG_FILES, compactCyclesDensityPreserve);
+export const MarbleMode3Log10Adapter = createMarbleLogAdapter(MARBLE_10_MAX_HISTORY, MARBLE_MODE3_LOG_10_FILES, compactCyclesQuantilePreserve);
+export const MarbleLogAdapter = MarbleMode3LogAdapter;
+export const MarbleLog10Adapter = MarbleMode3Log10Adapter;

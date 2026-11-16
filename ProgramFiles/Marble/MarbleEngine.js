@@ -8,7 +8,7 @@ import { BoardGimmickHandlers } from './MarbleBoardGimmick.js';
 import { handleTollPaymentProcess, executePlayerLoanBorrow } from './MarbleEconomy.js';
 import { processFinalSettlement, serializeSettlementResults } from './MarbleSettlement.js';
 import { AIManager } from './MarbleAI.js';
-import { removeCardFromInventory, useActiveCard, openPlayerCardSelector, getUsableCards } from './MarbleCard.js';
+import { removeCardFromInventory, useActiveCard, openPlayerCardSelector, getUsableCards, canUseActiveCard } from './MarbleCard.js';
 import { getPlayerThinkTime, getPlayerDiceCount, isBowVillageForced } from './MarbleCardTreasure.js';
 import { getStartPassBonus, applyLapPassBonus } from './MarbleCardNormal.js';
 import {
@@ -32,8 +32,22 @@ import {
     getGimmickText
 } from './MarbleRuntime.js';
 import { LangState } from '../System/LanguageManager.js';
-import { pickRandomBotName } from '../System/GameRegistry.js';
-import { GAME_CONSTANTS, BUILDING_COSTS, MULTIPLIERS } from '../System/Index/Marble/MarblePriceIndex.js';
+import {
+    pickRandomBotName,
+    AI_DIFFICULTIES,
+    AI_ARCHETYPE_POOL,
+    normalizeAiDifficulty
+} from '../System/GameRegistry.js';
+import {
+    GAME_CONSTANTS,
+    BUILDING_COSTS,
+    MULTIPLIERS,
+    getModeConfig,
+    normalizeMarbleMode,
+    getMaxAllowedBuildLevel,
+    getActiveBoardSize,
+    stepActiveBoardPos
+} from '../System/Index/Marble/MarblePriceIndex.js';
 import { BOARD_TILES } from '../System/Index/Marble/MarbleBoardIndex.js';
 import { CARD_IDS } from '../System/Index/Marble/MarbleCardIndex.js';
 
@@ -118,18 +132,22 @@ export class MarbleGameEngine {
         this.callbacks = callbacks || {};
 
         const opts = customOptions || room?.customOptions || {};
+        this.gameMode = normalizeMarbleMode(opts.gameMode || 'ember');
+        this.defaultAiDifficulty = opts.aiDifficulty ? normalizeAiDifficulty(opts.aiDifficulty, 'nuclear') : null;
+        const modeCfg = getModeConfig(this.gameMode);
         this.skipTurnOrderRoll = Boolean(opts.skipTurnOrderRoll);
         this.forceInteractiveTurnOrder = Boolean(opts.forceInteractiveTurnOrder);
         this.turnOrderState = null;
         this._turnOrderBrackets = null;
         this.turnOrderResult = null;
-        this.maxTurn = Math.max(1, Number(opts.maxTurn) || GAME_CONSTANTS.MAX_TURN);
+        this.maxTurn = Math.max(1, Number(opts.maxTurn) || modeCfg.maxTurn || GAME_CONSTANTS.MAX_TURN);
         const parsedInitMoney = Number(opts.initialMoney);
         this.hasCustomUniformMoney = Boolean(opts.uniformInitialMoney)
-            || (Number.isFinite(parsedInitMoney) && parsedInitMoney > 0 && parsedInitMoney !== GAME_CONSTANTS.INITIAL_MONEY);
-        this.initialMoney = Math.max(100000, parsedInitMoney || GAME_CONSTANTS.INITIAL_MONEY);
+            || (Number.isFinite(parsedInitMoney) && parsedInitMoney > 0 && parsedInitMoney !== modeCfg.initialMoney && parsedInitMoney !== GAME_CONSTANTS.INITIAL_MONEY);
+        this.initialMoney = Math.max(100000, parsedInitMoney || modeCfg.initialMoney || GAME_CONSTANTS.INITIAL_MONEY);
 
-        this.world = createMarbleWorldState();
+        this.world = createMarbleWorldState(this.gameMode);
+        this.world.gameMode = this.gameMode;
         this.world.maxTurn = this.maxTurn;
         if (Number.isFinite(Number(opts.haloCardPrecheckProb))) {
             this.world.haloCardPrecheckProb = Math.max(0, Math.min(1, Number(opts.haloCardPrecheckProb)));
@@ -208,6 +226,7 @@ export class MarbleGameEngine {
         );
 
         this.runSynced(() => {
+            this.world.gameMode = this.gameMode;
             WorldGimmickManager.reset();
             this.world.maxTurn = this.maxTurn;
             this.tiles = generateTiles();
@@ -296,8 +315,12 @@ export class MarbleGameEngine {
                     }
                 });
             },
-            showBuyPopup: (tile, costs, playerMoney, onBuyCallback, onCancelCallback) => {
+            showBuyPopup: (tile, costs, playerMoney, onBuyCallback, onCancelCallback, maxAllowedLvl = null) => {
                 const mText = getMarbleText(this.lang);
+                const activePlayer = this.turnManager?.getCurrentPlayer();
+                const effectiveMaxLvl = Number.isInteger(maxAllowedLvl)
+                    ? maxAllowedLvl
+                    : getMaxAllowedBuildLevel(tile.level, this.world?.gameMode, activePlayer?.playerIndex, this.turnManager?.globalTurn, Boolean(activePlayer?.hasFirstLapPassed));
                 this._setPendingPrompt({
                     kind: 'BUY',
                     tileId: tile.id,
@@ -305,11 +328,12 @@ export class MarbleGameEngine {
                     tileType: tile.type,
                     timeType: tile.timeType || 'none',
                     costs,
-                    playerMoney
+                    playerMoney,
+                    maxAllowedLvl: effectiveMaxLvl
                 }, {
                     onRespond: (data) => {
                         const lvl = Number(data?.level);
-                        if (!Number.isInteger(lvl) || lvl < 0 || lvl > 4) return;
+                        if (!Number.isInteger(lvl) || lvl < 0 || lvl > effectiveMaxLvl) return;
                         if (costs[lvl] === undefined || playerMoney < costs[lvl]) {
                             this.port.showToast(mText.NOT_ENOUGH_MONEY, 2000);
                             return;
@@ -423,7 +447,7 @@ export class MarbleGameEngine {
                 });
             },
             showPortalPopup: (tiles, onSelectCallback, onCancelCallback, reqFee = 0, isFree = false) => {
-                const validTileIds = tiles.filter(t => t.id !== BOARD_TILES.BBANGJU).map(t => t.id);
+                const validTileIds = tiles.filter(t => t.id !== BOARD_TILES.BBANGJU && !t.isDisabled && t.type !== 'disabled').map(t => t.id);
                 this._setPendingPrompt({
                     kind: 'PORTAL',
                     reqFee,
@@ -473,33 +497,52 @@ export class MarbleGameEngine {
 
     _createPlayersFromRoom(room) {
         const text = getMarbleText(this.lang);
-        const aiPool = ['aggressive', 'defensive', 'marathon'];
-        for (let i = aiPool.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [aiPool[i], aiPool[j]] = [aiPool[j], aiPool[i]];
-        }
+        const shuffleArchetypePool = () => {
+            const pool = [...AI_ARCHETYPE_POOL];
+            for (let i = pool.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [pool[i], pool[j]] = [pool[j], pool[i]];
+            }
+            return pool;
+        };
+        const aiPool = shuffleArchetypePool();
 
+        const modeCfg = getModeConfig(this.gameMode);
         const getOrderInitialMoney = (idx) => {
             if (this.hasCustomUniformMoney) return this.initialMoney;
-            return GAME_CONSTANTS.INITIAL_MONEY_BY_ORDER?.[idx] ?? this.initialMoney;
+            return modeCfg.initialMoneyByOrder?.[idx] ?? modeCfg.initialMoney ?? this.initialMoney;
         };
 
         if (room && Array.isArray(room.slots)) {
             const activeSlots = room.slots.filter(s => s.type !== 'empty');
             if (activeSlots.length > 0) {
-                const usedFixedAi = new Set(
-                    activeSlots
-                        .filter(s => s.type === 'ai' && s.aiType && s.aiType !== 'random')
-                        .map(s => s.aiType)
-                );
-                const remainingAiPool = aiPool.filter(t => !usedFixedAi.has(t));
+                let remainingAiPool = [...aiPool];
 
                 return activeSlots.map((slot, idx) => {
                     let resolvedAiType = null;
+                    let resolvedAiDiff = null;
                     if (slot.type === 'ai') {
-                        resolvedAiType = (slot.aiType && slot.aiType !== 'random')
-                            ? slot.aiType
-                            : (remainingAiPool.shift() || aiPool[Math.floor(Math.random() * aiPool.length)]);
+                        if (remainingAiPool.length === 0) {
+                            remainingAiPool = shuffleArchetypePool();
+                        }
+                        if (AI_ARCHETYPE_POOL.includes(slot.aiType) && remainingAiPool.includes(slot.aiType)) {
+                            resolvedAiType = slot.aiType;
+                            remainingAiPool = remainingAiPool.filter(t => t !== resolvedAiType);
+                        } else {
+                            resolvedAiType = remainingAiPool.shift();
+                        }
+
+                        if (slot.aiDifficulty && AI_DIFFICULTIES.includes(slot.aiDifficulty)) {
+                            resolvedAiDiff = slot.aiDifficulty;
+                        } else if (slot.aiType && AI_DIFFICULTIES.includes(slot.aiType)) {
+                            resolvedAiDiff = slot.aiType;
+                        } else if (this.defaultAiDifficulty) {
+                            resolvedAiDiff = this.defaultAiDifficulty;
+                        } else if (AI_ARCHETYPE_POOL.includes(slot.aiType)) {
+                            resolvedAiDiff = 'nuclear';
+                        } else {
+                            resolvedAiDiff = 'mild';
+                        }
                     }
                     const p = new Player(
                         slot.id || `p_${idx + 1}`,
@@ -507,7 +550,8 @@ export class MarbleGameEngine {
                         slot.color || DEFAULT_PLAYER_COLORS[idx % DEFAULT_PLAYER_COLORS.length],
                         getOrderInitialMoney(idx),
                         idx + 1,
-                        resolvedAiType
+                        resolvedAiType,
+                        resolvedAiDiff
                     );
                     p.isConnected = slot.type === 'human' ? slot.isConnected !== false : true;
                     return p;
@@ -521,12 +565,13 @@ export class MarbleGameEngine {
             usedNames.push(name);
             return name;
         };
+        const fallbackDiff = this.defaultAiDifficulty || 'spicy';
 
         return [
-            new Player('p1', text.PLAYER_ME, '#e74c3c', getOrderInitialMoney(0), 1, null),
-            new Player('npc1', pickBot(), '#3498db', getOrderInitialMoney(1), 2, aiPool[0]),
-            new Player('npc2', pickBot(), '#f1c40f', getOrderInitialMoney(2), 3, aiPool[1]),
-            new Player('npc3', pickBot(), '#9b59b6', getOrderInitialMoney(3), 4, aiPool[2])
+            new Player('p1', text.PLAYER_ME, '#e74c3c', getOrderInitialMoney(0), 1, null, null),
+            new Player('npc1', pickBot(), '#3498db', getOrderInitialMoney(1), 2, aiPool[0], fallbackDiff),
+            new Player('npc2', pickBot(), '#f1c40f', getOrderInitialMoney(2), 3, aiPool[1], fallbackDiff),
+            new Player('npc3', pickBot(), '#9b59b6', getOrderInitialMoney(3), 4, aiPool[2], fallbackDiff)
         ];
     }
 
@@ -564,11 +609,12 @@ export class MarbleGameEngine {
         const reordered = orderedIds.map(id => byId.get(id)).filter(Boolean);
         if (reordered.length !== this.allPlayers.length) return;
 
+        const modeCfg = getModeConfig(this.gameMode);
         this.allPlayers = reordered;
         this.allPlayers.forEach((p, idx) => {
             p.playerIndex = idx + 1;
             if (!this.hasCustomUniformMoney) {
-                p.money = GAME_CONSTANTS.INITIAL_MONEY_BY_ORDER?.[idx] ?? this.initialMoney;
+                p.money = modeCfg.initialMoneyByOrder?.[idx] ?? modeCfg.initialMoney ?? this.initialMoney;
             }
         });
         this.turnManager = new TurnManager(this.allPlayers);
@@ -662,6 +708,25 @@ export class MarbleGameEngine {
         entry.d2 = Math.floor(Math.random() * 6) + 1;
         entry.sum = entry.d1 + entry.d2;
         entry.rolled = true;
+        entry.rollSeq = (entry.rollSeq || 0) + 1;
+
+        const pending = this.turnOrderState.players.some(e => !e.rolled);
+        if (pending) {
+            this.emitState();
+            return true;
+        }
+
+        // 마지막으로 굴린 플레이어가 사람인 경우 주사위 굴림 모션(약 650ms)이 끝난 뒤 결과/재굴림 단계로 전환
+        if (!entry.isAi && this.turnOrderState.stage === 'ROLLING') {
+            this.emitState();
+            const currentRound = this.turnOrderState.round;
+            this.schedule(() => {
+                if (this.destroyed || !this.turnOrderState || this.turnOrderState.round !== currentRound) return;
+                this._evaluateTurnOrderRound();
+            }, 650);
+            return true;
+        }
+
         this._evaluateTurnOrderRound();
         return true;
     }
@@ -727,7 +792,7 @@ export class MarbleGameEngine {
             return;
         }
 
-        // 모든 동률 해소 또는 안전 상한 도달 시 최종 1~4등 확정 및 5초 결과 팝업 노출
+        // 모든 동률 해소 또는 안전 상한 도달 시 최종 1~4등 확정 및 3초 결과 카운트다운 노출 (슬롯 위치는 유지하여 시선 혼란 방지)
         const finalOrder = [];
         for (const group of this._turnOrderBrackets) {
             const resolved = group.length > 1
@@ -740,16 +805,15 @@ export class MarbleGameEngine {
                 finalOrder.push(entry);
             }
         }
-        this.turnOrderState.players = finalOrder;
         this.turnOrderState.stage = 'RESULT';
         this.turnOrderState.tieNotice = '';
-        this.turnOrderState.resultSecondsLeft = 5;
+        this.turnOrderState.resultSecondsLeft = 3;
         this.emitState();
 
-        for (let s = 1; s <= 4; s++) {
+        for (let s = 1; s <= 2; s++) {
             this.schedule(() => {
                 if (this.destroyed || !this.turnOrderState || this.turnOrderState.stage !== 'RESULT') return;
-                this.turnOrderState.resultSecondsLeft = 5 - s;
+                this.turnOrderState.resultSecondsLeft = 3 - s;
                 this.emitState();
             }, s * 1000);
         }
@@ -760,12 +824,15 @@ export class MarbleGameEngine {
                 .slice()
                 .sort((a, b) => a.rank - b.rank)
                 .map(e => e.id);
-            this.turnOrderResult = this.turnOrderState.players.map(e => ({ ...e }));
+            this.turnOrderResult = this.turnOrderState.players
+                .slice()
+                .sort((a, b) => a.rank - b.rank)
+                .map(e => ({ ...e }));
             this.turnOrderState = null;
             this._turnOrderBrackets = null;
             this._applyFinalTurnOrder(orderedIds);
             this.runSynced(() => this.startTurn());
-        }, 5000);
+        }, 3000);
     }
 
     start() {
@@ -826,6 +893,7 @@ export class MarbleGameEngine {
             target.afkWarningCount = 1;
             target.isAfkAuto = true;
             target.aiType = pickedAi;
+            target.aiDifficulty = target.aiDifficulty || 'spicy';
             this.port.showToast(`${target.name} 자리비움 판정 — AI가 임시로 대신 진행합니다.`, 2500);
             return () => {
                 if (this.destroyed || this.isGameOver) return;
@@ -839,6 +907,7 @@ export class MarbleGameEngine {
         // 경고 후 재잠수: 의도적 방해로 간주하여 로비 퇴장 및 영구 AI 대체
         target.isAfkAuto = false;
         target.aiType = pickedAi;
+        target.aiDifficulty = target.aiDifficulty || 'spicy';
         target.isKickedForAfk = true;
         target.isConnected = false;
         return () => {
@@ -849,7 +918,7 @@ export class MarbleGameEngine {
             this.port.showToast(`${target.name}님 반복 잠수로 퇴장 — AI가 이어서 플레이합니다.`, 3000);
             this.emitState();
             if (typeof this.callbacks.onPlayerAfkKick === 'function') {
-                this.callbacks.onPlayerAfkKick({ playerId: target.id, aiType: pickedAi });
+                this.callbacks.onPlayerAfkKick({ playerId: target.id, aiType: pickedAi, aiDifficulty: target.aiDifficulty });
             }
         };
     }
@@ -859,6 +928,7 @@ export class MarbleGameEngine {
         if (!player || player.isAi() || this.isGameOver || this.destroyed) return false;
 
         player.aiType = AIManager.chooseReplacementAiArchetype(player, this.tiles);
+        player.aiDifficulty = player.aiDifficulty || 'spicy';
         player.isAfkAuto = false;
         player.isConnected = true;
 
@@ -907,6 +977,7 @@ export class MarbleGameEngine {
             return this.runSynced(() => {
                 target.isAfkAuto = false;
                 target.aiType = null;
+                target.aiDifficulty = null;
                 target.consecutiveTimeouts = 0;
                 target._timedOutThisTurn = false;
                 target._respondedThisTurn = true;
@@ -954,6 +1025,46 @@ export class MarbleGameEngine {
                 this.isWaitingAction = true;
                 openPlayerCardSelector(
                     this._buildActionContext(activePlayer),
+                    (didMoveImmediately) => {
+                        if (!didMoveImmediately) {
+                            this.startPreRollPhase(activePlayer);
+                        } else {
+                            this.emitState();
+                        }
+                    },
+                    () => {
+                        this.startPreRollPhase(activePlayer);
+                    }
+                );
+                this.emitState();
+                return { ok: true };
+            }
+
+            if (action.type === 'USE_INVENTORY_CARD') {
+                if (!this.isPreRollPhase || this.isRolling || this.isWaitingAction || this.pendingPrompt) {
+                    return { ok: false, error: 'CANNOT_USE_CARD_NOW' };
+                }
+                const actionCtx = this._buildActionContext(activePlayer);
+                let targetCard = null;
+                if (Number(action.cardId) >= 500) {
+                    targetCard = (activePlayer.treasureCards || []).find(tc => tc.id === Number(action.cardId)) || null;
+                } else {
+                    const invList = activePlayer.inventory || [];
+                    const idx = Number(action.cardIndex);
+                    if (Number.isInteger(idx) && invList[idx] && invList[idx].id === Number(action.cardId)) {
+                        targetCard = invList[idx];
+                    } else if (action.cardId !== undefined) {
+                        targetCard = invList.find(c => c.id === Number(action.cardId)) || null;
+                    }
+                }
+                if (!targetCard || !canUseActiveCard(targetCard, actionCtx)) {
+                    return { ok: false, error: 'CARD_NOT_USABLE' };
+                }
+                markHumanResponded();
+                this.isWaitingAction = true;
+                useActiveCard(
+                    actionCtx,
+                    targetCard,
                     (didMoveImmediately) => {
                         if (!didMoveImmediately) {
                             this.startPreRollPhase(activePlayer);
@@ -1116,11 +1227,12 @@ export class MarbleGameEngine {
         if ((activeGimmickType === 'day' || activeGimmickType === 'night') && this.world?.metrics) {
             const wm = this.world.metrics;
             wm.dayNightActiveTurns[activeGimmickType] = (wm.dayNightActiveTurns[activeGimmickType] || 0) + 1;
+            const activeBoardSize = getActiveBoardSize(this.tiles);
             let expectedTurnExtra = 0;
             this.tiles.forEach(tile => {
                 if (tile.type === 'normal' && tile.owner && !tile.owner.isBankrupt && tile.owner !== player && tile.timeType === activeGimmickType) {
                     const baseCost = tile.level === 0 ? tile.basePrice : BUILDING_COSTS[tile.side][tile.level - 1];
-                    expectedTurnExtra += baseCost * MULTIPLIERS.TIME_MATCH * (1 / 40);
+                    expectedTurnExtra += baseCost * MULTIPLIERS.TIME_MATCH * (1 / activeBoardSize);
                 }
             });
             wm.dayNightExpectedTollSum += expectedTurnExtra;
@@ -1241,6 +1353,11 @@ export class MarbleGameEngine {
     }
 
     processBbangju(player) {
+        const modeCfg = getModeConfig(this.world.gameMode);
+        if (!modeCfg.enableBbangjuChief) {
+            this.continueTurnPhase(player);
+            return;
+        }
         if (this.turnManager.globalTurn === 1 && player.bbangjuSupportTurns === 0 && player.bbangjuPaidTotal === 0 && WorldGimmickManager.bbangjuState === 'recruiting') {
             if (player.isAi()) {
                 if (AIManager.decideBbangjuSupport(player)) {
@@ -1252,13 +1369,17 @@ export class MarbleGameEngine {
             } else {
                 this.isWaitingAction = true;
                 const gText = getGimmickText(this.lang);
+                const installment = modeCfg.bbangjuSupportInstallment || GAME_CONSTANTS.BBANGJU_SUPPORT_INSTALLMENT;
+                const reqDesc = installment === 250000
+                    ? (gText.BBANGJU_REQ_DESC_BASIC || gText.BBANGJU_REQ_DESC.replace('50만', '25만').replace('500,000', '250,000').replace('50万', '25万'))
+                    : gText.BBANGJU_REQ_DESC;
                 this.turnTimer.start(getPlayerThinkTime(player), () => {
                     this.port.closeAll();
                     this.isWaitingAction = false;
                     player.bbangjuPaidTotal = -1;
                     this.processBbangjuInstallment(player);
                 });
-                this.port.showChoicePopup(gText.BBANGJU_REQ_TITLE, gText.BBANGJU_REQ_DESC, [
+                this.port.showChoicePopup(gText.BBANGJU_REQ_TITLE, reqDesc, [
                     {
                         text: gText.BTN_ACCEPT,
                         color: '#3498db',
@@ -1292,12 +1413,17 @@ export class MarbleGameEngine {
 
     processBbangjuInstallment(player) {
         const gText = getGimmickText(this.lang);
+        const modeCfg = getModeConfig(this.world.gameMode);
+        const installment = modeCfg.bbangjuSupportInstallment || GAME_CONSTANTS.BBANGJU_SUPPORT_INSTALLMENT;
         if (player.bbangjuSupportTurns > 0 && WorldGimmickManager.bbangjuState === 'recruiting') {
-            if (player.money >= GAME_CONSTANTS.BBANGJU_SUPPORT_INSTALLMENT) {
-                player.money -= GAME_CONSTANTS.BBANGJU_SUPPORT_INSTALLMENT;
-                player.bbangjuPaidTotal += GAME_CONSTANTS.BBANGJU_SUPPORT_INSTALLMENT;
+            if (player.money >= installment) {
+                player.money -= installment;
+                player.bbangjuPaidTotal += installment;
                 player.bbangjuSupportTurns--;
-                this.port.showToast(gText.BBANGJU_PAY_SUPPORT, 2000);
+                const payToast = installment === 250000
+                    ? (gText.BBANGJU_PAY_SUPPORT_BASIC || gText.BBANGJU_PAY_SUPPORT.replace('50만', '25만').replace('500,000', '250,000').replace('50万', '25万'))
+                    : gText.BBANGJU_PAY_SUPPORT;
+                this.port.showToast(payToast, 2000);
             } else {
                 player.bbangjuSupportTurns = 0;
                 this.port.showToast(gText.BBANGJU_CANCEL, 2000);
@@ -1314,8 +1440,18 @@ export class MarbleGameEngine {
         const cText = getCardUIText(this.lang);
         const gText = getGimmickText(this.lang);
 
+        const modeCfg = getModeConfig(this.world.gameMode);
         if (this.turnManager.globalTurn === 4 && WorldGimmickManager.bbangjuState === 'recruiting' && player.playerIndex === 1) {
             WorldGimmickManager.resolveBbangju(this.allPlayers);
+            this.emitState();
+        } else if (
+            !modeCfg.enableBbangjuChief &&
+            this.turnManager.globalTurn >= (modeCfg.bbangjuOpenTurn || 3) &&
+            WorldGimmickManager.bbangjuState === 'locked' &&
+            player.playerIndex === 1
+        ) {
+            WorldGimmickManager.bbangjuState = 'finished';
+            this.port.showToast(gText.BBANGJU_SPEED_OPEN_TURN3 || '3번째 턴이 되어 빵주 포탈이 모든 플레이어에게 개방되었습니다!', 3400);
             this.emitState();
         }
         const loanInterestBefore = player.loanInterest || 0;
@@ -1381,13 +1517,8 @@ export class MarbleGameEngine {
             if (res.ok) {
                 if (res.fullCleared) {
                     this.port.showToast(`[${player.name}] ${mText.LOAN_REPAY_FULL_TOAST} (${formatMoney(res.paid)})`, 2800);
-                } else if (res.convertedInterest > 0) {
-                    this.port.showToast(
-                        `[${player.name}] ${mText.LOAN_REPAY_TOAST} ${formatMoney(res.paid)} ${mText.LOAN_REPAY_CONVERT_TOAST}`,
-                        3200
-                    );
                 } else {
-                    const labelPct = pctOrMode === 'all' ? '100%' : `원금 ${pctOrMode}%`;
+                    const labelPct = pctOrMode === 'all' ? '100%' : `${pctOrMode}%`;
                     this.port.showToast(`[${player.name}] ${mText.LOAN_REPAY_TOAST} ${formatMoney(res.paid)} (${labelPct})`, 2600);
                 }
                 this.emitState();
@@ -1412,26 +1543,25 @@ export class MarbleGameEngine {
             onComplete();
         });
 
-        const ratePct = Number((((player.getLoanInterestRate ? player.getLoanInterestRate() : GAME_CONSTANTS.LOAN_INTEREST_RATE) || 0) * 100).toFixed(1));
-        const principalLine = player.loanPrincipal > 0
-            ? `대출 원금: ${formatMoney(player.loanPrincipal)}`
-            : `전환 원금(잔여 이자): ${formatMoney(player.loanInterestPrincipal || 0)}`;
+        const fixedRatePct = Number((((player.getFixedLoanInterestRate ? player.getFixedLoanInterestRate() : GAME_CONSTANTS.LOAN_FIXED_INTEREST_RATE) || 0.10) * 100).toFixed(1));
+        const settleRatePct = Number((((player.getLoanSettlementRate ? player.getLoanSettlementRate(this.world.gameMode) : GAME_CONSTANTS.LOAN_SETTLEMENT_RATE) || 0.025) * 100).toFixed(1));
         const desc = [
             mText.LOAN_REPAY_DESC,
             '',
-            `${principalLine} | 누적 이자: ${formatMoney(Math.round(player.loanInterest || 0))} (이자율 ${ratePct}%)`,
-            `총 상환 잔액: ${formatMoney(totalDebt)} | 보유 소지금: ${formatMoney(player.money)}`
+            `대출 원금: ${formatMoney(player.loanPrincipal || 0)} | 고정 이자(${fixedRatePct}%): ${formatMoney(Math.round(player.loanInterest || 0))}`,
+            `총 상환 잔액: ${formatMoney(totalDebt)} | 보유 소지금: ${formatMoney(player.money)}`,
+            `(미상환 시 정산 이율: 경과 턴당 ${settleRatePct}%)`
         ].join('\n');
 
         const btnConfigs = allOptions.map(opt => {
-            const isAll = opt.mode === 'all' || opt.pct === 'all';
+            const isFull = opt.pct >= 100 || opt.mode === 'all';
+            const rowNum = (Number(opt.pct) <= 50) ? 1 : 2;
             return {
-                row: isAll ? 2 : 1,
-                align: isAll ? 'left' : undefined,
-                text: isAll
-                    ? `${mText.LOAN_REPAY_ALL_BTN}\n(${formatMoney(opt.amount)})`
-                    : `원금 ${opt.pct}%\n(${formatMoney(opt.amount)})`,
-                color: isAll ? '#16a085' : (opt.pct >= 100 ? '#27ae60' : (opt.pct >= 50 ? '#2980b9' : '#3498db')),
+                row: rowNum,
+                text: isFull
+                    ? `100% 완납\n(${formatMoney(opt.amount)})`
+                    : `${opt.pct}%\n(${formatMoney(opt.amount)})`,
+                color: isFull ? '#16a085' : (opt.pct >= 60 ? '#2980b9' : '#3498db'),
                 disabled: !opt.affordable,
                 action: () => {
                     this.turnTimer.stop();
@@ -1443,7 +1573,7 @@ export class MarbleGameEngine {
             };
         });
         btnConfigs.push({
-            row: 2,
+            row: 3,
             align: 'right',
             text: mText.LOAN_REPAY_SKIP_BTN,
             color: '#7f8c8d',
@@ -1693,7 +1823,7 @@ export class MarbleGameEngine {
                 if (player.tracker) {
                     player.tracker.totalMovedSpaces = (player.tracker.totalMovedSpaces || 0) + finalSum;
                 }
-                if (player.move(finalSum)) {
+                if (player.move(finalSum, this.tiles)) {
                     applyLapPassBonus(player, {
                         label: mText.TOAST_START,
                         showBlockedToast: true
@@ -1712,7 +1842,7 @@ export class MarbleGameEngine {
 
             if (wm) {
                 wm.voidEscapeFailCount = (wm.voidEscapeFailCount || 0) + 1;
-                const lapLoss = Math.round((7 / 40) * getStartPassBonus(player));
+                const lapLoss = Math.round((7 / getActiveBoardSize(this.tiles)) * getStartPassBonus(player));
                 const interestLoss = Math.max(0, Number(player._lastTurnInterestAccrued) || 0);
                 const turnSkipLoss = lapLoss + interestLoss;
                 wm.voidLapLossTotal = (wm.voidLapLossTotal || 0) + lapLoss;
@@ -1847,7 +1977,7 @@ export class MarbleGameEngine {
 
             let pMountain = 0;
             for (const { steps, prob } of outcomes) {
-                const destId = (player.pos + steps) % 40;
+                const { pos: destId } = stepActiveBoardPos(player.pos, steps, this.tiles);
                 if (destId === BOARD_TILES.ALTAR) wm.altarExpectedVisits = (wm.altarExpectedVisits || 0) + prob;
                 if (destId === BOARD_TILES.VOID) wm.voidExpectedVisits = (wm.voidExpectedVisits || 0) + prob;
                 if (destId === BOARD_TILES.MOUNTAIN) pMountain += prob;
@@ -1960,7 +2090,7 @@ export class MarbleGameEngine {
                 if (player.tracker) {
                     player.tracker.totalMovedSpaces = (player.tracker.totalMovedSpaces || 0) + finalSum;
                 }
-                if (player.move(finalSum)) {
+                if (player.move(finalSum, this.tiles)) {
                     applyLapPassBonus(player, {
                         label: mText.TOAST_START,
                         showBlockedToast: true
@@ -2094,7 +2224,13 @@ export class MarbleGameEngine {
                 }
 
                 const ctxArgs = { player, tile, tiles: this.tiles, calcCosts, turnManager: this.turnManager };
-                const maxAllowedLvl = tile.level < 2 ? 2 : (tile.level === 2 ? 3 : 4);
+                const maxAllowedLvl = getMaxAllowedBuildLevel(
+                    tile.level,
+                    this.world.gameMode,
+                    player.playerIndex,
+                    this.turnManager.globalTurn,
+                    Boolean(player.hasFirstLapPassed)
+                );
 
                 if (player.isAi()) {
                     let targetLevel = AIManager.decidePurchase(ctxArgs);
@@ -2117,7 +2253,7 @@ export class MarbleGameEngine {
                     return;
                 }
 
-                this.turnTimer.start(getPlayerThinkTime(player), () => this.proceedEndTurn());
+                this.turnTimer.start(getPlayerThinkTime(player, GAME_CONSTANTS.BUY_THINK_TIME), () => this.proceedEndTurn());
                 this.port.showBuyPopup(
                     tile,
                     calcCosts,
@@ -2163,7 +2299,8 @@ export class MarbleGameEngine {
                             this.proceedEndTurn();
                         }
                     },
-                    () => this.proceedEndTurn()
+                    () => this.proceedEndTurn(),
+                    maxAllowedLvl
                 );
                 this.emitState();
                 return;
@@ -2280,6 +2417,8 @@ export class MarbleGameEngine {
 
         return {
             roomId: this.roomId,
+            myPlayerId: viewerId,
+            viewerId,
             phase: this.isGameOver
                 ? 'GAME_OVER'
                 : (this.turnOrderState?.visible
@@ -2292,6 +2431,7 @@ export class MarbleGameEngine {
             afkWarningCount: viewerPlayer ? (viewerPlayer.afkWarningCount || 0) : 0,
             timerLeft: this.turnTimer.timeLeft,
             world: {
+                gameMode: this.world.gameMode || this.gameMode || 'ember',
                 currentTurn: this.world.currentTurn,
                 maxTurn: this.world.maxTurn,
                 currentTime: this.world.currentTime,
@@ -2313,46 +2453,94 @@ export class MarbleGameEngine {
                         : null
                 }
             },
-            players: this.allPlayers.map(p => ({
-                id: p.id,
-                name: p.name,
-                color: p.color,
-                money: p.money,
-                pos: p.pos,
-                territoryCount: p.territoryCount,
-                islandTurns: p.islandTurns,
-                restTurns: p.restTurns,
-                isBankrupt: p.isBankrupt,
-                playerIndex: p.playerIndex,
-                isAi: p.isAi(),
-                aiType: p.aiType,
-                isAfkAuto: Boolean(p.isAfkAuto),
-                isConnected: p.isConnected !== false,
-                isBbangjuChief: Boolean(p.isBbangjuChief),
-                isReincarnated: Boolean(p.isReincarnated),
-                hasKarmaState: Boolean(p.hasKarmaState),
-                hasRegretState: Boolean(p.hasRegretState),
-                hasWishState: Boolean(p.hasWishState),
-                hasDreamState: Boolean(p.hasDreamState),
-                hasMountainBuff: Boolean(p.hasMountainBuff),
-                hasRufoDiceBuff: (viewerId === p.id || this.isGameOver) ? Boolean(p.hasRufoDiceBuff) : false,
-                hasErpinDiceBuff: (viewerId === p.id || this.isGameOver) ? Boolean(p.hasErpinDiceBuff) : false,
-                hasSistDiscountBuff: (viewerId === p.id || this.isGameOver) ? Boolean(p.hasSistDiscountBuff) : false,
-                hasVipShield: (viewerId === p.id || this.isGameOver) ? Boolean(p.hasVipShield) : false,
-                bowExtraRollAvailable: Boolean(p.bowExtraRollAvailable),
-                timeAccelExtraRollAvailable: Boolean(p.timeAccelExtraRollAvailable),
-                hasOriginElif: Boolean(p.hasOriginElif),
-                hasPiraCard: p.hasPiraLoanBuff ? p.hasPiraLoanBuff() : Boolean(p.hasPiraCard),
-                loanCount: p.loanCount,
-                loanPrincipal: p.getTotalPrincipalBalance ? p.getTotalPrincipalBalance() : ((p.loanPrincipal || 0) + (p.loanInterestPrincipal || 0)),
-                loanInterest: Math.round(p.loanInterest || 0),
-                displayTreasureCount: (isSoot && p.isReincarnated) ? 6 : p.treasureCards.length,
-                inventoryCount: p.inventory.length,
-                inventory: viewerId === p.id ? p.inventory.map(c => ({ id: c.id, name: c.name, desc: c.desc })) : undefined
-            })),
+            players: this.allPlayers.map(p => {
+                const isViewer = viewerId === p.id;
+                const playerCtx = isViewer ? this._buildActionContext(p) : null;
+                const holdCards = isViewer
+                    ? Object.entries(p.buffs || {})
+                        .filter(([key]) => key !== 'buff_toll' && key !== 'todo_buff_toll')
+                        .flatMap(([, arr]) => Array.isArray(arr) ? arr : [])
+                        .filter(Boolean)
+                        .map((c, idx) => ({
+                            id: c.id,
+                            name: c.name,
+                            desc: c.desc,
+                            subType: 'hold',
+                            acquiredSeq: c._acquiredSeq ?? idx
+                        }))
+                        .sort((a, b) => a.acquiredSeq - b.acquiredSeq)
+                    : undefined;
+                const viewerInventory = isViewer
+                    ? (p.inventory || []).map((c, idx) => ({
+                        index: idx,
+                        id: c.id,
+                        name: c.name,
+                        desc: c.desc,
+                        subType: 'use',
+                        acquiredSeq: c._acquiredSeq ?? idx,
+                        canUseNow: canUseActiveCard(c, playerCtx)
+                    })).sort((a, b) => a.acquiredSeq - b.acquiredSeq)
+                    : undefined;
+                const viewerTreasures = isViewer
+                    ? (p.treasureCards || []).map((tc, idx) => ({
+                        index: idx,
+                        id: tc.id,
+                        name: tc.name,
+                        desc: tc.desc,
+                        subType: 'treasure',
+                        maxUses: tc.maxUses || 0,
+                        remainingUses: tc.remainingUses || 0,
+                        acquiredSeq: tc._acquiredSeq ?? idx,
+                        canUseNow: canUseActiveCard(tc, playerCtx)
+                    })).sort((a, b) => a.acquiredSeq - b.acquiredSeq)
+                    : undefined;
+                return {
+                    id: p.id,
+                    name: p.name,
+                    color: p.color,
+                    money: p.money,
+                    pos: p.pos,
+                    territoryCount: p.territoryCount,
+                    islandTurns: p.islandTurns,
+                    restTurns: p.restTurns,
+                    isBankrupt: p.isBankrupt,
+                    playerIndex: p.playerIndex,
+                    isAi: p.isAi(),
+                    aiType: p.aiType,
+                    aiDifficulty: p.aiDifficulty || null,
+                    isAfkAuto: Boolean(p.isAfkAuto),
+                    isConnected: p.isConnected !== false,
+                    isBbangjuChief: Boolean(p.isBbangjuChief),
+                    isReincarnated: Boolean(p.isReincarnated),
+                    hasKarmaState: Boolean(p.hasKarmaState),
+                    hasRegretState: Boolean(p.hasRegretState),
+                    hasWishState: Boolean(p.hasWishState),
+                    hasDreamState: Boolean(p.hasDreamState),
+                    hasMountainBuff: Boolean(p.hasMountainBuff),
+                    hasFirstLapPassed: Boolean(p.hasFirstLapPassed),
+                    hasRufoDiceBuff: (isViewer || this.isGameOver) ? Boolean(p.hasRufoDiceBuff) : false,
+                    hasErpinDiceBuff: (isViewer || this.isGameOver) ? Boolean(p.hasErpinDiceBuff) : false,
+                    hasSistDiscountBuff: (isViewer || this.isGameOver) ? Boolean(p.hasSistDiscountBuff) : false,
+                    hasVipShield: (isViewer || this.isGameOver) ? Boolean(p.hasVipShield) : false,
+                    bowExtraRollAvailable: Boolean(p.bowExtraRollAvailable),
+                    timeAccelExtraRollAvailable: Boolean(p.timeAccelExtraRollAvailable),
+                    hasOriginElif: Boolean(p.hasOriginElif),
+                    hasPiraCard: p.hasPiraLoanBuff ? p.hasPiraLoanBuff() : Boolean(p.hasPiraCard),
+                    loanCount: p.loanCount,
+                    loanPrincipal: p.getTotalPrincipalBalance ? p.getTotalPrincipalBalance() : ((p.loanPrincipal || 0) + (p.loanInterestPrincipal || 0)),
+                    loanInterest: Math.round(p.loanInterest || 0),
+                    displayTreasureCount: (isSoot && p.isReincarnated) ? 6 : p.treasureCards.length,
+                    inventoryCount: p.inventory.length,
+                    inventory: viewerInventory,
+                    holdCards,
+                    treasureCards: viewerTreasures
+                };
+            }),
             tiles: this.tiles.map(t => ({
                 id: t.id,
                 type: t.type,
+                rawType: t.rawType || t.type,
+                isDisabled: Boolean(t.isDisabled),
                 name: t.name,
                 side: t.side,
                 x: t.x,

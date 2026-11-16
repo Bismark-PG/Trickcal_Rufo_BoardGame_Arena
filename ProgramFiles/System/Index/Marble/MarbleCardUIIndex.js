@@ -23,9 +23,9 @@ export const CardUILang = {
         TOLL_BUFF_RIOT: "[왕국폭동] 2턴간 보유한 영토의 통행료가 0.5배로 하락합니다!",
         TOLL_BUFF_FESTIVAL: "[축제개최] 2턴간 보유한 영토의 통행료가 1.5배로 상승합니다!",
         OTHERWORLD_APPLIED: "[이면세계] 보유한 모든 영토의 시간대(낮/밤)가 역전되었습니다!",
-        GOLDIE_REALTY_APPLIED: "[골디의 부동산명함] 남은 대출 원금이 0.5배로 감소하고 최고 등급 건물 단계가 2단계 하락했습니다!",
-        GOLDIE_REALTY_NO_DOWNGRADE: "[골디의 부동산명함] 남은 대출 원금이 0.5배로 감소했습니다! (오두막 이하 영토만 보유해 건물 단계 유지)",
-        PIRA_LOAN_APPLIED: "[피라의 대부업명함] 대출 원금이 0.5배로 감소하고, 대출 이자율이 5%로 상승합니다!",
+        GOLDIE_REALTY_APPLIED: "[골디의 부동산명함] 남은 대출금(원금+이자)이 0.5배로 감소하고 최고 등급 건물 단계가 2단계 하락했습니다!",
+        GOLDIE_REALTY_NO_DOWNGRADE: "[골디의 부동산명함] 남은 대출금(원금+이자)이 0.5배로 감소했습니다! (오두막 이하 영토만 보유해 건물 단계 유지)",
+        PIRA_LOAN_APPLIED: "[피라의 대부업명함] 앞으로 대출 원금이 0.5배로 감소하고, 고정 이자율 20% 및 정산 미상환 이율 2배가 적용됩니다!",
         REVERSE_ONE_APPLIED: "영토의 시간대(낮/밤)가 역전되었습니다!",
 
         // 턴 시작 위기 및 파산
@@ -65,10 +65,15 @@ export const CardUILang = {
         SHAYDI_ESCAPE_FAIL: "탈출 실패! 이번 턴은 휴식합니다.",
 
         // 인벤토리 & 사용 UI
-        BTN_INVENTORY: "카드 사용",
-        INV_TITLE: "보유 중인 사용형/보물 카드",
-        INV_DESC: "사용할 카드를 선택하세요.",
-        INV_EMPTY: "사용 가능한 카드가 없습니다.",
+        BTN_INVENTORY: "손패보기",
+        INV_TITLE: "인벤토리 (손패)",
+        INV_DESC: "카드를 누르면 상세 설명을 확인하고 내 턴에 사용할 수 있습니다.",
+        INV_EMPTY: "손패에 아무것도 없어요!",
+        INV_SEC_USE: "사용형 카드",
+        INV_SEC_HOLD: "보유형 카드",
+        INV_SEC_TREASURE: "보물 카드",
+        INV_HOLD_ACTIVE: "보유 효과 상시 적용 중",
+        INV_NOT_MY_TURN: "내 턴에만 사용할 수 있습니다.",
         BTN_USE: "사용하기",
         CANT_USE_NOW: "현재 이 카드를 사용할 수 있는 조건이나 대상이 없습니다.",
 

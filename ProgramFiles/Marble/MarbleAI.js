@@ -1,8 +1,17 @@
-import { GAME_CONSTANTS, BUILDING_COSTS, MULTIPLIERS, resolveLapBaseBonus } from '../System/Index/Marble/MarblePriceIndex.js';
+import {
+    GAME_CONSTANTS,
+    BUILDING_COSTS,
+    MULTIPLIERS,
+    resolveLapBaseBonus,
+    getModeConfig,
+    getMaxAllowedBuildLevel,
+    stepActiveBoardPos
+} from '../System/Index/Marble/MarblePriceIndex.js';
 import { BOARD_TILES, CARD_TILE_IDS } from '../System/Index/Marble/MarbleBoardIndex.js';
 import { CARD_IDS } from '../System/Index/Marble/MarbleCardIndex.js';
 import { calculateToll, applySpecialTileTollModifiers, getTileSellValue } from './MarbleLogic.js';
 import { WorldGimmickManager } from './MarbleWorldGimmick.js';
+import { getActiveWorld } from './MarbleRuntime.js';
 import {
     RequiemState,
     canPlayerUseBbangju,
@@ -10,14 +19,104 @@ import {
 } from './MarbleRequiem.js';
 import { isTreasureDebuffActive, isBowVillageForced } from './MarbleCardTreasure.js';
 import { getDrawnTreasures } from './MarbleOdyssey.js';
+import { normalizeAiDifficulty } from '../System/GameRegistry.js';
+
+export const AI_DIFFICULTY_CONFIG = {
+    // 1단계: 순한맛 (쉬움) - 높은 현금 유보율, 낮은 전방 위험 감지, 증축 단계 하향 확률, 착지·도서관 오차, 낮은 전술 카드 발동률
+    mild: {
+        id: 'mild',
+        label: '순한맛 (쉬움)',
+        marginScale: { aggressive: 1.45, defensive: 1.35, marathon: 1.40 },
+        dangerLookaheadScale: 0.50,
+        buildStepDownProb: { aggressive: 0.35, defensive: 0.42, marathon: 0.38 },
+        specialTileSkipProb: 0.30,
+        specialReserveScale: 1.35,
+        landingScoreNoise: 220000,
+        portalSuboptimalProb: 0.28,
+        librarySuboptimalProb: 0.35,
+        activeCardUseProb: { aggressive: 0.60, defensive: 0.52, marathon: 0.58 },
+        loanRepayReserveScale: 1.45,
+        loanRepayMinTurnsAdd: 2,
+        sistThreshold: 1350000,
+        leaderFocusBonus: 0.0
+    },
+    // 2단계: 매운맛 (보통) - 완만한 유보율, 약간의 증축 양보·평가 오차, 표준보다 조금 보수적인 카드/특수칸 활용
+    spicy: {
+        id: 'spicy',
+        label: '매운맛 (보통)',
+        marginScale: { aggressive: 1.18, defensive: 1.14, marathon: 1.16 },
+        dangerLookaheadScale: 0.80,
+        buildStepDownProb: { aggressive: 0.14, defensive: 0.18, marathon: 0.15 },
+        specialTileSkipProb: 0.10,
+        specialReserveScale: 1.15,
+        landingScoreNoise: 80000,
+        portalSuboptimalProb: 0.10,
+        librarySuboptimalProb: 0.12,
+        activeCardUseProb: { aggressive: 0.84, defensive: 0.80, marathon: 0.82 },
+        loanRepayReserveScale: 1.18,
+        loanRepayMinTurnsAdd: 1,
+        sistThreshold: 1150000,
+        leaderFocusBonus: 0.0
+    },
+    // 3단계: 핵불맛 (어려움) - 10만 사이클 밸런스 검증 표준 파라미터 (오차 0, 최적 판단 100%)
+    nuclear: {
+        id: 'nuclear',
+        label: '핵불맛 (어려움)',
+        marginScale: { aggressive: 1.00, defensive: 1.00, marathon: 1.00 },
+        dangerLookaheadScale: 1.00,
+        buildStepDownProb: { aggressive: 0.0, defensive: 0.0, marathon: 0.0 },
+        specialTileSkipProb: 0.0,
+        specialReserveScale: 1.00,
+        landingScoreNoise: 0,
+        portalSuboptimalProb: 0.0,
+        librarySuboptimalProb: 0.0,
+        activeCardUseProb: { aggressive: 1.00, defensive: 1.00, marathon: 1.00 },
+        loanRepayReserveScale: 1.00,
+        loanRepayMinTurnsAdd: 0,
+        sistThreshold: 1000000,
+        leaderFocusBonus: 0.0
+    },
+    // 4단계: 마그맛 (매우어려움) - 극한의 자본 회전율, 요충지·시간대 선택과 집중, 1위 집중 견제, 포탈 2중 위험 탐색, 시스트·대출 조기 최적화
+    magma: {
+        id: 'magma',
+        label: '마그맛 (매우어려움)',
+        marginScale: { aggressive: 0.92, defensive: 0.88, marathon: 0.90 },
+        dangerLookaheadScale: 1.15,
+        buildStepDownProb: { aggressive: 0.0, defensive: 0.0, marathon: 0.0 },
+        specialTileSkipProb: 0.0,
+        specialReserveScale: 0.78,
+        landingScoreNoise: 0,
+        portalSuboptimalProb: 0.0,
+        librarySuboptimalProb: 0.0,
+        activeCardUseProb: { aggressive: 1.00, defensive: 1.00, marathon: 1.00 },
+        loanRepayReserveScale: 0.82,
+        loanRepayMinTurnsAdd: -1,
+        sistThreshold: 750000,
+        leaderFocusBonus: 0.35
+    }
+};
 
 export const AIManager = {
     // ==========================================
     // 0. 공통 상황 평가 헬퍼 (내부/공용)
     // ==========================================
+    getDifficultyKey(player) {
+        return normalizeAiDifficulty(player?.aiDifficulty || 'nuclear', 'nuclear');
+    },
+
+    getDifficultyConfig(player) {
+        const key = this.getDifficultyKey(player);
+        return AI_DIFFICULTY_CONFIG[key] || AI_DIFFICULTY_CONFIG.nuclear;
+    },
+
+    getMaxTurn() {
+        return getActiveWorld()?.maxTurn || GAME_CONSTANTS.MAX_TURN;
+    },
+
     getTurnPhase(globalTurn = 1) {
-        if (globalTurn <= 7) return 'early';
-        if (globalTurn <= 14) return 'mid';
+        const maxTurn = this.getMaxTurn();
+        if (globalTurn <= Math.ceil(maxTurn * 0.35)) return 'early';
+        if (globalTurn <= Math.ceil(maxTurn * 0.70)) return 'mid';
         return 'late';
     },
 
@@ -40,7 +139,7 @@ export const AIManager = {
         if (RequiemState.isHaloState && (player.hasKarmaState || player.hasRegretState)) return 0;
         const idx = Math.max(0, (Number(player.playerIndex) || 1) - 1);
         const priorLaps = Number(player.tracker?.lapPassCount) || 0;
-        const rawBase = resolveLapBaseBonus(idx, Boolean(player.hasFirstLapPassed), priorLaps);
+        const rawBase = resolveLapBaseBonus(idx, Boolean(player.hasFirstLapPassed), priorLaps, getActiveWorld()?.gameMode);
         const hasSmuggler = player.buffs && player.buffs['hold_start_buff'] && player.buffs['hold_start_buff'].length > 0;
         const baseBonus = hasSmuggler ? Math.round(rawBase * 1.5) : rawBase;
         return Math.round(baseBonus * getPositiveEffectMultiplier(player));
@@ -58,7 +157,8 @@ export const AIManager = {
     getUpcomingTimePhase(globalTurn = 1) {
         const active = WorldGimmickManager.getActiveGimmickType();
         if (active === 'day' || active === 'night') return active;
-        if (globalTurn >= 8 && globalTurn < GAME_CONSTANTS.TIME_DAY_START_TURN) return 'day';
+        const dayStart = getModeConfig(getActiveWorld()?.gameMode).timeDayStartTurn || GAME_CONSTANTS.TIME_DAY_START_TURN;
+        if (globalTurn >= Math.max(1, dayStart - 2) && globalTurn < dayStart) return 'day';
         return 'none';
     },
 
@@ -114,7 +214,8 @@ export const AIManager = {
         if (!tiles || tiles.length < 40) return { maxToll, dangerCount, dangerTiles };
 
         for (let step = minStep; step <= maxStep; step++) {
-            const tile = tiles[(player.pos + step) % 40];
+            const { pos: destIdx } = stepActiveBoardPos(player.pos, step, tiles);
+            const tile = tiles[destIdx];
             if (!tile || !tile.owner || tile.owner === player) continue;
             if (tile.id === BOARD_TILES.THEATER) continue;
             if (this.hasTileImmunity(player, tile.id)) continue;
@@ -144,6 +245,7 @@ export const AIManager = {
     // ==========================================
     getSafetyMargin(player, globalTurn = 1, tiles = []) {
         const phase = this.getTurnPhase(globalTurn);
+        const diffCfg = this.getDifficultyConfig(player);
         let baseMargin = 500000;
 
         if (player.aiType === 'aggressive') {
@@ -153,6 +255,9 @@ export const AIManager = {
         } else if (player.aiType === 'marathon') {
             baseMargin = phase === 'early' ? 700000 : (phase === 'mid' ? 1000000 : 600000);
         }
+
+        const scaleByDiff = diffCfg.marginScale?.[player.aiType] ?? 1.0;
+        baseMargin = Math.round(baseMargin * scaleByDiff);
 
         const isSoot = RequiemState.isSootState;
         const isHalo = RequiemState.isHaloState;
@@ -185,27 +290,31 @@ export const AIManager = {
             }
         }
 
-        // 전방 위험 통행료 보정 (18턴 이후 막판 올인 제외)
-        if (tiles && tiles.length >= 40 && globalTurn <= 17) {
+        // 전방 위험 통행료 보정 (막판 올인 구간 제외)
+        const maxTurn = this.getMaxTurn();
+        if (tiles && tiles.length >= 40 && globalTurn <= Math.max(1, maxTurn - 2)) {
             const { maxToll } = this.evaluateDangerAhead(player, tiles, 2, 12);
-            if (player.aiType === 'defensive' && maxToll > baseMargin) {
+            const scaledMaxToll = Math.round(maxToll * (diffCfg.dangerLookaheadScale ?? 1.0));
+            if (player.aiType === 'defensive' && scaledMaxToll > baseMargin) {
                 if (isSoot && !player.isReincarnated) {
                     const cap = hasReincarnatedRival ? 1350000 : 1000000;
                     const mult = hasReincarnatedRival ? 0.62 : 0.45;
-                    baseMargin = Math.min(cap, Math.max(baseMargin, Math.round(maxToll * mult)));
+                    baseMargin = Math.min(cap, Math.max(baseMargin, Math.round(scaledMaxToll * mult)));
                 } else {
                     const cap = player.hasRegretState ? 1450000 : 1250000;
                     const mult = player.hasRegretState ? 0.65 : 0.55;
-                    baseMargin = Math.min(cap, Math.max(baseMargin, Math.round(maxToll * mult)));
+                    baseMargin = Math.min(cap, Math.max(baseMargin, Math.round(scaledMaxToll * mult)));
                 }
-            } else if (player.aiType === 'marathon' && maxToll > baseMargin) {
+            } else if (player.aiType === 'marathon' && scaledMaxToll > baseMargin) {
                 if (isSoot && !player.isReincarnated) {
                     const cap = hasReincarnatedRival ? 1500000 : 1100000;
                     const mult = hasReincarnatedRival ? 0.65 : 0.5;
-                    baseMargin = Math.min(cap, Math.max(baseMargin, Math.round(maxToll * mult)));
+                    baseMargin = Math.min(cap, Math.max(baseMargin, Math.round(scaledMaxToll * mult)));
                 } else {
-                    baseMargin = Math.min(1400000, Math.max(baseMargin, Math.round(maxToll * 0.65)));
+                    baseMargin = Math.min(1400000, Math.max(baseMargin, Math.round(scaledMaxToll * 0.65)));
                 }
+            } else if (player.aiType === 'aggressive' && diffCfg.id === 'magma' && maxToll >= 1200000 && !(isSoot && !player.isReincarnated)) {
+                baseMargin = Math.min(900000, Math.max(baseMargin, Math.round(maxToll * 0.38)));
             }
         }
 
@@ -304,19 +413,26 @@ export const AIManager = {
         if (!player || player.isBankrupt) return 0;
         const totalDebt = player.getTotalLoanDebt ? player.getTotalLoanDebt() : Math.round((player.loanPrincipal || 0) + (player.loanInterest || 0));
         if (totalDebt <= 0) return 0;
-        // 무이자(0%) 전환 원금만 남은 경우에는 추가 이자가 발생하지 않으므로 유동성 보존을 위해 중도 상환 보류
-        const currentRate = player.getLoanInterestRate ? player.getLoanInterestRate() : GAME_CONSTANTS.LOAN_INTEREST_RATE;
-        if (currentRate <= 0) return 0;
 
-        const remainingTurns = Math.max(0, GAME_CONSTANTS.MAX_TURN - (Number(globalTurn) || 1));
-        if (remainingTurns <= 0) return 0; // 마지막 턴에는 다음 턴 이자 발생이 없으므로 현금 유동성 유지
+        const maxTurn = this.getMaxTurn();
+        const remainingTurns = Math.max(0, maxTurn - (Number(globalTurn) || 1));
+        if (remainingTurns <= 0) return 0; // 마지막 턴에는 정산으로 직행 (고정이자 상환 불필요)
 
+        const activeMode = getActiveWorld()?.gameMode || 'ember';
+        const fixedRate = player.getFixedLoanInterestRate
+            ? player.getFixedLoanInterestRate()
+            : (GAME_CONSTANTS.LOAN_FIXED_INTEREST_RATE ?? 0.10);
+        const settleRate = player.getLoanSettlementRate
+            ? player.getLoanSettlementRate(activeMode)
+            : (GAME_CONSTANTS.LOAN_SETTLEMENT_RATE ?? 0.025);
+
+        const diffCfg = this.getDifficultyConfig(player);
         const baseReserveMap = {
             defensive: remainingTurns >= 8 ? 600000 : (remainingTurns >= 3 ? 380000 : 200000),
             marathon: remainingTurns >= 8 ? 1050000 : (remainingTurns >= 3 ? 650000 : 300000),
             aggressive: remainingTurns >= 8 ? 1300000 : (remainingTurns >= 3 ? 850000 : 350000)
         };
-        let cashReserve = baseReserveMap[player.aiType] ?? 900000;
+        let cashReserve = Math.round((baseReserveMap[player.aiType] ?? 900000) * (diffCfg.loanRepayReserveScale ?? 1.0));
         if (RequiemState.isSootState && player.isReincarnated) {
             cashReserve = Math.max(cashReserve, 700000);
         }
@@ -324,16 +440,17 @@ export const AIManager = {
         const availableExcess = player.money - cashReserve;
         if (availableExcess <= 0) return 0;
 
-        // 잔여 턴이 3턴 이상이거나 원금 2.5% 부담이 클수록 적극 상환 (최고 가능 비율 선택)
-        const minTurnsWorth = player.aiType === 'defensive' ? 3 : (player.aiType === 'marathon' ? 3 : 4);
-        if (remainingTurns < minTurnsWorth && player.money < totalDebt + cashReserve) {
+        // 고정 이율(10%/20%)보다 정산 시 누적될 경과 턴 이자(settleRate * 남은턴)가 더 클 때만 상환 이익 발생
+        const breakEvenTurns = Math.ceil(fixedRate / Math.max(0.005, settleRate));
+        const minTurnsWorth = Math.max(1, breakEvenTurns + (diffCfg.loanRepayMinTurnsAdd ?? 0));
+        if (remainingTurns <= minTurnsWorth && player.money < totalDebt + cashReserve) {
             return 0;
         }
 
         const options = player.getLoanRepayOptions
             ? player.getLoanRepayOptions()
-            : (GAME_CONSTANTS.LOAN_REPAY_PERCENTS || [10, 25, 50, 75, 100]).map(pct => ({
-                mode: 'principal',
+            : (GAME_CONSTANTS.LOAN_REPAY_PERCENTS || [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]).map(pct => ({
+                mode: pct >= 100 ? 'all' : 'combined',
                 pct,
                 amount: pct >= 100 ? totalDebt : Math.max(1, Math.round((totalDebt * pct) / 100)),
                 affordable: totalDebt > 0 && player.money >= (pct >= 100 ? totalDebt : Math.max(1, Math.round((totalDebt * pct) / 100)))
@@ -356,11 +473,29 @@ export const AIManager = {
         if (!player.inventory || targetLevel < 0 || tile.type !== 'normal') return false;
         if (!player.inventory.some(c => c.id === CARD_IDS.SIST_DEAL)) return false;
 
-        // 100만 이상 지출 시 50만+ 절약되므로 즉시 사용, 혹은 현재 현금이 정가는 부족하고 50% 할인가로 구매 가능할 때 사용
-        if (rawCost >= 1000000) return true;
+        const diffCfg = this.getDifficultyConfig(player);
+        const sistThreshold = (diffCfg.id === 'magma' && tile.isSpecialToll)
+            ? 600000
+            : (diffCfg.sistThreshold ?? 1000000);
+        if (rawCost >= sistThreshold) return true;
         const halfCost = Math.round(rawCost * 0.5);
         if (player.money < rawCost && player.money >= halfCost + 100000) return true;
         return false;
+    },
+
+    _applyBuildDifficultyStepDown(player, tile, chosenLvl, minLvl, calcCosts, getEffCost, minRemain) {
+        if (chosenLvl < 2 || chosenLvl <= minLvl) return chosenLvl;
+        const diffCfg = this.getDifficultyConfig(player);
+        const stepDownProb = diffCfg.buildStepDownProb?.[player.aiType] ?? 0;
+        if (stepDownProb <= 0 || Math.random() >= stepDownProb) return chosenLvl;
+
+        const lowerLvl = chosenLvl - 1;
+        if (lowerLvl >= minLvl && lowerLvl > tile.level && calcCosts[lowerLvl] !== undefined) {
+            if (player.money - getEffCost(lowerLvl) >= minRemain) {
+                return lowerLvl;
+            }
+        }
+        return chosenLvl;
     },
 
     decidePurchase(ctx) {
@@ -368,13 +503,19 @@ export const AIManager = {
         const globalTurn = turnManager ? turnManager.globalTurn : 1;
         const currentMoney = player.money;
         const safetyMargin = this.getSafetyMargin(player, globalTurn, tiles);
-        const maxAllowedLvl = tile.level < 2 ? 2 : (tile.level === 2 ? 3 : 4);
+        const diffCfg = this.getDifficultyConfig(player);
+        const activeMode = getActiveWorld()?.gameMode;
+        const maxAllowedLvl = getMaxAllowedBuildLevel(tile.level, activeMode, player.playerIndex, globalTurn, Boolean(player.hasFirstLapPassed));
         const minLvl = (!tile.owner && tile.type === 'normal' && isBowVillageForced(player)) ? 2 : 0;
+        const isLatePhase = this.getTurnPhase(globalTurn) === 'late';
 
         const hasSist = player.inventory && player.inventory.some(c => c.id === CARD_IDS.SIST_DEAL);
+        const sistThreshold = (diffCfg.id === 'magma' && tile.isSpecialToll)
+            ? 600000
+            : (diffCfg.sistThreshold ?? 1000000);
         const getEffCost = (lvl) => {
             const raw = calcCosts[lvl];
-            if (hasSist && raw >= 1000000) return Math.round(raw * 0.5);
+            if (hasSist && raw >= sistThreshold) return Math.round(raw * 0.5);
             return raw;
         };
 
@@ -383,11 +524,14 @@ export const AIManager = {
         const isHaloBenefit = this.isHaloBeneficiary(player);
 
         if (player.aiType === 'aggressive') {
-            const isHaloKarmaEarly = RequiemState.isHaloState && player.hasKarmaState && globalTurn < 16 && !tile.isSpecialToll && tile.side < 2;
-            const highValueSpot = !isHaloKarmaEarly && (tile.isSpecialToll || tile.side >= 2 || isSootDiscount || isHaloBenefit || globalTurn >= 14);
-            const sootCap = isSootDiscount ? (hasReincarnatedRival ? 220000 : 150000) : 200000;
+            const isHaloKarmaEarly = RequiemState.isHaloState && player.hasKarmaState && !isLatePhase && !tile.isSpecialToll && tile.side < 2;
+            const highValueSpot = !isHaloKarmaEarly && (tile.isSpecialToll || tile.side >= 2 || isSootDiscount || isHaloBenefit || isLatePhase);
+            const baseSootCap = isSootDiscount ? (hasReincarnatedRival ? 220000 : 150000) : (diffCfg.id === 'magma' ? 140000 : 200000);
+            const sootCap = Math.round(baseSootCap * (diffCfg.marginScale?.aggressive ?? 1.0));
             const effMargin = highValueSpot ? Math.min(safetyMargin, sootCap) : safetyMargin;
-            const side0StatueCushion = isSootDiscount ? 600000 : 1200000;
+            const side0StatueCushion = isSootDiscount
+                ? 600000
+                : (diffCfg.id === 'magma' ? 850000 : 1200000);
 
             for (let lvl = maxAllowedLvl; lvl >= minLvl; lvl--) {
                 if (tile.level >= lvl) continue;
@@ -397,7 +541,7 @@ export const AIManager = {
                 }
                 const cost = getEffCost(lvl);
                 if (currentMoney - cost >= effMargin || (tile.isSpecialToll && currentMoney >= cost + 150000)) {
-                    return lvl;
+                    return this._applyBuildDifficultyStepDown(player, tile, lvl, minLvl, calcCosts, getEffCost, 0);
                 }
             }
             return -1;
@@ -409,14 +553,15 @@ export const AIManager = {
             const isPriorityTile = isSootDiscount || tile.isSpecialToll || tile.side >= 2 || tile.level >= 2 || isTimeMatch || isHaloBenefit;
             let marginMult = isPriorityTile ? 0.72 : 0.90;
             if (isSootDiscount) marginMult = hasReincarnatedRival ? 0.72 : 0.55;
-            else if (globalTurn >= 14 && tile.level >= 2) marginMult = 0.60;
+            else if (isLatePhase && tile.level >= 2) marginMult = 0.60;
+            if (diffCfg.id === 'magma' && isPriorityTile) marginMult *= 0.82;
             const baseReserve = Math.round(safetyMargin * marginMult);
 
             for (let lvl = maxAllowedLvl; lvl >= minLvl; lvl--) {
                 if (tile.level >= lvl) continue;
                 const cost = getEffCost(lvl);
                 if (currentMoney - cost >= baseReserve) {
-                    return lvl;
+                    return this._applyBuildDifficultyStepDown(player, tile, lvl, minLvl, calcCosts, getEffCost, baseReserve);
                 }
             }
             return -1;
@@ -430,22 +575,29 @@ export const AIManager = {
             const isPriorityTile = isSootDiscount || tile.isSpecialToll || isTimeMatch || tile.level >= 2 || tile.side >= 2 || isHaloTarget || isKarmaSettlementTarget;
             let marginMult = isPriorityTile ? 0.85 : 1.0;
             if (isSootDiscount) marginMult = hasReincarnatedRival ? 0.82 : 0.65;
+            if (diffCfg.id === 'magma' && isPriorityTile) marginMult *= 0.80;
             const effMargin = Math.round(safetyMargin * marginMult);
 
-            // 이미 건물(Lv.2~3)이 있거나 고가치 구역·그을음 0.5배 할인 구간이면 최고 허용 단계까지 적극 증축
-            if (isSootDiscount || tile.level >= 2 || tile.isSpecialToll || tile.side >= 2) {
+            // 이미 건물(Lv.2~3)이 있거나 고가치 구역·그을음 0.5배 할인 구간·마그맛 시간대 일치 타일이면 최고 허용 단계까지 적극 증축
+            if (isSootDiscount || tile.level >= 2 || tile.isSpecialToll || tile.side >= 2 || (diffCfg.id === 'magma' && isTimeMatch)) {
                 for (let lvl = maxAllowedLvl; lvl >= minLvl; lvl--) {
                     if (tile.level >= lvl) continue;
-                    if (currentMoney - getEffCost(lvl) >= effMargin) return lvl;
+                    if (currentMoney - getEffCost(lvl) >= effMargin) {
+                        return this._applyBuildDifficultyStepDown(player, tile, lvl, minLvl, calcCosts, getEffCost, effMargin);
+                    }
                 }
                 return -1;
             }
 
-            // 1~2열 일반 땅은 2단계(마을) > 1단계(오두막) 순으로 균형 투자
-            const prefOrder = tile.level < 2 ? [2, 1, 0] : [maxAllowedLvl];
+            // 1~2열 일반 땅은 스피드/기본 4턴+ 모드(최대 Lv.3)일 때 [3, 2, 1, 0], 일반 모드일 때 [2, 1, 0] 순으로 균형 투자
+            const prefOrder = tile.level < 2
+                ? (maxAllowedLvl >= 3 ? [3, 2, 1, 0] : [2, 1, 0])
+                : [maxAllowedLvl];
             for (const lvl of prefOrder) {
                 if (lvl < minLvl || lvl > maxAllowedLvl || tile.level >= lvl) continue;
-                if (currentMoney - getEffCost(lvl) >= effMargin) return lvl;
+                if (currentMoney - getEffCost(lvl) >= effMargin) {
+                    return this._applyBuildDifficultyStepDown(player, tile, lvl, minLvl, calcCosts, getEffCost, effMargin);
+                }
             }
             return -1;
         }
@@ -459,70 +611,79 @@ export const AIManager = {
     decideSpecialTilePurchase(player, tile, globalTurn = 1, tiles = [], mode = 'visit') {
         const money = player.money;
         const margin = this.getSafetyMargin(player, globalTurn, tiles);
+        const diffCfg = this.getDifficultyConfig(player);
+        const resScale = diffCfg.specialReserveScale ?? 1.0;
+        const skipProb = diffCfg.specialTileSkipProb ?? 0;
         const type = player.aiType;
+        const maxTurn = this.getMaxTurn();
+
+        const maybeHesitate = (action) => {
+            if (action === 'skip' || skipProb <= 0) return action;
+            return Math.random() < skipProb ? 'skip' : action;
+        };
 
         if (tile.id === BOARD_TILES.THEATER) {
-            if (!tile.owner && globalTurn <= 18) {
-                return money - GAME_CONSTANTS.THEATER_BUY >= 250000 ? 'buy' : 'skip';
+            if (!tile.owner && globalTurn <= maxTurn - 2) {
+                return maybeHesitate(money - GAME_CONSTANTS.THEATER_BUY >= Math.round(250000 * resScale) ? 'buy' : 'skip');
             }
-            if (tile.owner && tile.owner !== player && globalTurn <= 17) {
-                const reqReserve = type === 'defensive' ? Math.round(margin * 0.50) : Math.round(margin * 0.4);
-                return money - GAME_CONSTANTS.THEATER_TAKE >= reqReserve ? 'takeover' : 'skip';
+            if (tile.owner && tile.owner !== player && globalTurn <= maxTurn - 3) {
+                const reqReserve = Math.round((type === 'defensive' ? margin * 0.50 : margin * 0.4) * resScale);
+                return maybeHesitate(money - GAME_CONSTANTS.THEATER_TAKE >= reqReserve ? 'takeover' : 'skip');
             }
             return 'skip';
         }
 
         if (tile.id === BOARD_TILES.MONATIUM_25) {
-            if (!tile.owner && globalTurn <= 17) {
-                return money - GAME_CONSTANTS.MONATIUM_BUY >= Math.round(margin * 0.5) ? 'buy' : 'skip';
+            if (!tile.owner && globalTurn <= maxTurn - 3) {
+                return maybeHesitate(money - GAME_CONSTANTS.MONATIUM_BUY >= Math.round(margin * 0.5 * resScale) ? 'buy' : 'skip');
             }
             if (tile.owner === player && tile.level < 2) {
                 const expCost = tile.level === 0 ? GAME_CONSTANTS.MONATIUM_EXPAND_1 : GAME_CONSTANTS.MONATIUM_EXPAND_2;
-                const turnLimit = tile.level === 0 ? 15 : 13;
+                const turnLimit = tile.level === 0 ? Math.max(4, maxTurn - 5) : Math.max(3, maxTurn - 7);
                 if (globalTurn > turnLimit) return 'skip';
-                if (tile.level === 1 && type === 'defensive' && money < 1100000) return 'skip';
-                const reqReserve = type === 'defensive' ? Math.round(margin * 0.60) : Math.round(margin * 0.65);
-                return money - expCost >= reqReserve ? 'expand' : 'skip';
+                if (tile.level === 1 && type === 'defensive' && money < Math.round(1100000 * resScale)) return 'skip';
+                const reqReserve = Math.round((type === 'defensive' ? margin * 0.60 : margin * 0.65) * resScale);
+                return maybeHesitate(money - expCost >= reqReserve ? 'expand' : 'skip');
             }
             return 'skip';
         }
 
         if (tile.id === BOARD_TILES.LAKE) {
-            if (!tile.owner && globalTurn <= 16) {
+            if (!tile.owner && globalTurn <= maxTurn - 4) {
                 const mult = type === 'defensive' ? 0.55 : 0.5;
-                return money - GAME_CONSTANTS.LAKE_BUY >= Math.round(margin * mult) ? 'buy' : 'skip';
+                return maybeHesitate(money - GAME_CONSTANTS.LAKE_BUY >= Math.round(margin * mult * resScale) ? 'buy' : 'skip');
             }
             return 'skip';
         }
 
         if (tile.id === BOARD_TILES.LIBRARY) {
-            if (!tile.owner && globalTurn <= 16) {
+            if (!tile.owner && globalTurn <= maxTurn - 4) {
                 const mult = type === 'marathon' ? 0.35 : 0.5;
-                return money - GAME_CONSTANTS.LIBRARY_BUY >= Math.round(margin * mult) ? 'buy' : 'skip';
+                return maybeHesitate(money - GAME_CONSTANTS.LIBRARY_BUY >= Math.round(margin * mult * resScale) ? 'buy' : 'skip');
             }
             if (tile.owner && tile.owner !== player && mode === 'ability' && !player.hasLibraryBuff) {
                 if (player.inventory && player.inventory.some(c => c.id === CARD_IDS.LIBRARY_ASSIST)) {
                     return 'use_assist';
                 }
-                if (globalTurn <= 15) {
+                if (globalTurn <= maxTurn - 5) {
                     const toll = applySpecialTileTollModifiers(GAME_CONSTANTS.TOLL_LIBRARY, tile, player);
-                    if (money - toll >= 1000000) return 'buy_ability';
+                    if (money - toll >= Math.round(1000000 * resScale)) return maybeHesitate('buy_ability');
                 }
             }
             return 'skip';
         }
 
         if (tile.id === BOARD_TILES.DAYA) {
-            if (!tile.owner && globalTurn <= 18) {
-                if (type === 'defensive' && this.hasTileImmunity(player, BOARD_TILES.DAYA) && money < 1100000) {
+            if (!tile.owner && globalTurn <= maxTurn - 2) {
+                if (type === 'defensive' && this.hasTileImmunity(player, BOARD_TILES.DAYA) && money < Math.round(1100000 * resScale)) {
                     return 'skip';
                 }
-                const reqReserve = type === 'defensive' ? 350000 : 300000;
-                return money - GAME_CONSTANTS.DAYA_BUY >= reqReserve ? 'buy' : 'skip';
+                const reqReserve = Math.round((type === 'defensive' ? 350000 : 300000) * resScale);
+                return maybeHesitate(money - GAME_CONSTANTS.DAYA_BUY >= reqReserve ? 'buy' : 'skip');
             }
-            if (tile.owner && tile.owner !== player && mode === 'takeover' && globalTurn <= 15) {
-                const reqReserve = type === 'defensive' ? Math.round(margin * 0.60) : Math.round(margin * 0.5);
-                return money - GAME_CONSTANTS.DAYA_TAKE >= reqReserve ? 'takeover' : 'skip';
+            if (tile.owner && tile.owner !== player && mode === 'takeover' && globalTurn <= maxTurn - 5) {
+                const reqReserve = Math.round((type === 'defensive' ? margin * 0.60 : margin * 0.5) * resScale);
+                return maybeHesitate(money - GAME_CONSTANTS.DAYA_TAKE >= reqReserve ? 'takeover' : 'skip');
             }
             return 'skip';
         }
@@ -538,6 +699,7 @@ export const AIManager = {
         const type = player.aiType;
         const money = player.money;
         const margin = this.getSafetyMargin(player, globalTurn, tiles);
+        const diffCfg = this.getDifficultyConfig(player);
         const upcomingTime = this.getUpcomingTimePhase(globalTurn);
 
         // 1. 타인 소유 타일 도착 시
@@ -576,6 +738,7 @@ export const AIManager = {
             if (type === 'defensive' && tile.owner.isReincarnated) riskMult = 1.28;
             else if (type === 'defensive' && this.isHaloSpecialBeneficiary(tile.owner)) riskMult = 1.28;
             else if (type === 'defensive' && player.hasRegretState) riskMult = 1.25;
+            if (diffCfg.id === 'magma') riskMult += 0.08;
             let penalty = -Math.round(toll * riskMult);
             if (money < toll) penalty -= 2000000;
             return penalty;
@@ -593,7 +756,7 @@ export const AIManager = {
                 const upgCost = isSootDiscount ? Math.round(rawUpgCost * 0.5) : rawUpgCost;
                 if (money >= upgCost + margin * 0.5) {
                     let bonus = 260000 + tile.side * 60000;
-                    if (tile.isSpecialToll) bonus += 200000;
+                    if (tile.isSpecialToll) bonus += diffCfg.id === 'magma' ? 320000 : 200000;
                     if (upcomingTime !== 'none' && tile.timeType === upcomingTime) bonus += 150000;
                     if (isSootDiscount) bonus += 180000;
                     if (isHaloBenefit) bonus += this.isHaloSpecialBeneficiary(player) ? 120000 : 60000;
@@ -617,7 +780,7 @@ export const AIManager = {
             const minCost = isSootDiscount ? Math.round(rawMinCost * 0.5) : rawMinCost;
             if (money >= minCost + margin * 0.4) {
                 let score = 200000 + tile.side * 80000;
-                if (tile.isSpecialToll) score += 350000;
+                if (tile.isSpecialToll) score += diffCfg.id === 'magma' ? 480000 : 350000;
                 if (upcomingTime !== 'none' && tile.timeType === upcomingTime) score += 120000;
                 if (isSootDiscount) {
                     score += this.hasReincarnatedRival(player) ? 200000 : 260000;
@@ -659,6 +822,10 @@ export const AIManager = {
             return 20000;
         }
         if (tile.id === BOARD_TILES.ALTAR) {
+            const modeCfg = getModeConfig(getActiveWorld()?.gameMode);
+            if (modeCfg.altarWarpToRandomCardTile) {
+                return 320000 + Math.round(this.getExpectedStartBonus(player) / 3);
+            }
             if (!player.hasVisitedAltar && !RequiemState.hasSootEverTriggered) return 480000;
             if ((player.altarVisitCount || 0) >= 1 && !RequiemState.hasSootEverTriggered && !RequiemState.isSootState && getDrawnTreasures().size < 6) {
                 return 550000;
@@ -669,8 +836,10 @@ export const AIManager = {
             return 0;
         }
         if (tile.id === BOARD_TILES.BBANGJU) {
-            if (globalTurn < 4) {
-                const reqCost = player.bbangjuPaidTotal > 0 ? GAME_CONSTANTS.BBANGJU_DIRECT_PURCHASE - player.bbangjuPaidTotal : GAME_CONSTANTS.BBANGJU_DIRECT_PURCHASE;
+            const modeCfg = getModeConfig(getActiveWorld()?.gameMode);
+            if (modeCfg.enableBbangjuChief && globalTurn < 4) {
+                const directPurchase = modeCfg.bbangjuDirectPurchase || GAME_CONSTANTS.BBANGJU_DIRECT_PURCHASE;
+                const reqCost = player.bbangjuPaidTotal > 0 ? directPurchase - player.bbangjuPaidTotal : directPurchase;
                 return this.decideBbangjuTakeover(player, reqCost) ? 600000 : 10000;
             }
             return canPlayerUseBbangju(player) ? 320000 : 0;
@@ -706,27 +875,33 @@ export const AIManager = {
         return 0;
     },
 
-    decidePortalDestination(ctx, isFreeCard = false) {
+    decidePortalDestination(ctx, isFreeCard = false, overrideFee = null) {
         const { player, tiles, allPlayers, turnManager } = ctx;
         const globalTurn = turnManager ? turnManager.globalTurn : 1;
+        const diffCfg = this.getDifficultyConfig(player);
 
         let reqMoney = 0;
         if (!isFreeCard) {
             if (!canPlayerUseBbangju(player)) return -1;
-            const chiefs = WorldGimmickManager.bbangjuChiefs.length === 4 ? [] : WorldGimmickManager.bbangjuChiefs;
-            const isFree = player.isBbangjuChief;
-            const hasResearcher = player.buffs && ((player.buffs['hold_bbangju'] && player.buffs['hold_bbangju'].length > 0) || (player.buffs['todo_hold_bbangju'] && player.buffs['todo_hold_bbangju'].length > 0));
-            const baseFee = (isFree || hasResearcher) ? 0 : GAME_CONSTANTS.BBANGJU_BASE_FEE;
-            const chiefFee = (!isFree && chiefs.length > 0) ? GAME_CONSTANTS.BBANGJU_CHIEF_FEE : 0;
-            reqMoney = baseFee + chiefFee;
+            if (overrideFee !== null && overrideFee !== undefined) {
+                reqMoney = Math.max(0, Number(overrideFee) || 0);
+            } else {
+                const chiefs = WorldGimmickManager.bbangjuChiefs.length === 4 ? [] : WorldGimmickManager.bbangjuChiefs;
+                const isFree = player.isBbangjuChief;
+                const hasResearcher = player.buffs && ((player.buffs['hold_bbangju'] && player.buffs['hold_bbangju'].length > 0) || (player.buffs['todo_hold_bbangju'] && player.buffs['todo_hold_bbangju'].length > 0));
+                const baseFee = (isFree || hasResearcher) ? 0 : GAME_CONSTANTS.BBANGJU_BASE_FEE;
+                const chiefFee = (!isFree && chiefs.length > 0) ? GAME_CONSTANTS.BBANGJU_CHIEF_FEE : 0;
+                reqMoney = baseFee + chiefFee;
+            }
             if (player.money < reqMoney) return -1;
         }
 
         const startBonus = this.getExpectedStartBonus(player);
-        let bestId = -1;
-        let bestScore = -9999999;
+        const candidates = [];
+        const prevPos = player.pos;
 
         tiles.forEach(tile => {
+            if (tile.isDisabled || tile.type === 'disabled') return;
             if (isFreeCard) {
                 if (tile.type === 'card' || tile.id === player.pos) return;
             } else {
@@ -737,30 +912,51 @@ export const AIManager = {
             if (tile.id < player.pos || tile.id === BOARD_TILES.START) {
                 score += startBonus;
             }
-            if (score > bestScore) {
-                bestScore = score;
-                bestId = tile.id;
+            if (diffCfg.id === 'magma') {
+                let nextThreat;
+                try {
+                    player.pos = tile.id;
+                    nextThreat = this.evaluateDangerAhead(player, tiles, 2, 7);
+                } finally {
+                    player.pos = prevPos;
+                }
+                score -= Math.round((nextThreat?.maxToll || 0) * 0.14);
+            } else if ((diffCfg.landingScoreNoise || 0) > 0) {
+                score += Math.round((Math.random() * 2 - 1) * diffCfg.landingScoreNoise);
             }
+            candidates.push({ id: tile.id, score });
         });
 
-        if (!isFreeCard && bestScore < (reqMoney > 0 ? Math.max(120000, reqMoney * 1.2) : 50000)) {
+        if (candidates.length === 0) return -1;
+        candidates.sort((a, b) => b.score - a.score);
+
+        let chosen = candidates[0];
+        if (candidates.length >= 2 && (diffCfg.portalSuboptimalProb || 0) > 0 && Math.random() < diffCfg.portalSuboptimalProb) {
+            if (candidates[1].score > 0) chosen = candidates[1];
+        }
+
+        if (!isFreeCard && chosen.score < (reqMoney > 0 ? Math.max(120000, reqMoney * 1.2) : 50000)) {
             return -1;
         }
-        return bestId;
+        return chosen.id;
     },
 
     decideRelativeMoveCard(player, options, tiles, allPlayers = [], globalTurn = 1) {
         if (!options || options.length === 0) return 1;
+        const diffCfg = this.getDifficultyConfig(player);
         let bestOpt = options[0];
         let bestScore = -9999999;
         const startBonus = this.getExpectedStartBonus(player);
 
         options.forEach(step => {
-            const targetIdx = (player.pos + step + 40) % 40;
+            const { pos: targetIdx, passedStart } = stepActiveBoardPos(player.pos, step, tiles);
             const targetTile = tiles[targetIdx];
             let score = this.scoreLandingTile(player, targetTile, tiles, allPlayers, globalTurn);
-            if (step > 0 && (player.pos + step) >= 40) {
+            if (step > 0 && passedStart) {
                 score += startBonus;
+            }
+            if ((diffCfg.landingScoreNoise || 0) > 0) {
+                score += Math.round((Math.random() * 2 - 1) * diffCfg.landingScoreNoise);
             }
             if (score > bestScore) {
                 bestScore = score;
@@ -772,16 +968,20 @@ export const AIManager = {
 
     decideErpinDieValue(player, d1, d2, d3, baseDiceCount, tiles, allPlayers = [], globalTurn = 1) {
         const fixedOtherSum = (d1 === 1 ? (baseDiceCount >= 2 ? d2 : 0) : d1) + d3;
+        const diffCfg = this.getDifficultyConfig(player);
         let bestVal = 6;
         let bestScore = -9999999;
         const startBonus = this.getExpectedStartBonus(player);
 
         for (let v = 1; v <= 6; v++) {
             const totalSteps = fixedOtherSum + v;
-            const targetIdx = (player.pos + totalSteps) % 40;
+            const { pos: targetIdx, passedStart } = stepActiveBoardPos(player.pos, totalSteps, tiles);
             const targetTile = tiles[targetIdx];
             let score = this.scoreLandingTile(player, targetTile, tiles, allPlayers, globalTurn);
-            if (player.pos + totalSteps >= 40) score += startBonus;
+            if (passedStart) score += startBonus;
+            if ((diffCfg.landingScoreNoise || 0) > 0) {
+                score += Math.round((Math.random() * 2 - 1) * diffCfg.landingScoreNoise);
+            }
             if (score > bestScore) {
                 bestScore = score;
                 bestVal = v;
@@ -794,17 +994,26 @@ export const AIManager = {
     // 6. 보드 특수 기믹 의사결정 (빵주 / 호수 / 정령산 / 제단 / 셰이디 / 윤회)
     // ==========================================
     decideBbangjuSupport(player) {
-        if (player.aiType === 'marathon') return player.money >= 3800000 && Math.random() < 0.60;
-        if (player.aiType === 'aggressive') return Math.random() < 0.50;
-        return player.money >= 5100000 && Math.random() < 0.30;
+        const modeCfg = getModeConfig(getActiveWorld()?.gameMode);
+        if (!modeCfg.enableBbangjuChief) return false;
+        const diffCfg = this.getDifficultyConfig(player);
+        const isBasic = modeCfg.id === 'basic';
+        const marathonMin = isBasic ? 3000000 : 3800000;
+        const defMin = isBasic ? 3450000 : 5100000;
+        const probScale = diffCfg.id === 'mild' ? 0.60 : (diffCfg.id === 'spicy' ? 0.85 : (diffCfg.id === 'magma' ? 1.45 : 1.0));
+        if (player.aiType === 'marathon') return player.money >= marathonMin && Math.random() < Math.min(0.95, 0.60 * probScale);
+        if (player.aiType === 'aggressive') return Math.random() < Math.min(0.90, 0.50 * probScale);
+        return player.money >= defMin && Math.random() < Math.min(0.85, 0.30 * probScale);
     },
 
     decideBbangjuTakeover(player, reqCost) {
         if (player.money < reqCost) return false;
+        const diffCfg = this.getDifficultyConfig(player);
+        const resScale = diffCfg.specialReserveScale ?? 1.0;
         if (player.aiType === 'defensive') {
-            return reqCost <= 2000000 && (player.money - reqCost) >= 700000;
+            return reqCost <= 2000000 && (player.money - reqCost) >= Math.round(700000 * resScale);
         }
-        return (player.money - reqCost) >= 600000;
+        return (player.money - reqCost) >= Math.round(600000 * resScale);
     },
 
     decideLakeAction(ctx) {
@@ -829,21 +1038,21 @@ export const AIManager = {
         }
 
         if (player.aiType === 'defensive') {
-            if (globalTurn <= 15 && !player.hasRegretState && !player.hasKarmaState && player.money >= rollFee + 650000) {
+            if (globalTurn <= this.getMaxTurn() - 5 && !player.hasRegretState && !player.hasKarmaState && player.money >= rollFee + 650000) {
                 return { action: 'roll', target: null };
             }
             return { action: 'rest', target: null };
         }
 
         // 운영형
-        if (globalTurn <= 15 && !player.hasRegretState && player.money >= rollFee + 500000) {
+        if (globalTurn <= this.getMaxTurn() - 5 && !player.hasRegretState && player.money >= rollFee + 500000) {
             return { action: 'roll', target: null };
         }
         return { action: 'rest', target: null };
     },
 
     decideLakeManualFurryOpen(player, allPlayers = [], globalTurn = 1) {
-        if (!player || player.isBankrupt || globalTurn > 17) return false;
+        if (!player || player.isBankrupt || globalTurn > this.getMaxTurn() - 3) return false;
         const margin = this.getSafetyMargin(player, globalTurn);
         const minRemain = player.aiType === 'aggressive'
             ? Math.max(300000, Math.round(margin * 0.6))
@@ -852,20 +1061,22 @@ export const AIManager = {
     },
 
     decideMountainBuy(player, allPlayers = [], tiles = [], globalTurn = 1) {
-        if (globalTurn >= 19 || player.money < GAME_CONSTANTS.MOUNTAIN_FEE + 300000) return false;
+        if (globalTurn >= this.getMaxTurn() - 1 || player.money < GAME_CONSTANTS.MOUNTAIN_FEE + 300000) return false;
+        const diffCfg = this.getDifficultyConfig(player);
+        const resScale = diffCfg.specialReserveScale ?? 1.0;
         const ownedNormal = tiles.filter(t => t.owner === player && t.type === 'normal');
 
         if (player.aiType === 'marathon') {
             const hasBase = ownedNormal.length >= 2 || ownedNormal.some(t => t.level >= 2 || t.isSpecialToll);
-            return hasBase && player.money >= GAME_CONSTANTS.MOUNTAIN_FEE + 750000;
+            return hasBase && player.money >= GAME_CONSTANTS.MOUNTAIN_FEE + Math.round(750000 * resScale);
         }
         if (player.aiType === 'aggressive') {
             const hasGoodLand = ownedNormal.length >= 2 || ownedNormal.some(t => t.level >= 2 || t.isSpecialToll);
-            return hasGoodLand && player.money >= GAME_CONSTANTS.MOUNTAIN_FEE + 350000;
+            return hasGoodLand && player.money >= GAME_CONSTANTS.MOUNTAIN_FEE + Math.round(350000 * resScale);
         }
         if (player.aiType === 'defensive') {
             const hasBase = ownedNormal.length >= 2 || ownedNormal.some(t => t.level >= 2 || t.isSpecialToll);
-            return hasBase && player.money >= GAME_CONSTANTS.MOUNTAIN_FEE + 550000;
+            return hasBase && player.money >= GAME_CONSTANTS.MOUNTAIN_FEE + Math.round(550000 * resScale);
         }
         return false;
     },
@@ -940,6 +1151,7 @@ export const AIManager = {
     // ==========================================
     decideLibraryCardChoice(player, cards, ctx) {
         if (!cards || cards.length === 0) return null;
+        const diffCfg = this.getDifficultyConfig(player);
         const tiles = ctx.tiles || [];
         const hasReincarnatedRival = this.hasReincarnatedRival(player);
         const isHaloBenefit = this.isHaloBeneficiary(player);
@@ -972,12 +1184,23 @@ export const AIManager = {
             return 500;
         };
 
-        return [...cards].sort((a, b) => scoreCard(b) - scoreCard(a))[0];
+        const sorted = [...cards].sort((a, b) => scoreCard(b) - scoreCard(a));
+        if (sorted.length >= 2 && (diffCfg.librarySuboptimalProb || 0) > 0 && Math.random() < diffCfg.librarySuboptimalProb) {
+            return sorted[1];
+        }
+        return sorted[0];
     },
 
     // ==========================================
     // 8. 인벤토리/보물 액티브 카드 타겟 지정 AI
     // ==========================================
+    _findTopThreatEnemy(player, allPlayers = [], tiles = []) {
+        const rivals = allPlayers.filter(p => p && p !== player && !p.isBankrupt);
+        if (rivals.length === 0) return null;
+        rivals.sort((a, b) => this.evaluatePlayerThreat(b, tiles) - this.evaluatePlayerThreat(a, tiles));
+        return rivals[0];
+    },
+
     selectBestUpgradeTile(player, tiles, validFilter, preferLevelDesc = true, globalTurn = 1) {
         const upcomingTime = this.getUpcomingTimePhase(globalTurn);
         const candidates = tiles.filter(t => t.owner === player && t.type === 'normal' && validFilter(t));
@@ -1005,12 +1228,17 @@ export const AIManager = {
     selectMayoTarget(player, tiles, allPlayers = [], globalTurn = 1) {
         const candidates = tiles.filter(t => t.owner && t.owner !== player && !t.owner.isBankrupt && t.type === 'normal' && t.level < 4);
         if (candidates.length === 0) return null;
+        const diffCfg = this.getDifficultyConfig(player);
+        const topRival = (diffCfg.leaderFocusBonus || 0) > 0 ? this._findTopThreatEnemy(player, allPlayers, tiles) : null;
         const margin = this.getSafetyMargin(player, globalTurn, tiles);
         const reqReserve = player.aiType === 'defensive' ? Math.round(margin * 0.60) : Math.round(margin * 0.5);
 
         const scored = candidates.map(t => {
             const cost = t.basePrice + Math.round(calculateToll(t, player) * 1.5);
-            const futureVal = this.getTileSettlementValue(t) + (t.isSpecialToll ? 500000 : 0) + t.side * 100000;
+            let futureVal = this.getTileSettlementValue(t) + (t.isSpecialToll ? 500000 : 0) + t.side * 100000;
+            if (topRival && t.owner === topRival) {
+                futureVal = Math.round(futureVal * (1 + diffCfg.leaderFocusBonus));
+            }
             return { tile: t, cost, score: futureVal - cost };
         }).filter(item =>
             player.money >= item.cost + reqReserve &&
@@ -1055,21 +1283,29 @@ export const AIManager = {
         );
         if (enemies.length === 0) return null;
 
+        const diffCfg = this.getDifficultyConfig(player);
+        const topRival = (diffCfg.leaderFocusBonus || 0) > 0 ? this._findTopThreatEnemy(player, allPlayers, tiles) : null;
         const candidates = tiles.filter(t => t.owner && t.owner !== player && !t.owner.isBankrupt && t.type === 'normal');
         candidates.sort((a, b) => {
-            const scoreA = calculateToll(a, player) + (a.isSpecialToll ? 400000 : 0) + (a.level >= 3 ? 500000 : 0);
-            const scoreB = calculateToll(b, player) + (b.isSpecialToll ? 400000 : 0) + (b.level >= 3 ? 500000 : 0);
+            let scoreA = calculateToll(a, player) + (a.isSpecialToll ? 400000 : 0) + (a.level >= 3 ? 500000 : 0);
+            let scoreB = calculateToll(b, player) + (b.isSpecialToll ? 400000 : 0) + (b.level >= 3 ? 500000 : 0);
+            if (topRival && a.owner === topRival) scoreA = Math.round(scoreA * (1 + diffCfg.leaderFocusBonus));
+            if (topRival && b.owner === topRival) scoreB = Math.round(scoreB * (1 + diffCfg.leaderFocusBonus));
             return scoreB - scoreA;
         });
         return candidates[0] || null;
     },
 
-    selectStaffTargetTile(player, tiles) {
+    selectStaffTargetTile(player, tiles, allPlayers = []) {
+        const diffCfg = this.getDifficultyConfig(player);
+        const topRival = (diffCfg.leaderFocusBonus || 0) > 0 ? this._findTopThreatEnemy(player, allPlayers, tiles) : null;
         const enemyTiles = tiles.filter(t => t.type === 'normal' && t.owner && t.owner !== player && !t.owner.isBankrupt);
         if (enemyTiles.length > 0) {
             return [...enemyTiles].sort((a, b) => {
-                const scoreA = this.getTileSettlementValue(a) + (a.isSpecialToll ? 600000 : 0) + a.level * 300000;
-                const scoreB = this.getTileSettlementValue(b) + (b.isSpecialToll ? 600000 : 0) + b.level * 300000;
+                let scoreA = this.getTileSettlementValue(a) + (a.isSpecialToll ? 600000 : 0) + a.level * 300000;
+                let scoreB = this.getTileSettlementValue(b) + (b.isSpecialToll ? 600000 : 0) + b.level * 300000;
+                if (topRival && a.owner === topRival) scoreA = Math.round(scoreA * (1 + diffCfg.leaderFocusBonus));
+                if (topRival && b.owner === topRival) scoreB = Math.round(scoreB * (1 + diffCfg.leaderFocusBonus));
                 return scoreB - scoreA;
             })[0];
         }
@@ -1091,9 +1327,10 @@ export const AIManager = {
         const usableTreasures = treasures.filter(tc => tc.remainingUses > 0);
         if (inv.length === 0 && usableTreasures.length === 0) return null;
 
+        const diffCfg = this.getDifficultyConfig(player);
         const danger = this.evaluateDangerAhead(player, tiles, 1, 12);
 
-        // 1. 볼케니카 탈출 카드
+        // 1. 볼케니카 탈출 카드 (수감 탈출은 난이도 확률 제한 없이 판단)
         if (player.islandTurns > 0) {
             const escapeCard = inv.find(c => c.id === CARD_IDS.NER_ESCAPE);
             if (escapeCard) {
@@ -1106,6 +1343,36 @@ export const AIManager = {
                 return landmarkOnly;
             }
             return null;
+        }
+
+        // 순한맛/매운맛은 전술 액티브 카드 발동 타이밍을 일정 확률로 놓침
+        const cardUseProb = diffCfg.activeCardUseProb?.[player.aiType] ?? 1.0;
+        if (cardUseProb < 1.0 && Math.random() > cardUseProb) {
+            return null;
+        }
+
+        // 1.5 [50: 골디의 부동산명함] (대출 보유 시 사용: 오두막 이하면 즉시 사용, 2단계 이상이면 순자산 손익 비교 후 사용)
+        const goldieRealtyCard = inv.find(c => c.id === CARD_IDS.GOLDIE_REALTY);
+        const currentDebt = player.getTotalLoanDebt ? player.getTotalLoanDebt() : ((player.loanPrincipal || 0) + (player.loanInterest || 0));
+        if (goldieRealtyCard && currentDebt > 0) {
+            const ownedNormal = tiles.filter(t => t.owner === player && t.type === 'normal');
+            const maxLevel = ownedNormal.reduce((mx, t) => Math.max(mx, t.level || 0), -1);
+            if (maxLevel <= 1) {
+                return goldieRealtyCard;
+            }
+            const topTiles = ownedNormal.filter(t => t.level === maxLevel);
+            const avgTopLoss = topTiles.reduce((sum, t) => {
+                const beforeInvest = t.basePrice + BUILDING_COSTS[t.side][t.level - 1];
+                const afterLvl = Math.max(0, t.level - 2);
+                const afterInvest = afterLvl === 0 ? t.basePrice : t.basePrice + BUILDING_COSTS[t.side][afterLvl - 1];
+                const beforeVal = beforeInvest * (MULTIPLIERS.SETTLEMENT[t.level] || 1);
+                const afterVal = afterInvest * (MULTIPLIERS.SETTLEMENT[afterLvl] || 0.5);
+                return sum + Math.max(0, beforeVal - afterVal);
+            }, 0) / Math.max(1, topTiles.length);
+            const savedDebt = Math.round(currentDebt * 0.5);
+            if (savedDebt >= avgTopLoss * 0.75 || globalTurn >= Math.max(1, this.getMaxTurn() - 2)) {
+                return goldieRealtyCard;
+            }
         }
 
         // 2. [110: 시간가속] (낮/밤 진행 중: 유리할 때 2회 굴림 극대화 또는 상대 유리 시간대 단축)
@@ -1137,7 +1404,7 @@ export const AIManager = {
         // 4. [506: ???의 지팡이] (1회 무상 강탈)
         const staffCard = usableTreasures.find(tc => tc.id === CARD_IDS.TREASURE_STAFF);
         if (staffCard) {
-            const target = this.selectStaffTargetTile(player, tiles);
+            const target = this.selectStaffTargetTile(player, tiles, allPlayers);
             if (target && ((target.owner && (target.level >= 2 || target.isSpecialToll)) || globalTurn >= 15)) {
                 return staffCard;
             }
@@ -1190,13 +1457,14 @@ export const AIManager = {
         const shroudCard = usableTreasures.find(tc => tc.id === CARD_IDS.TREASURE_SHROUD);
         if (shroudCard && player.restTurns === 0) {
             const bestStep = this.decideRelativeMoveCard(player, [1, 2, 3, 4, 5, 6], tiles, allPlayers, globalTurn);
-            const targetTile = tiles[(player.pos + bestStep) % 40];
+            const { pos: targetIdx, passedStart } = stepActiveBoardPos(player.pos, bestStep, tiles);
+            const targetTile = tiles[targetIdx];
             let bestScore = this.scoreLandingTile(player, targetTile, tiles, allPlayers, globalTurn);
-            if (player.pos + bestStep >= 40) bestScore += this.getExpectedStartBonus(player);
+            if (passedStart) bestScore += this.getExpectedStartBonus(player);
 
             const dangerNear = this.evaluateDangerAhead(player, tiles, 2, 7);
-            const evadeTollThreshold = (this.hasReincarnatedRival(player) || player.hasRegretState) ? 350000 : 500000;
-            if (bestScore >= 350000 || (dangerNear.maxToll >= evadeTollThreshold && bestScore > -100000)) {
+            const baseEvadeThreshold = (this.hasReincarnatedRival(player) || player.hasRegretState) ? 350000 : (diffCfg.id === 'magma' ? 380000 : 500000);
+            if (bestScore >= 350000 || (dangerNear.maxToll >= baseEvadeThreshold && bestScore > -100000)) {
                 return shroudCard;
             }
         }
@@ -1205,18 +1473,19 @@ export const AIManager = {
         const rufoCard = inv.find(c => c.id === CARD_IDS.RUFO_DICE);
         if (rufoCard && !player.hasRufoDiceBuff) {
             const dangerNear = this.evaluateDangerAhead(player, tiles, 2, 7);
-            const rufoTollThreshold = (this.hasReincarnatedRival(player) || player.hasRegretState) ? 320000 : 400000;
+            const rufoTollThreshold = (this.hasReincarnatedRival(player) || player.hasRegretState) ? 320000 : (diffCfg.id === 'magma' ? 300000 : 400000);
             if (dangerNear.dangerCount >= 1 && dangerNear.maxToll >= rufoTollThreshold) {
                 return rufoCard;
             }
             const farBestStep = this.decideRelativeMoveCard(player, [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18], tiles, allPlayers, globalTurn);
-            const farScore = this.scoreLandingTile(player, tiles[(player.pos + farBestStep) % 40], tiles, allPlayers, globalTurn);
+            const { pos: farTargetIdx } = stepActiveBoardPos(player.pos, farBestStep, tiles);
+            const farScore = this.scoreLandingTile(player, tiles[farTargetIdx], tiles, allPlayers, globalTurn);
             if (farScore >= 550000) return rufoCard;
         }
 
         // 11. [44: 골디의 제안] (초중반 현금 부족 시 저열/저단계 매각, 후반 19~20턴 절대 금지)
         const goldieCard = inv.find(c => c.id === CARD_IDS.GOLDIE_PROPOSAL);
-        if (goldieCard && globalTurn <= 18) {
+        if (goldieCard && globalTurn <= Math.max(1, this.getMaxTurn() - 2)) {
             const sellCandidate = this.selectGoldieSellTile(player, tiles);
             if (sellCandidate && (player.money < 400000 || (sellCandidate.side <= 1 && sellCandidate.level <= 1 && player.money < 800000))) {
                 return goldieCard;

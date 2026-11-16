@@ -4,6 +4,7 @@
 
 import { changeScene } from '../Main.js';
 import { RoomManager } from '../Lobby/RoomManager.js';
+import { escapeHtml } from '../Lobby/LobbyUI.js';
 import {
     createPlayerUI,
     createNpcUIList,
@@ -17,9 +18,14 @@ import {
     PopupManager,
     setActiveRenderWorld
 } from '../Marble/MarbleUI.js';
-import { pickLangDict } from '../Marble/MarbleRuntime.js';
+import { pickLangDict, formatMoney, getTileName } from '../Marble/MarbleRuntime.js';
+import { calculatePurchaseCost, getTileSellValue } from '../Marble/MarbleLogic.js';
 import { LangState } from '../System/LanguageManager.js';
 import { MarbleLang } from '../System/Index/Marble/MarbleUIIndex.js';
+import { CardUILang } from '../System/Index/Marble/MarbleCardUIIndex.js';
+import { GimmickLang } from '../System/Index/Marble/MarbleGimmickIndex.js';
+import { BOARD_TILES } from '../System/Index/Marble/MarbleBoardIndex.js';
+import { GAME_CONSTANTS, BUILDING_COSTS, MULTIPLIERS, getModeConfig } from '../System/Index/Marble/MarblePriceIndex.js';
 import { LobbyLang } from '../System/Index/LobbyIndex.js';
 import { getGameMeta } from '../System/GameRegistry.js';
 
@@ -40,7 +46,7 @@ export function initMarble(container, sceneParams = null) {
     container.innerHTML = `
         <div style="width: 100%; height: 100%; position: relative; display: flex; justify-content: center; align-items: center; perspective: 1200px;">
             <div style="transform: translateY(25px);">
-                <canvas id="game-canvas" width="1080" height="1080" style="width: 1320px; height: 1320px; flex-shrink: 0; border: 10px solid #fff; background-color: transparent; box-shadow: 30px 30px 50px rgba(0,0,0,0.2); transform: rotateX(60deg) rotateZ(-45deg);"></canvas>
+                <canvas id="game-canvas" width="1080" height="1080" style="width: 1320px; height: 1320px; flex-shrink: 0; border: 10px solid #fff; background-color: transparent; box-shadow: 30px 30px 50px rgba(0,0,0,0.2); transform: rotateX(60deg) rotateZ(45deg);"></canvas>
             </div>
             <div id="ui-players"></div>
             <div id="turn-ui-container"></div>
@@ -61,18 +67,503 @@ export function initMarble(container, sceneParams = null) {
 
     const canvas = container.querySelector('#game-canvas');
     const ctx = canvas.getContext('2d');
+    const initialBoardMode = sceneParams?.room?.customOptions?.gameMode || 'ember';
+    let loadedBoardSrc = getModeConfig(initialBoardMode).boardTexture || './Resource/Texture/Marble/Board_Mode_Ember.png';
     const boardImg = new Image();
-    boardImg.src = './Resource/Texture/Marble/Board.png';
+    boardImg.src = loadedBoardSrc;
 
     let isCleanedUp = false;
     let latestSnapshot = null;
     let activePromptKey = null;
     let diceAnimInterval = null;
     let isDiceSpinning = false;
+    let turnOrderSpinInterval = null;
+    let turnOrderSpinTimeout = null;
+    let isTurnOrderSpinning = false;
     let settlementShown = false;
     let exitConfirmPending = false;
     let exitConfirmTimer = null;
     let isAfkWarnVisible = false;
+    let isHandOpen = false;
+    let selectedHandCard = null;
+    let isTerritoryOpen = false;
+    let selectedTerritoryId = null;
+    let isPeekingBoard = false;
+    const peekSavedDisplay = new Map();
+    let latestMainHudPlayer = null;
+    let latestViewTiles = [];
+    let latestCanActNow = false;
+
+    const PEEK_TARGET_IDS = [
+        'event-popup',
+        'portal-popup',
+        'sell-popup',
+        'target-popup',
+        'void-game-popup',
+        'hand-popup',
+        'hand-detail-popup',
+        'territory-popup',
+        'territory-detail-popup'
+    ];
+
+    const getTileBuyPrice = (tile) => {
+        if (!tile) return 0;
+        if (tile.id === BOARD_TILES.THEATER) return GAME_CONSTANTS.THEATER_BUY;
+        if (tile.id === BOARD_TILES.MONATIUM_25) return GAME_CONSTANTS.MONATIUM_BUY;
+        if (tile.id === BOARD_TILES.LAKE) return GAME_CONSTANTS.LAKE_BUY;
+        if (tile.id === BOARD_TILES.LIBRARY) return GAME_CONSTANTS.LIBRARY_BUY;
+        if (tile.id === BOARD_TILES.DAYA) return GAME_CONSTANTS.DAYA_BUY;
+        return Number(tile.basePrice || 0);
+    };
+
+    const isSpecialTerritoryTile = (tile) => (
+        tile.id === BOARD_TILES.THEATER
+        || tile.id === BOARD_TILES.MONATIUM_25
+        || tile.id === BOARD_TILES.LAKE
+        || tile.id === BOARD_TILES.LIBRARY
+        || tile.id === BOARD_TILES.DAYA
+    );
+
+    const getTileBaseOneX = (tile) => {
+        if (!tile || tile.level < 0) return 0;
+        if (tile.id === BOARD_TILES.THEATER) return 0;
+        if (tile.id === BOARD_TILES.MONATIUM_25) {
+            if (tile.level === 1) return GAME_CONSTANTS.TOLL_MONATIUM_1;
+            if (tile.level >= 2) return GAME_CONSTANTS.TOLL_MONATIUM_2;
+            return GAME_CONSTANTS.TOLL_MONATIUM_0;
+        }
+        if (tile.id === BOARD_TILES.LAKE) return GAME_CONSTANTS.TOLL_LAKE;
+        if (tile.id === BOARD_TILES.LIBRARY) return GAME_CONSTANTS.TOLL_LIBRARY;
+        if (tile.id === BOARD_TILES.DAYA) return GAME_CONSTANTS.TOLL_DAYA;
+        const baseCost = tile.level === 0 ? Number(tile.basePrice || 0) : (BUILDING_COSTS[tile.side]?.[tile.level - 1] || 0);
+        const mult = MULTIPLIERS.BUILDING[tile.level] ?? 0;
+        return Math.round(baseCost * mult);
+    };
+
+    const getTileLevelText = (tile, mText) => {
+        if (!tile || tile.level < 0) return '';
+        if (tile.id === BOARD_TILES.MONATIUM_25) {
+            if (tile.level >= 2) return '2단계 확장';
+            if (tile.level === 1) return '1단계 확장';
+            return '기본';
+        }
+        if (isSpecialTerritoryTile(tile)) return '특수 영토';
+        const labels = [mText.BLD_0, mText.BLD_1, mText.BLD_2, mText.BLD_3, mText.BLD_4];
+        return labels[tile.level] || mText.BLD_0;
+    };
+
+    const getTileUpgradeRows = (tile, mText) => {
+        if (!tile || tile.level < 0) return [];
+        const rows = [];
+        let cumCost = 0;
+        if (tile.id === BOARD_TILES.MONATIUM_25) {
+            if (tile.level < 1) {
+                cumCost += GAME_CONSTANTS.MONATIUM_EXPAND_1;
+                rows.push({ label: '1단계 확장', stepCost: GAME_CONSTANTS.MONATIUM_EXPAND_1, cumCost });
+            }
+            if (tile.level < 2) {
+                cumCost += GAME_CONSTANTS.MONATIUM_EXPAND_2;
+                rows.push({ label: '2단계 확장', stepCost: GAME_CONSTANTS.MONATIUM_EXPAND_2, cumCost });
+            }
+            return rows;
+        }
+        if (isSpecialTerritoryTile(tile)) return [];
+        const labels = [mText.BLD_0, mText.BLD_1, mText.BLD_2, mText.BLD_3, mText.BLD_4];
+        for (let cur = tile.level; cur < 4; cur++) {
+            const nextLevel = cur + 1;
+            const stepCost = calculatePurchaseCost({ ...tile, level: cur }, nextLevel, null, { ignoreSoot: true });
+            cumCost += stepCost;
+            rows.push({ label: labels[nextLevel] || `${nextLevel}단계`, stepCost, cumCost });
+        }
+        return rows;
+    };
+
+    const setBoardPeek = (nextPeek) => {
+        if (nextPeek === isPeekingBoard) return;
+        if (nextPeek) {
+            peekSavedDisplay.clear();
+            PEEK_TARGET_IDS.forEach((id) => {
+                const el = document.getElementById(id);
+                if (el && el.style.display && el.style.display !== 'none') {
+                    peekSavedDisplay.set(id, el.style.display);
+                    el.style.display = 'none';
+                }
+            });
+            isPeekingBoard = true;
+        } else {
+            isPeekingBoard = false;
+            peekSavedDisplay.forEach((disp, id) => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = disp;
+            });
+            peekSavedDisplay.clear();
+        }
+    };
+
+    const syncBoardPeekUi = (snapshot = latestSnapshot) => {
+        const bar = document.getElementById('board-peek-container');
+        const btn = document.getElementById('btn-board-peek');
+        if (!bar || !btn) return;
+        const isBlockingScene = !snapshot || snapshot.phase === 'GAME_OVER' || Boolean(snapshot.afkAutoAlert);
+        const hasAnyOverlay = isHandOpen || isTerritoryOpen || Boolean(snapshot?.pendingPrompt);
+        if (isBlockingScene || !hasAnyOverlay) {
+            if (isPeekingBoard) {
+                isPeekingBoard = false;
+                peekSavedDisplay.clear();
+            }
+            bar.style.display = 'none';
+            return;
+        }
+
+        const mText = pickLangDict(MarbleLang, LangState.current);
+        bar.style.display = 'block';
+        if (isPeekingBoard) {
+            if (isHandOpen) btn.innerText = mText.BTN_RESUME_HAND || '손패마저보기';
+            else if (isTerritoryOpen) btn.innerText = mText.BTN_RESUME_TERRITORY || '보유영토 보기';
+            else btn.innerText = mText.BTN_RESUME_UI || 'UI 다시보기';
+        } else {
+            btn.innerText = mText.BTN_BOARD_PEEK || '보드판 보기';
+        }
+    };
+
+    const closeHandPopups = () => {
+        isHandOpen = false;
+        selectedHandCard = null;
+        const p = document.getElementById('hand-popup');
+        const d = document.getElementById('hand-detail-popup');
+        if (p) p.style.display = 'none';
+        if (d) d.style.display = 'none';
+        peekSavedDisplay.delete('hand-popup');
+        peekSavedDisplay.delete('hand-detail-popup');
+    };
+
+    const closeTerritoryPopups = () => {
+        isTerritoryOpen = false;
+        selectedTerritoryId = null;
+        const p = document.getElementById('territory-popup');
+        const d = document.getElementById('territory-detail-popup');
+        if (p) p.style.display = 'none';
+        if (d) d.style.display = 'none';
+        peekSavedDisplay.delete('territory-popup');
+        peekSavedDisplay.delete('territory-detail-popup');
+    };
+
+    const findMatchingHandCard = (mainHudPlayer, target) => {
+        if (!mainHudPlayer || !target) return null;
+        const listsBySub = {
+            use: mainHudPlayer.inventory || [],
+            hold: mainHudPlayer.holdCards || [],
+            treasure: mainHudPlayer.treasureCards || []
+        };
+        const list = listsBySub[target.subType] || [];
+        return list.find(c => c.id === target.id && c.index === target.index)
+            || list.find(c => c.id === target.id)
+            || null;
+    };
+
+    const renderHandDetailPopup = (snapshot, mainHudPlayer, canActNow) => {
+        const detailEl = document.getElementById('hand-detail-popup');
+        if (!detailEl) return;
+        if (!isHandOpen || !selectedHandCard) {
+            detailEl.style.display = 'none';
+            peekSavedDisplay.delete('hand-detail-popup');
+            return;
+        }
+        const card = findMatchingHandCard(mainHudPlayer, selectedHandCard);
+        if (!card) {
+            selectedHandCard = null;
+            detailEl.style.display = 'none';
+            peekSavedDisplay.delete('hand-detail-popup');
+            return;
+        }
+        const cText = pickLangDict(CardUILang, LangState.current);
+        const badgeEl = document.getElementById('hand-detail-badge');
+        const titleEl = document.getElementById('hand-detail-title');
+        const descEl = document.getElementById('hand-detail-desc');
+        const statusEl = document.getElementById('hand-detail-status');
+        const actionsEl = document.getElementById('hand-detail-actions');
+        const useBtn = document.getElementById('hand-detail-use-btn');
+
+        const badgeMap = {
+            use: { text: cText.INV_SEC_USE || '사용형 카드', bg: '#8e44ad' },
+            hold: { text: cText.INV_SEC_HOLD || '보유형 카드', bg: '#2980b9' },
+            treasure: { text: cText.INV_SEC_TREASURE || '보물 카드', bg: '#d35400' }
+        };
+        const badgeMeta = badgeMap[card.subType] || badgeMap.use;
+        if (badgeEl) {
+            badgeEl.innerText = badgeMeta.text;
+            badgeEl.style.background = badgeMeta.bg;
+            badgeEl.style.color = '#fff';
+        }
+        if (titleEl) {
+            const usesSuffix = (card.subType === 'treasure' && card.maxUses > 0)
+                ? ` (${cText.TREASURE_USES_LEFT || '남은 횟수:'} ${card.remainingUses}/${card.maxUses})`
+                : '';
+            titleEl.innerText = `${card.name || ''}${usesSuffix}`;
+        }
+        if (descEl) descEl.innerText = card.desc || '';
+
+        const isHold = card.subType === 'hold';
+        if (isHold) {
+            if (statusEl) {
+                statusEl.innerText = cText.INV_HOLD_ACTIVE || '보유 효과 상시 적용 중';
+                statusEl.style.color = '#74b9ff';
+            }
+            if (actionsEl) actionsEl.style.display = 'none';
+        } else {
+            const isMyUsableWindow = Boolean(canActNow && !snapshot?.pendingPrompt && !isDiceSpinning);
+            const canClickUse = isMyUsableWindow && Boolean(card.canUseNow);
+            if (actionsEl) actionsEl.style.display = 'flex';
+            if (statusEl) {
+                if (canClickUse) {
+                    statusEl.innerText = '';
+                } else if (!isMyUsableWindow) {
+                    statusEl.innerText = cText.INV_NOT_MY_TURN || '내 턴에만 사용할 수 있습니다.';
+                    statusEl.style.color = '#f39c12';
+                } else {
+                    statusEl.innerText = cText.CANT_USE_NOW || '현재 사용할 수 없습니다.';
+                    statusEl.style.color = '#e74c3c';
+                }
+            }
+            if (useBtn) {
+                useBtn.innerText = cText.BTN_USE || '사용하기';
+                useBtn.disabled = !canClickUse;
+                useBtn.style.background = canClickUse ? '#2ecc71' : '#7f8c8d';
+                useBtn.style.cursor = canClickUse ? 'pointer' : 'not-allowed';
+                useBtn.onclick = canClickUse ? async () => {
+                    useBtn.disabled = true;
+                    closeHandPopups();
+                    setBoardPeek(false);
+                    syncBoardPeekUi(latestSnapshot);
+                    const res = await RoomManager.sendGameAction({
+                        type: 'USE_INVENTORY_CARD',
+                        cardId: card.id,
+                        cardIndex: card.index
+                    });
+                    if (!res?.ok && !isCleanedUp) {
+                        renderSnapshot(latestSnapshot);
+                    }
+                } : null;
+            }
+        }
+
+        if (isPeekingBoard) {
+            detailEl.style.display = 'none';
+            peekSavedDisplay.set('hand-detail-popup', 'block');
+        } else {
+            detailEl.style.display = 'block';
+        }
+    };
+
+    const renderHandPopup = (snapshot, mainHudPlayer, canActNow) => {
+        const popupEl = document.getElementById('hand-popup');
+        if (!popupEl) return;
+        if (!isHandOpen || !mainHudPlayer) {
+            popupEl.style.display = 'none';
+            const dEl = document.getElementById('hand-detail-popup');
+            if (dEl) dEl.style.display = 'none';
+            peekSavedDisplay.delete('hand-popup');
+            peekSavedDisplay.delete('hand-detail-popup');
+            return;
+        }
+
+        const cText = pickLangDict(CardUILang, LangState.current);
+        const modeCfg = getModeConfig(snapshot?.world?.gameMode);
+        const titleEl = document.getElementById('hand-title');
+        const descEl = document.getElementById('hand-desc');
+        const listEl = document.getElementById('hand-list');
+        if (titleEl) titleEl.innerText = cText.INV_TITLE || '인벤토리 (손패)';
+        if (descEl) descEl.innerText = cText.INV_DESC || '';
+
+        const sortBySeq = (arr) => (arr || []).slice().sort((a, b) => (a.acquiredSeq ?? a.index ?? 0) - (b.acquiredSeq ?? b.index ?? 0));
+        const sections = [
+            { key: 'use', title: cText.INV_SEC_USE || '사용형 카드', color: '#c084fc', items: sortBySeq(mainHudPlayer.inventory) },
+            { key: 'hold', title: cText.INV_SEC_HOLD || '보유형 카드', color: '#74b9ff', items: sortBySeq(mainHudPlayer.holdCards) }
+        ];
+        if (modeCfg.enableTreasureAndRequiem) {
+            sections.push({ key: 'treasure', title: cText.INV_SEC_TREASURE || '보물 카드', color: '#f39c12', items: sortBySeq(mainHudPlayer.treasureCards) });
+        }
+
+        const nonEmptySections = sections.filter(sec => sec.items.length > 0);
+        if (listEl) {
+            listEl.innerHTML = '';
+            if (nonEmptySections.length === 0) {
+                const emptyBox = document.createElement('div');
+                emptyBox.style.cssText = 'padding: 36px 16px; text-align: center; font-size: 20px; color: #cbd5e1; background: rgba(255,255,255,0.05); border-radius: 12px;';
+                emptyBox.innerText = cText.INV_EMPTY || '손패에 아무것도 없어요!';
+                listEl.appendChild(emptyBox);
+            } else {
+                const isMyWindow = Boolean(canActNow && !snapshot?.pendingPrompt && !isDiceSpinning);
+                nonEmptySections.forEach((sec) => {
+                    const secWrap = document.createElement('div');
+                    secWrap.style.cssText = 'display: flex; flex-direction: column; gap: 8px;';
+                    const header = document.createElement('div');
+                    header.style.cssText = `font-size: 16px; font-weight: bold; color: ${sec.color}; border-bottom: 1px solid rgba(255,255,255,0.14); padding-bottom: 4px;`;
+                    header.innerText = `${sec.title} (${sec.items.length})`;
+                    secWrap.appendChild(header);
+
+                    sec.items.forEach((card) => {
+                        const rowBtn = document.createElement('button');
+                        rowBtn.type = 'button';
+                        const usableTag = card.subType === 'hold'
+                            ? `<span style="font-size: 12px; padding: 3px 8px; border-radius: 6px; background: rgba(52, 152, 219, 0.25); color: #74b9ff;">보유중</span>`
+                            : (isMyWindow && card.canUseNow
+                                ? `<span style="font-size: 12px; padding: 3px 8px; border-radius: 6px; background: rgba(46, 204, 113, 0.28); color: #2ecc71;">사용 가능</span>`
+                                : (card.subType === 'treasure' && card.maxUses > 0
+                                    ? `<span style="font-size: 12px; padding: 3px 8px; border-radius: 6px; background: rgba(243, 156, 18, 0.22); color: #f8c471;">${card.remainingUses}/${card.maxUses}</span>`
+                                    : `<span style="font-size: 12px; padding: 3px 8px; border-radius: 6px; background: rgba(255,255,255,0.1); color: #cbd5e1;">상세보기</span>`));
+                        rowBtn.style.cssText = 'font-family: inherit; width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.18); border-radius: 10px; color: #fff; cursor: pointer; text-align: left;';
+                        rowBtn.innerHTML = `<span style="font-size: 18px; font-weight: bold;">${escapeHtml(card.name || '')}</span>${usableTag}`;
+                        rowBtn.onclick = () => {
+                            selectedHandCard = { id: card.id, index: card.index, subType: card.subType };
+                            renderHandDetailPopup(latestSnapshot, latestMainHudPlayer, latestCanActNow);
+                            syncBoardPeekUi(latestSnapshot);
+                        };
+                        secWrap.appendChild(rowBtn);
+                    });
+                    listEl.appendChild(secWrap);
+                });
+            }
+        }
+
+        if (isPeekingBoard) {
+            popupEl.style.display = 'none';
+            peekSavedDisplay.set('hand-popup', 'block');
+        } else {
+            popupEl.style.display = 'block';
+        }
+        renderHandDetailPopup(snapshot, mainHudPlayer, canActNow);
+    };
+
+    const renderTerritoryDetailPopup = (snapshot, viewTiles, mainHudPlayer) => {
+        const detailEl = document.getElementById('territory-detail-popup');
+        if (!detailEl) return;
+        if (!isTerritoryOpen || selectedTerritoryId === null || !mainHudPlayer) {
+            detailEl.style.display = 'none';
+            peekSavedDisplay.delete('territory-detail-popup');
+            return;
+        }
+        const tile = (viewTiles || []).find(t => t.id === selectedTerritoryId && t.ownerId === mainHudPlayer.id);
+        if (!tile) {
+            selectedTerritoryId = null;
+            detailEl.style.display = 'none';
+            peekSavedDisplay.delete('territory-detail-popup');
+            return;
+        }
+
+        const mText = pickLangDict(MarbleLang, LangState.current);
+        const gText = pickLangDict(GimmickLang, LangState.current);
+        const titleEl = document.getElementById('territory-detail-title');
+        const metaEl = document.getElementById('territory-detail-meta');
+        const statsEl = document.getElementById('territory-detail-stats');
+        const upgEl = document.getElementById('territory-detail-upgrades');
+
+        if (titleEl) titleEl.innerText = getTileName(tile, snapshot?.world);
+        if (metaEl) {
+            const timeBadge = tile.timeType === 'day'
+                ? `<span style="color: #f39c12; font-weight: bold;">[${gText.TILE_TIME_DAY || '낮'}]</span> `
+                : (tile.timeType === 'night' ? `<span style="color: #9b59b6; font-weight: bold;">[${gText.TILE_TIME_NIGHT || '밤'}]</span> ` : '');
+            metaEl.innerHTML = `${timeBadge}현재 단계: <b>${escapeHtml(getTileLevelText(tile, mText))}</b> · 매입가: ${escapeHtml(formatMoney(getTileBuyPrice(tile)))}`;
+        }
+        if (statsEl) {
+            const oneXToll = getTileBaseOneX(tile);
+            const canSell = !isSpecialTerritoryTile(tile) && tile.level >= 0;
+            const sellStr = canSell ? formatMoney(getTileSellValue(tile)) : '매각 불가';
+            statsEl.innerHTML = `
+                <div style="display:flex; justify-content:space-between;"><span>1배수 기본 통행료</span><strong style="color:#f1c40f;">${escapeHtml(formatMoney(oneXToll))}</strong></div>
+                <div style="display:flex; justify-content:space-between;"><span>매각 가격</span><strong style="color:#2ecc71;">${escapeHtml(sellStr)}</strong></div>
+            `;
+        }
+        if (upgEl) {
+            const rows = getTileUpgradeRows(tile, mText);
+            if (rows.length === 0) {
+                upgEl.innerHTML = `<div style="padding: 10px 12px; background: rgba(255,255,255,0.05); border-radius: 10px; color: #94a3b8; text-align: center;">${isSpecialTerritoryTile(tile) && tile.id !== BOARD_TILES.MONATIUM_25 ? '추가 증축 없음' : '최고 단계 건설 완료'}</div>`;
+            } else {
+                const headerHtml = `<div style="font-size: 14px; font-weight: bold; color: #74b9ff; margin-bottom: 2px;">다음 단계별 증축 비용</div>`;
+                const rowsHtml = rows.map(r => `
+                    <div style="display:flex; justify-content:space-between; align-items:center; padding: 7px 10px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                        <span>${escapeHtml(r.label)}</span>
+                        <span style="color:#e2e8f0;">단계 <b>${escapeHtml(formatMoney(r.stepCost))}</b> <span style="color:#94a3b8;">(누적 ${escapeHtml(formatMoney(r.cumCost))})</span></span>
+                    </div>
+                `).join('');
+                upgEl.innerHTML = headerHtml + rowsHtml;
+            }
+        }
+
+        if (isPeekingBoard) {
+            detailEl.style.display = 'none';
+            peekSavedDisplay.set('territory-detail-popup', 'block');
+        } else {
+            detailEl.style.display = 'block';
+        }
+    };
+
+    const renderTerritoryPopup = (snapshot, viewTiles, mainHudPlayer) => {
+        const popupEl = document.getElementById('territory-popup');
+        if (!popupEl) return;
+        if (!isTerritoryOpen || !mainHudPlayer) {
+            popupEl.style.display = 'none';
+            const dEl = document.getElementById('territory-detail-popup');
+            if (dEl) dEl.style.display = 'none';
+            peekSavedDisplay.delete('territory-popup');
+            peekSavedDisplay.delete('territory-detail-popup');
+            return;
+        }
+
+        const mText = pickLangDict(MarbleLang, LangState.current);
+        const gText = pickLangDict(GimmickLang, LangState.current);
+        const titleEl = document.getElementById('territory-title');
+        const listEl = document.getElementById('territory-list');
+        if (titleEl) titleEl.innerText = mText.TERRITORY_TITLE || '보유 영토 목록';
+
+        const ownedTiles = (viewTiles || []).filter(t => t.ownerId === mainHudPlayer.id);
+        if (listEl) {
+            listEl.innerHTML = '';
+            if (ownedTiles.length === 0) {
+                const emptyBox = document.createElement('div');
+                emptyBox.style.cssText = 'padding: 36px 16px; text-align: center; font-size: 20px; color: #cbd5e1; background: rgba(255,255,255,0.05); border-radius: 12px;';
+                emptyBox.innerText = mText.TERRITORY_EMPTY || '점령한 영토가 없어요!';
+                listEl.appendChild(emptyBox);
+            } else {
+                ownedTiles.forEach((tile) => {
+                    const rowBtn = document.createElement('button');
+                    rowBtn.type = 'button';
+                    const timeBadge = tile.timeType === 'day'
+                        ? `<span style="font-size: 12px; padding: 2px 7px; border-radius: 5px; background: rgba(243,156,18,0.22); color: #f5b041;">${gText.TILE_TIME_DAY || '낮'}</span>`
+                        : (tile.timeType === 'night'
+                            ? `<span style="font-size: 12px; padding: 2px 7px; border-radius: 5px; background: rgba(142,68,173,0.28); color: #d2b4de;">${gText.TILE_TIME_NIGHT || '밤'}</span>`
+                            : '');
+                    const levelStr = getTileLevelText(tile, mText);
+                    const buyStr = formatMoney(getTileBuyPrice(tile));
+                    rowBtn.style.cssText = 'font-family: inherit; width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.18); border-radius: 10px; color: #fff; cursor: pointer; text-align: left;';
+                    rowBtn.innerHTML = `
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            ${timeBadge}
+                            <span style="font-size: 18px; font-weight: bold;">${escapeHtml(getTileName(tile, snapshot?.world))}</span>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:12px; font-size: 15px; color: #cbd5e1;">
+                            <span>매입가 ${escapeHtml(buyStr)}</span>
+                            <span style="padding: 3px 9px; border-radius: 6px; background: rgba(52,152,219,0.25); color: #74b9ff; font-weight: bold;">${escapeHtml(levelStr)}</span>
+                        </div>
+                    `;
+                    rowBtn.onclick = () => {
+                        selectedTerritoryId = tile.id;
+                        renderTerritoryDetailPopup(latestSnapshot, latestViewTiles, latestMainHudPlayer);
+                        syncBoardPeekUi(latestSnapshot);
+                    };
+                    listEl.appendChild(rowBtn);
+                });
+            }
+        }
+
+        if (isPeekingBoard) {
+            popupEl.style.display = 'none';
+            peekSavedDisplay.set('territory-popup', 'block');
+        } else {
+            popupEl.style.display = 'block';
+        }
+        renderTerritoryDetailPopup(snapshot, viewTiles, mainHudPlayer);
+    };
 
     const syncAfkWarningOverlay = (snapshot) => {
         const overlay = container.querySelector('#afk-warning-overlay');
@@ -125,6 +616,47 @@ export function initMarble(container, sceneParams = null) {
         isDiceSpinning = false;
     };
 
+    const stopTurnOrderSpin = () => {
+        if (turnOrderSpinInterval) {
+            clearInterval(turnOrderSpinInterval);
+            turnOrderSpinInterval = null;
+        }
+        if (turnOrderSpinTimeout) {
+            clearTimeout(turnOrderSpinTimeout);
+            turnOrderSpinTimeout = null;
+        }
+        isTurnOrderSpinning = false;
+    };
+
+    const startTurnOrderSpin = () => {
+        stopTurnOrderSpin();
+        isTurnOrderSpinning = true;
+        const spinTick = () => {
+            const d1El = document.getElementById('turn-order-my-d1');
+            const d2El = document.getElementById('turn-order-my-d2');
+            const r1 = Math.floor(Math.random() * 6) + 1;
+            const r2 = Math.floor(Math.random() * 6) + 1;
+            if (d1El) {
+                d1El.src = `${DICE_NORMAL_PATH}${r1}.png`;
+                d1El.style.opacity = '1';
+                d1El.style.transform = `rotate(${(Math.random() * 18 - 9).toFixed(1)}deg) scale(1.06)`;
+            }
+            if (d2El) {
+                d2El.src = `${DICE_NORMAL_PATH}${r2}.png`;
+                d2El.style.opacity = '1';
+                d2El.style.transform = `rotate(${(Math.random() * 18 - 9).toFixed(1)}deg) scale(1.06)`;
+            }
+        };
+        spinTick();
+        turnOrderSpinInterval = setInterval(spinTick, 65);
+        turnOrderSpinTimeout = setTimeout(() => {
+            stopTurnOrderSpin();
+            if (!isCleanedUp && latestSnapshot) {
+                syncTurnOrderOverlay(latestSnapshot);
+            }
+        }, 600);
+    };
+
     const updateTimerDom = (timeLeft) => {
         if (isCleanedUp) return;
         const currentText = pickLangDict(MarbleLang, LangState.current);
@@ -145,6 +677,7 @@ export function initMarble(container, sceneParams = null) {
         if (!overlay) return;
         const state = snapshot?.turnOrderState;
         if (!state || !state.visible || snapshot?.phase !== 'TURN_ORDER') {
+            stopTurnOrderSpin();
             overlay.style.display = 'none';
             return;
         }
@@ -155,8 +688,10 @@ export function initMarble(container, sceneParams = null) {
         const titleEl = document.getElementById('turn-order-title');
         const descEl = document.getElementById('turn-order-desc');
         const tieBannerEl = document.getElementById('turn-order-tie-banner');
-        const rollViewEl = document.getElementById('turn-order-roll-view');
-        const resultViewEl = document.getElementById('turn-order-result-view');
+        const countdownEl = document.getElementById('turn-order-countdown');
+        const gridEl = document.getElementById('turn-order-grid');
+        const myStatusEl = document.getElementById('turn-order-my-status');
+        const rollBtn = document.getElementById('turn-order-roll-btn');
 
         if (tieBannerEl) {
             if (state.tieNotice) {
@@ -170,81 +705,113 @@ export function initMarble(container, sceneParams = null) {
             }
         }
 
-        const players = Array.isArray(state.players) ? state.players : [];
-
-        if (state.stage === 'RESULT') {
-            if (titleEl) titleEl.innerText = currentText.TURN_ORDER_RESULT_TITLE || '최종 순번 결정 완료!';
-            if (descEl) descEl.innerText = currentText.TURN_ORDER_RESULT_DESC || '';
-            if (rollViewEl) rollViewEl.style.display = 'none';
-            if (resultViewEl) resultViewEl.style.display = 'block';
-
-            const countdownEl = document.getElementById('turn-order-countdown');
-            if (countdownEl) {
+        const isResultStage = state.stage === 'RESULT';
+        if (titleEl) {
+            titleEl.innerText = isResultStage
+                ? (currentText.TURN_ORDER_RESULT_TITLE || '최종 순번 결정 완료!')
+                : (currentText.TURN_ORDER_TITLE || '플레이 순번 결정');
+        }
+        if (descEl) {
+            descEl.innerText = isResultStage
+                ? (currentText.TURN_ORDER_RESULT_DESC || '')
+                : (currentText.TURN_ORDER_DESC || '');
+        }
+        if (countdownEl) {
+            if (isResultStage) {
+                countdownEl.style.display = 'block';
                 const sec = Math.max(0, Number(state.resultSecondsLeft) || 0);
                 countdownEl.innerText = `${currentText.TURN_ORDER_AUTO_START_PREFIX || '자동 시작까지'} ${sec}${currentText.SEC || '초'}`;
+            } else {
+                countdownEl.style.display = 'none';
             }
-
-            const grid = document.getElementById('turn-order-result-grid');
-            if (grid) {
-                const cards = players.map(p => {
-                    const card = document.createElement('div');
-                    const isMe = p.id === snapshot.myPlayerId;
-                    card.style.cssText = `background: ${isMe ? 'rgba(241, 196, 15, 0.14)' : 'rgba(255, 255, 255, 0.06)'}; border: 2px solid ${p.rank === 1 ? '#f1c40f' : (isMe ? '#ffd86b' : 'rgba(255,255,255,0.16)')}; border-radius: 12px; padding: 12px 8px; display: flex; flex-direction: column; align-items: center; gap: 8px;`;
-
-                    // 1) 위쪽: 플레이어 이름
-                    const nameEl = document.createElement('div');
-                    nameEl.style.cssText = `font-size: 14px; font-weight: 800; color: ${p.color || '#ffffff'}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;`;
-                    nameEl.innerText = p.name || '';
-                    card.appendChild(nameEl);
-
-                    // 2) 이름 밑: 주사위의 합
-                    const sumEl = document.createElement('div');
-                    sumEl.style.cssText = 'font-size: 13px; font-weight: 700; color: #e8eef7;';
-                    sumEl.innerText = `${currentText.TURN_ORDER_SUM_LABEL || '주사위 합:'} ${p.sum ?? 0}`;
-                    card.appendChild(sumEl);
-
-                    // 3) 주사위 두 개 그림
-                    const diceRow = document.createElement('div');
-                    diceRow.style.cssText = 'display: flex; justify-content: center; align-items: center; gap: 6px;';
-                    const d1Img = document.createElement('img');
-                    d1Img.src = `${DICE_NORMAL_PATH}${Math.min(6, Math.max(1, Number(p.d1) || 1))}.png`;
-                    d1Img.style.cssText = 'width: 46px; height: 46px; object-fit: contain;';
-                    const d2Img = document.createElement('img');
-                    d2Img.src = `${DICE_NORMAL_PATH}${Math.min(6, Math.max(1, Number(p.d2) || 1))}.png`;
-                    d2Img.style.cssText = 'width: 46px; height: 46px; object-fit: contain;';
-                    diceRow.appendChild(d1Img);
-                    diceRow.appendChild(d2Img);
-                    card.appendChild(diceRow);
-
-                    // 4) 주사위 아래: 등수
-                    const rankEl = document.createElement('div');
-                    rankEl.style.cssText = `margin-top: 2px; padding: 4px 12px; border-radius: 999px; font-size: 14px; font-weight: 900; background: ${p.rank === 1 ? '#f1c40f' : 'rgba(255,255,255,0.12)'}; color: ${p.rank === 1 ? '#1a1f2e' : '#ffffff'};`;
-                    rankEl.innerText = `${p.rank || '-'}${currentText.TURN_ORDER_RANK_SUFFIX || '등'}`;
-                    card.appendChild(rankEl);
-
-                    return card;
-                });
-                grid.replaceChildren(...cards);
-            }
-            return;
         }
 
-        if (titleEl) titleEl.innerText = currentText.TURN_ORDER_TITLE || '플레이 순번 결정';
-        if (descEl) descEl.innerText = currentText.TURN_ORDER_DESC || '';
-        if (rollViewEl) rollViewEl.style.display = 'block';
-        if (resultViewEl) resultViewEl.style.display = 'none';
+        const players = Array.isArray(state.players) ? state.players : [];
+        const myEntry = players.find(p => p.id === snapshot.myPlayerId) || players.find(p => !p.isAi) || players[0];
 
-        const myEntry = players.find(p => p.id === snapshot.myPlayerId) || players[0];
-        const myD1 = document.getElementById('turn-order-my-d1');
-        const myD2 = document.getElementById('turn-order-my-d2');
-        const myStatusEl = document.getElementById('turn-order-my-status');
-        const rollBtn = document.getElementById('turn-order-roll-btn');
+        if (gridEl) {
+            const cards = players.map(p => {
+                const isMe = Boolean(myEntry && p.id === myEntry.id);
+                const isCardSpinning = isMe && isTurnOrderSpinning;
+                const showRolledFace = !isCardSpinning && (p.rolled || isResultStage || (p.tied && p.sum > 0));
+                const card = document.createElement('div');
+                const borderColor = (isResultStage && p.rank === 1)
+                    ? '#f1c40f'
+                    : (isMe ? '#ffd86b' : (p.rolled ? 'rgba(123, 237, 159, 0.55)' : 'rgba(255,255,255,0.16)'));
+                card.style.cssText = `background: ${isMe ? 'rgba(241, 196, 15, 0.14)' : 'rgba(255, 255, 255, 0.06)'}; border: 2px solid ${borderColor}; border-radius: 14px; padding: 14px 10px; display: flex; flex-direction: column; align-items: center; gap: 9px; transition: border-color 0.2s;`;
 
-        if (myEntry) {
-            if (myD1) myD1.src = `${DICE_NORMAL_PATH}${Math.min(6, Math.max(1, Number(myEntry.d1) || 1))}.png`;
-            if (myD2) myD2.src = `${DICE_NORMAL_PATH}${Math.min(6, Math.max(1, Number(myEntry.d2) || 1))}.png`;
+                // 1) 위쪽: 플레이어 이름
+                const nameEl = document.createElement('div');
+                nameEl.style.cssText = `font-size: 15px; font-weight: 800; color: ${p.color || '#ffffff'}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;`;
+                nameEl.innerText = p.name || '';
+                card.appendChild(nameEl);
 
-            const canClick = !myEntry.isAi && !myEntry.rolled && state.stage === 'ROLLING';
+                // 2) 이름 밑: 주사위 합 / 상태
+                const sumEl = document.createElement('div');
+                sumEl.style.cssText = 'font-size: 13px; font-weight: 700; color: #e8eef7; min-height: 18px;';
+                if (isCardSpinning) {
+                    sumEl.style.color = '#f1c40f';
+                    sumEl.innerText = currentText.ROLLING || '주사위 굴리는 중...';
+                } else if (p.rolled || isResultStage) {
+                    sumEl.innerText = `${currentText.TURN_ORDER_SUM_LABEL || '주사위 합:'} ${p.sum ?? 0}`;
+                } else if (p.tied && p.sum > 0) {
+                    sumEl.style.color = '#ff7675';
+                    sumEl.innerText = `${currentText.TURN_ORDER_SUM_LABEL || '주사위 합:'} ${p.sum}`;
+                } else {
+                    sumEl.style.color = '#95a5a6';
+                    sumEl.innerText = `${currentText.TURN_ORDER_SUM_LABEL || '주사위 합:'} -`;
+                }
+                card.appendChild(sumEl);
+
+                // 3) 가운데: 주사위 2개 그림 (굴리기 전 1/1 상태, 굴린 후 실제 눈금)
+                const diceRow = document.createElement('div');
+                diceRow.style.cssText = 'display: flex; justify-content: center; align-items: center; gap: 8px; margin: 2px 0;';
+                const face1 = showRolledFace ? Math.min(6, Math.max(1, Number(p.d1) || 1)) : 1;
+                const face2 = showRolledFace ? Math.min(6, Math.max(1, Number(p.d2) || 1)) : 1;
+                const diceOpacity = (showRolledFace || isCardSpinning) ? '1' : '0.52';
+
+                const d1Img = document.createElement('img');
+                if (isMe) d1Img.id = 'turn-order-my-d1';
+                d1Img.src = `${DICE_NORMAL_PATH}${face1}.png`;
+                d1Img.style.cssText = `width: 50px; height: 50px; object-fit: contain; opacity: ${diceOpacity}; transition: transform 0.08s, opacity 0.18s;`;
+
+                const d2Img = document.createElement('img');
+                if (isMe) d2Img.id = 'turn-order-my-d2';
+                d2Img.src = `${DICE_NORMAL_PATH}${face2}.png`;
+                d2Img.style.cssText = `width: 50px; height: 50px; object-fit: contain; opacity: ${diceOpacity}; transition: transform 0.08s, opacity 0.18s;`;
+
+                diceRow.appendChild(d1Img);
+                diceRow.appendChild(d2Img);
+                card.appendChild(diceRow);
+
+                // 4) 아래: 최종 등수 또는 진행 상태 배지
+                const badgeEl = document.createElement('div');
+                if (isResultStage || (p.rank !== null && p.rank !== undefined)) {
+                    const isFirst = p.rank === 1;
+                    badgeEl.style.cssText = `margin-top: 2px; padding: 4px 14px; border-radius: 999px; font-size: 13px; font-weight: 900; background: ${isFirst ? '#f1c40f' : 'rgba(255,255,255,0.12)'}; color: ${isFirst ? '#1a1f2e' : '#ffffff'};`;
+                    badgeEl.innerText = `${p.rank || '-'}${currentText.TURN_ORDER_RANK_SUFFIX || '등'}`;
+                } else if (isCardSpinning) {
+                    badgeEl.style.cssText = 'margin-top: 2px; padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 800; background: rgba(241, 196, 15, 0.22); color: #f1c40f;';
+                    badgeEl.innerText = '🎲 ...';
+                } else if (p.tied && !p.rolled) {
+                    badgeEl.style.cssText = 'margin-top: 2px; padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 800; background: rgba(231, 76, 60, 0.22); color: #ff7675;';
+                    badgeEl.innerText = currentText.TURN_ORDER_REROLL_TAG || '(동률 재굴림)';
+                } else if (p.rolled) {
+                    badgeEl.style.cssText = 'margin-top: 2px; padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 800; background: rgba(46, 204, 113, 0.2); color: #7bed9f;';
+                    badgeEl.innerText = currentText.TURN_ORDER_ROLLED_TAG || '완료';
+                } else {
+                    badgeEl.style.cssText = 'margin-top: 2px; padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 700; background: rgba(255,255,255,0.08); color: #95a5a6;';
+                    badgeEl.innerText = currentText.TURN_ORDER_WAITING_TAG || '대기중';
+                }
+                card.appendChild(badgeEl);
+
+                return card;
+            });
+            gridEl.replaceChildren(...cards);
+        }
+
+        if (myEntry && !isResultStage) {
+            const canClick = !myEntry.isAi && !myEntry.rolled && state.stage === 'ROLLING' && !isTurnOrderSpinning;
             if (rollBtn) {
                 rollBtn.innerText = currentText.TURN_ORDER_ROLL_BTN || '주사위 굴리기';
                 rollBtn.style.display = canClick ? 'inline-flex' : 'none';
@@ -252,14 +819,20 @@ export function initMarble(container, sceneParams = null) {
                 rollBtn.onclick = async () => {
                     if (isCleanedUp) return;
                     rollBtn.disabled = true;
+                    rollBtn.style.display = 'none';
+                    startTurnOrderSpin();
                     const res = await RoomManager.sendGameAction({ type: 'TURN_ORDER_ROLL' });
                     if (res && res.ok === false && !isCleanedUp) {
+                        stopTurnOrderSpin();
                         rollBtn.disabled = false;
+                        rollBtn.style.display = 'inline-flex';
                     }
                 };
             }
             if (myStatusEl) {
-                if (myEntry.tied && !myEntry.rolled) {
+                if (isTurnOrderSpinning) {
+                    myStatusEl.innerText = currentText.ROLLING || '주사위 굴리는 중...';
+                } else if (myEntry.tied && !myEntry.rolled) {
                     const prevSumPrefix = (myEntry.sum > 0)
                         ? `${currentText.TURN_ORDER_SUM_LABEL || '주사위 합:'} ${myEntry.sum} — `
                         : '';
@@ -270,34 +843,9 @@ export function initMarble(container, sceneParams = null) {
                     myStatusEl.innerText = '';
                 }
             }
-        }
-
-        const waitList = document.getElementById('turn-order-wait-list');
-        if (waitList) {
-            const pills = players.map(p => {
-                const pill = document.createElement('div');
-                pill.style.cssText = 'background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); border-radius: 10px; padding: 8px 6px; font-size: 12px;';
-                const nm = document.createElement('div');
-                nm.style.cssText = `font-weight: 800; color: ${p.color || '#ffffff'}; margin-bottom: 4px;`;
-                nm.innerText = p.name || '';
-                const st = document.createElement('div');
-                if (p.tied && !p.rolled) {
-                    st.style.color = '#ff7675';
-                    st.innerText = p.sum > 0
-                        ? `${p.sum} ${currentText.TURN_ORDER_REROLL_TAG || '(동률 재굴림)'}`
-                        : (currentText.TURN_ORDER_REROLL_TAG || '(동률 재굴림)');
-                } else if (p.rolled) {
-                    st.style.color = '#7bed9f';
-                    st.innerText = `${p.sum} (${currentText.TURN_ORDER_ROLLED_TAG || '완료'})`;
-                } else {
-                    st.style.color = '#95a5a6';
-                    st.innerText = currentText.TURN_ORDER_WAITING_TAG || '대기중';
-                }
-                pill.appendChild(nm);
-                pill.appendChild(st);
-                return pill;
-            });
-            waitList.replaceChildren(...pills);
+        } else {
+            if (rollBtn) rollBtn.style.display = 'none';
+            if (myStatusEl) myStatusEl.innerText = '';
         }
     };
 
@@ -348,6 +896,7 @@ export function initMarble(container, sceneParams = null) {
             if (activePromptKey !== null) {
                 PopupManager.closeAll();
                 activePromptKey = null;
+                ['event-popup', 'portal-popup', 'sell-popup', 'target-popup', 'void-game-popup'].forEach(id => peekSavedDisplay.delete(id));
             }
             return;
         }
@@ -357,6 +906,9 @@ export function initMarble(container, sceneParams = null) {
             return;
         }
         activePromptKey = nextKey;
+        closeHandPopups();
+        closeTerritoryPopups();
+        setBoardPeek(false);
 
         const respond = (payload) => RoomManager.sendGameAction({
             type: 'PROMPT_RESPOND',
@@ -405,7 +957,8 @@ export function initMarble(container, sceneParams = null) {
                     prompt.costs,
                     prompt.playerMoney,
                     (level) => respond({ level }),
-                    () => cancel()
+                    () => cancel(),
+                    prompt.maxAllowedLvl
                 );
                 break;
             }
@@ -473,7 +1026,11 @@ export function initMarble(container, sceneParams = null) {
     const handleSettlement = (results) => {
         if (isCleanedUp || settlementShown || !Array.isArray(results)) return;
         settlementShown = true;
+        closeHandPopups();
+        closeTerritoryPopups();
+        setBoardPeek(false);
         PopupManager.closeAll();
+        syncBoardPeekUi(latestSnapshot);
         activePromptKey = null;
         stopDiceAnimation();
 
@@ -505,6 +1062,11 @@ export function initMarble(container, sceneParams = null) {
             owner: t.ownerId ? (playerById.get(t.ownerId) || null) : null
         }));
 
+        const targetBoardSrc = getModeConfig(snapshot.world?.gameMode || initialBoardMode).boardTexture;
+        if (targetBoardSrc && loadedBoardSrc !== targetBoardSrc) {
+            loadedBoardSrc = targetBoardSrc;
+            boardImg.src = targetBoardSrc;
+        }
         if (boardImg.complete) {
             renderBoardState(ctx, boardImg, viewTiles, snapshot.players || [], snapshot.world);
         }
@@ -540,6 +1102,25 @@ export function initMarble(container, sceneParams = null) {
         }
 
         const canActNow = Boolean(snapshot.canAct && (!RoomManager.isOnline() || snapshot.activePlayerId === RoomManager.localPlayer.id));
+        latestMainHudPlayer = mainHudPlayer || null;
+        latestViewTiles = viewTiles;
+        latestCanActNow = canActNow;
+
+        const terrBtn = document.getElementById('btn-territories');
+        if (terrBtn) {
+            terrBtn.onclick = () => {
+                if (isTerritoryOpen) {
+                    closeTerritoryPopups();
+                } else {
+                    closeHandPopups();
+                    setBoardPeek(false);
+                    isTerritoryOpen = true;
+                    renderTerritoryPopup(latestSnapshot, latestViewTiles, latestMainHudPlayer);
+                }
+                syncBoardPeekUi(latestSnapshot);
+            };
+        }
+
         document.getElementById('dice-btn-container').innerHTML = createDiceButton(
             mainHudPlayer,
             canActNow,
@@ -550,6 +1131,10 @@ export function initMarble(container, sceneParams = null) {
         if (rollBtn && canActNow) {
             rollBtn.onclick = async () => {
                 rollBtn.disabled = true;
+                closeHandPopups();
+                closeTerritoryPopups();
+                setBoardPeek(false);
+                syncBoardPeekUi(latestSnapshot);
                 const res = await RoomManager.sendGameAction({ type: 'ROLL_DICE' });
                 if (!res?.ok && !isCleanedUp) {
                     renderSnapshot(latestSnapshot);
@@ -558,13 +1143,17 @@ export function initMarble(container, sceneParams = null) {
         }
 
         const invBtn = document.getElementById('btn-inventory');
-        if (invBtn && canActNow && snapshot.hasUsableCards) {
-            invBtn.onclick = async () => {
-                invBtn.disabled = true;
-                const res = await RoomManager.sendGameAction({ type: 'OPEN_INVENTORY' });
-                if (!res?.ok && !isCleanedUp) {
-                    renderSnapshot(latestSnapshot);
+        if (invBtn) {
+            invBtn.onclick = () => {
+                if (isHandOpen) {
+                    closeHandPopups();
+                } else {
+                    closeTerritoryPopups();
+                    setBoardPeek(false);
+                    isHandOpen = true;
+                    renderHandPopup(latestSnapshot, latestMainHudPlayer, latestCanActNow);
                 }
+                syncBoardPeekUi(latestSnapshot);
             };
         }
 
@@ -572,6 +1161,9 @@ export function initMarble(container, sceneParams = null) {
         syncTurnOrderOverlay(snapshot);
         syncPrompt(snapshot.pendingPrompt, viewTiles, snapshot);
         syncAfkWarningOverlay(snapshot);
+        renderHandPopup(snapshot, mainHudPlayer, canActNow);
+        renderTerritoryPopup(snapshot, viewTiles, mainHudPlayer);
+        syncBoardPeekUi(snapshot);
         updateTimerDom(snapshot.timerLeft);
 
         if (snapshot.phase === 'GAME_OVER' && snapshot.settlementResults) {
@@ -584,6 +1176,52 @@ export function initMarble(container, sceneParams = null) {
             renderSnapshot(latestSnapshot);
         }
     };
+
+    const handCloseBtn = container.querySelector('#hand-close-btn');
+    if (handCloseBtn) {
+        handCloseBtn.onclick = () => {
+            closeHandPopups();
+            syncBoardPeekUi(latestSnapshot);
+        };
+    }
+
+    const handDetailCloseBtn = container.querySelector('#hand-detail-close-btn');
+    if (handDetailCloseBtn) {
+        handDetailCloseBtn.onclick = () => {
+            selectedHandCard = null;
+            const d = document.getElementById('hand-detail-popup');
+            if (d) d.style.display = 'none';
+            peekSavedDisplay.delete('hand-detail-popup');
+            syncBoardPeekUi(latestSnapshot);
+        };
+    }
+
+    const territoryCloseBtn = container.querySelector('#territory-close-btn');
+    if (territoryCloseBtn) {
+        territoryCloseBtn.onclick = () => {
+            closeTerritoryPopups();
+            syncBoardPeekUi(latestSnapshot);
+        };
+    }
+
+    const territoryDetailCloseBtn = container.querySelector('#territory-detail-close-btn');
+    if (territoryDetailCloseBtn) {
+        territoryDetailCloseBtn.onclick = () => {
+            selectedTerritoryId = null;
+            const d = document.getElementById('territory-detail-popup');
+            if (d) d.style.display = 'none';
+            peekSavedDisplay.delete('territory-detail-popup');
+            syncBoardPeekUi(latestSnapshot);
+        };
+    }
+
+    const boardPeekBtn = container.querySelector('#btn-board-peek');
+    if (boardPeekBtn) {
+        boardPeekBtn.onclick = () => {
+            setBoardPeek(!isPeekingBoard);
+            syncBoardPeekUi(latestSnapshot);
+        };
+    }
 
     const exitBtn = container.querySelector('#btn-exit-match');
     if (exitBtn) {
@@ -644,6 +1282,7 @@ export function initMarble(container, sceneParams = null) {
         isCleanedUp = true;
         if (exitConfirmTimer) clearTimeout(exitConfirmTimer);
         stopDiceAnimation();
+        stopTurnOrderSpin();
         PopupManager.clearToasts?.();
         unsubscribeGame();
         document.removeEventListener('languageChanged', langHandler);

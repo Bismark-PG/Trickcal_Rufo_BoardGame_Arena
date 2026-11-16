@@ -9,7 +9,7 @@ import {
 } from './MarbleRuntime.js';
 import { CARD_IDS, treasureCards } from '../System/Index/Marble/MarbleCardIndex.js';
 import { BOARD_TILES } from '../System/Index/Marble/MarbleBoardIndex.js';
-import { GAME_CONSTANTS } from '../System/Index/Marble/MarblePriceIndex.js';
+import { GAME_CONSTANTS, getActiveBoardSize } from '../System/Index/Marble/MarblePriceIndex.js';
 import { WorldGimmickManager, syncFurryBeachFeeMultiplier } from './MarbleWorldGimmick.js';
 import { checkAndDestroyRank2Privilege, applyLapPassBonus } from './MarbleCardNormal.js';
 import { acquireTreasureCard, stealTreasureCardFromPlayer, getAvailableTreasureCards } from './MarbleCardTreasure.js';
@@ -44,10 +44,12 @@ export function openFurryBeachState(ctx, ownerPlayer, source = 'card', cardId = 
             wm.furryAccountedBaselineRests = totalBaseline;
         }
         const globalTurn = ctx.turnManager ? ctx.turnManager.globalTurn : 1;
+        const maxTurn = getActiveWorld()?.maxTurn || GAME_CONSTANTS.MAX_TURN;
         const aliveOthers = ctx.allPlayers ? ctx.allPlayers.filter(o => o !== ownerPlayer && !o.isBankrupt).length : 0;
         // 현재 턴의 남은 상대 + 이후 잔여 턴 기대 도착
-        const remOppTurns = (Math.max(0, GAME_CONSTANTS.MAX_TURN - globalTurn) + 0.5) * aliveOthers;
-        wm.furryExpectedGainSum += remOppTurns * (1 / 40) * (
+        const remOppTurns = (Math.max(0, maxTurn - globalTurn) + 0.5) * aliveOthers;
+        const activeBoardSize = getActiveBoardSize(ctx.tiles || getActiveWorld()?.gameMode);
+        wm.furryExpectedGainSum += remOppTurns * (1 / activeBoardSize) * (
             Math.round(GAME_CONSTANTS.FURRY_BEACH_FEE * feeMult) + aliveOthers * GAME_CONSTANTS.SETTLE_FURRY_BEACH_UNIT
         );
     }
@@ -109,9 +111,9 @@ export function executeSpecialCard(ctx, card, onComplete = null) {
             break;
         }
 
-        // [105] 빵주 난입: 현재 위치에서 아무런 조건 없이 원하는 칸으로 이동 (단, 차원 열쇠 카드 칸 제외)
+        // [105] 빵주 난입: 현재 위치에서 아무런 조건 없이 원하는 칸으로 이동 (단, 차원 열쇠 카드 칸 및 비활성 칸 제외)
         case "spec_bbangju_intrude": {
-            const validTiles = ctx.tiles.filter(t => t.type !== 'card' && t.id !== p.pos);
+            const validTiles = ctx.tiles.filter(t => t.type !== 'card' && !t.isDisabled && t.type !== 'disabled' && t.id !== p.pos);
             const moveToTarget = (targetId) => {
                 if ((targetId < p.pos || targetId === BOARD_TILES.START) && targetId !== p.pos) {
                     applyLapPassBonus(p, { showBlockedToast: true });
@@ -156,7 +158,7 @@ export function executeSpecialCard(ctx, card, onComplete = null) {
         case "hold_moon_double":
         case "hold_start_buff": {
             if (!p.buffs[card.actionType]) p.buffs[card.actionType] = [];
-            p.buffs[card.actionType].push(card);
+            p.buffs[card.actionType].push({ ...card, _acquiredSeq: p.nextCardAcquireSeq ? p.nextCardAcquireSeq() : 0 });
             RuntimePopup.showToast(`[${card.name}] ${uiText.CARD_BUFF_APPLIED}`, 3200, p.id);
             ctx.refreshUI();
             scheduleGameTask(finish, 1800);
@@ -174,7 +176,7 @@ export function executeSpecialCard(ctx, card, onComplete = null) {
                 RuntimePopup.showToast(`[${p.name}] ${uiText.SPEC_TIME_ACCEL_TOAST}`, 3600);
                 scheduleGameTask(finish, 2000);
             } else {
-                p.inventory.push(card);
+                p.inventory.push({ ...card, _acquiredSeq: p.nextCardAcquireSeq ? p.nextCardAcquireSeq() : 0 });
                 RuntimePopup.showToast(`[${card.name}] ${uiText.CARD_STORED}`, 3200, p.id);
                 ctx.refreshUI();
                 scheduleGameTask(finish, 1800);
@@ -291,7 +293,7 @@ export function executeSpecialCard(ctx, card, onComplete = null) {
         case "hold_komi":
         case "spec_komi_juice": {
             if (!p.buffs['hold_komi']) p.buffs['hold_komi'] = [];
-            p.buffs['hold_komi'].push(card);
+            p.buffs['hold_komi'].push({ ...card, _acquiredSeq: p.nextCardAcquireSeq ? p.nextCardAcquireSeq() : 0 });
             syncFurryBeachFeeMultiplier(ctx.allPlayers || []);
             const wm = recordMetricCount('furryCardUseCounts', card.id);
             if (wm) wm.furryKomiJuiceCount = (wm.furryKomiJuiceCount || 0) + 1;
@@ -322,7 +324,7 @@ export function executeSpecialCard(ctx, card, onComplete = null) {
         // [204] 김씨노동기 (퍼리비이치 강제 휴식 면제 보유)
         case "hold_worker": {
             if (!p.buffs['hold_worker']) p.buffs['hold_worker'] = [];
-            p.buffs['hold_worker'].push(card);
+            p.buffs['hold_worker'].push({ ...card, _acquiredSeq: p.nextCardAcquireSeq ? p.nextCardAcquireSeq() : 0 });
             const wm = recordMetricCount('furryCardUseCounts', card.id);
             if (wm) wm.furryKimWorkerCount = (wm.furryKimWorkerCount || 0) + 1;
             RuntimePopup.showToast(`[${card.name}] ${uiText.CARD_BUFF_APPLIED}`, 3200, p.id);
@@ -334,7 +336,7 @@ export function executeSpecialCard(ctx, card, onComplete = null) {
         // [205] 잊혀진 기억 (정령산 정상 효과를 받지 않음, 정령산 정상 방문 시 '되찾은 기억'으로 변화)
         case "hold_forget": {
             if (!p.buffs['hold_forget']) p.buffs['hold_forget'] = [];
-            p.buffs['hold_forget'].push(card);
+            p.buffs['hold_forget'].push({ ...card, _acquiredSeq: p.nextCardAcquireSeq ? p.nextCardAcquireSeq() : 0 });
             if (!p.hasOriginElif) {
                 p.hasMountainBuff = false;
             }
@@ -354,7 +356,7 @@ export function executeSpecialCard(ctx, card, onComplete = null) {
         // [206] 태초의 엘리프 (정령산 정상 효과를 대가 지불 없이 영구 고정 소유)
         case "hold_origin": {
             if (!p.buffs['hold_origin']) p.buffs['hold_origin'] = [];
-            p.buffs['hold_origin'].push(card);
+            p.buffs['hold_origin'].push({ ...card, _acquiredSeq: p.nextCardAcquireSeq ? p.nextCardAcquireSeq() : 0 });
             ctx.allPlayers.forEach(other => {
                 if (other !== p) other.hasMountainBuff = false;
             });

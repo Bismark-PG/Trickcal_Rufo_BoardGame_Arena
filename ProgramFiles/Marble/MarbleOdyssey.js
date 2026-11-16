@@ -8,7 +8,7 @@ import { RequiemState, checkAndTriggerClimax } from './MarbleRequiem.js';
 import { CARD_IDS } from '../System/Index/Marble/MarbleCardIndex.js';
 import { BOARD_TILES } from '../System/Index/Marble/MarbleBoardIndex.js';
 import { WorldGimmickManager } from './MarbleWorldGimmick.js';
-import { GAME_CONSTANTS } from '../System/Index/Marble/MarblePriceIndex.js';
+import { GAME_CONSTANTS, getModeConfig } from '../System/Index/Marble/MarblePriceIndex.js';
 
 // 보물 카드 확률 테이블 [일반%, 특수%, 보물%] - 인덱스 = 가진 보물 개수 (기획서 38p)
 const PROB_TABLE = [
@@ -157,15 +157,18 @@ export function getConditionalCardCandidates(targetType, player, pool, ctx = nul
     }
 
     if (targetType === 'special') {
-        const drawnTreasures = getDrawnTreasures();
-        const treasuresAvail = drawnTreasures.size < 6 && !RequiemState.isSootState && !RequiemState.hasSootEverTriggered;
-        if (player.hasVisitedAltar && treasuresAvail) {
-            addIfInPool(CARD_IDS.SPEC_ODYSSEY, 10);
-        }
+        const modeCfg = getModeConfig(getActiveWorld()?.gameMode);
+        if (modeCfg.enableTreasureAndRequiem) {
+            const drawnTreasures = getDrawnTreasures();
+            const treasuresAvail = drawnTreasures.size < 6 && !RequiemState.isSootState && !RequiemState.hasSootEverTriggered;
+            if (player.hasVisitedAltar && treasuresAvail) {
+                addIfInPool(CARD_IDS.SPEC_ODYSSEY, 10);
+            }
 
-        const anyEnemyHasTreasure = allPlayers.some(p => p && p !== player && !p.isBankrupt && p.treasureCards?.length > 0);
-        if (anyEnemyHasTreasure) {
-            addIfInPool(CARD_IDS.SPEC_WOLF_STEAL, 10);
+            const anyEnemyHasTreasure = allPlayers.some(p => p && p !== player && !p.isBankrupt && p.treasureCards?.length > 0);
+            if (anyEnemyHasTreasure) {
+                addIfInPool(CARD_IDS.SPEC_WOLF_STEAL, 10);
+            }
         }
 
         if (poolById.has(CARD_IDS.SPEC_FORGOTTEN_MEM)) {
@@ -255,31 +258,39 @@ export const OdysseyManager = {
             excludeIds.add(CARD_IDS.SPEC_ORIGIN_ELIF);
         }
 
-        // [2단계] 카드 등급 결정 (보물 잠금 시 일반 95% / 특수 5%, 해금 시 PROB_TABLE 적용)
+        // [2단계] 카드 등급 결정
+        // - 스피드(일반 85% / 특수 15%, 보물 0%) 및 기본(일반 90% / 특수 10%, 보물 0%) 모드: 모드별 고정 비율 적용
+        // - 불씨 모드: 보물 잠금 시 일반 95% / 특수 5%, 해금 시 PROB_TABLE 적용
         let targetType = "normal";
-        const forceNoTreasure =
-            RequiemState.hasSootEverTriggered ||
-            RequiemState.isSootState ||
-            !player.hasVisitedAltar ||
-            effectiveTreasureCount >= 6 ||
-            availableTreasures.length === 0;
-
-        if (forceNoTreasure) {
-            targetType = Math.random() * 100 < 95 ? "normal" : "special";
+        const modeCfg = getModeConfig(world?.gameMode);
+        if (!modeCfg.enableTreasureAndRequiem) {
+            const normalProb = Number(modeCfg.cardNormalProb) || 90;
+            targetType = Math.random() * 100 < normalProb ? "normal" : "special";
         } else {
-            const tCount = Math.min(effectiveTreasureCount, 5);
-            const probs = PROB_TABLE[tCount];
-            if (world?.metrics) {
-                world.metrics.postAltarEligibleDraws++;
-                world.metrics.stepTreasureExpectationSum += (probs[2] / 100);
-            }
-            const rand = Math.random() * 100;
-            if (rand < probs[0]) targetType = "normal";
-            else if (rand < probs[0] + probs[1]) targetType = "special";
-            else targetType = "treasure";
+            const forceNoTreasure =
+                RequiemState.hasSootEverTriggered ||
+                RequiemState.isSootState ||
+                !player.hasVisitedAltar ||
+                effectiveTreasureCount >= 6 ||
+                availableTreasures.length === 0;
 
-            if (targetType === "treasure" && availableTreasures.length === 0) {
-                targetType = "normal";
+            if (forceNoTreasure) {
+                targetType = Math.random() * 100 < 95 ? "normal" : "special";
+            } else {
+                const tCount = Math.min(effectiveTreasureCount, 5);
+                const probs = PROB_TABLE[tCount];
+                if (world?.metrics) {
+                    world.metrics.postAltarEligibleDraws++;
+                    world.metrics.stepTreasureExpectationSum += (probs[2] / 100);
+                }
+                const rand = Math.random() * 100;
+                if (rand < probs[0]) targetType = "normal";
+                else if (rand < probs[0] + probs[1]) targetType = "special";
+                else targetType = "treasure";
+
+                if (targetType === "treasure" && availableTreasures.length === 0) {
+                    targetType = "normal";
+                }
             }
         }
 

@@ -121,23 +121,33 @@ function settleTollTransfer(payer, owner, tile, targetToll, onPaymentSettled = n
 
 export function executePlayerLoanBorrow(player, amount, source = 'toll', globalTurn = 1) {
     const rawAmount = Math.max(0, Math.round(Number(amount) || 0));
-
-    // 일반 대출(비피라)에서 대출1 원금을 다 갚아 전환 이자 원금만 남은 상태에서 대출2가 실행되면
-    // 기존 잔여 이자가 아니라 대출2의 원금만을 기준으로 이자를 계산하도록 전환 이자를 이자 계정으로 복귀
-    // (피라 보유 시 이미 0.5배 변환된 전환 원금이 대출2 완납 시 재차 0.5배 되지 않도록 전환 원금 계정 유지)
     const hasPiraBuff = Boolean(player.hasPiraLoanBuff && player.hasPiraLoanBuff());
-    if (!hasPiraBuff && player.loanPrincipal <= 0 && player.loanInterestPrincipal > 0) {
-        player.loanInterest += player.loanInterestPrincipal;
-        player.loanInterestPrincipal = 0;
-    }
-
-    const debtMult = (player.hasPiraLoanBuff && player.hasPiraLoanBuff())
+    const debtMult = hasPiraBuff
         ? (GAME_CONSTANTS.LOAN_PIRA_AMOUNT_MULT || 0.5)
         : 1;
     const loanAmount = Math.round(rawAmount * debtMult);
+    const fixedRate = hasPiraBuff
+        ? (GAME_CONSTANTS.LOAN_PIRA_FIXED_INTEREST_RATE ?? 0.20)
+        : (GAME_CONSTANTS.LOAN_FIXED_INTEREST_RATE ?? 0.10);
+    const fixedInterest = Math.round(loanAmount * fixedRate);
+    const loanTurn = Math.max(1, Number(globalTurn) || 1);
 
     player.loanCount++;
-    player.loanPrincipal += loanAmount;
+    if (!Array.isArray(player.loanRecords)) {
+        player.loanRecords = [];
+    }
+    player.loanRecords.push({
+        turn: loanTurn,
+        principal: loanAmount,
+        fixedInterest,
+        isPira: hasPiraBuff
+    });
+    if (typeof player._syncLoanAggregates === 'function') {
+        player._syncLoanAggregates();
+    } else {
+        player.loanPrincipal += loanAmount;
+        player.loanInterest += fixedInterest;
+    }
     player.money += rawAmount;
     if (player.tracker) {
         if (source === 'turn_crisis') {
@@ -156,9 +166,11 @@ export function executePlayerLoanBorrow(player, amount, source = 'toll', globalT
             player.tracker.loanEvents = [];
         }
         player.tracker.loanEvents.push({
-            turn: Number(globalTurn) || 1,
+            turn: loanTurn,
             source,
             amount: loanAmount,
+            fixedInterest,
+            isPira: hasPiraBuff,
             loanCountAfter: player.loanCount
         });
     }

@@ -4,7 +4,16 @@
 // - Node.js 환경에서는 Resource/Log 폴더에 직접 기록하고, 브라우저 환경에서는 HTTP API(/api/logs/record)
 //   또는 localStorage 폴백을 사용하여 브라우저 ESM 모듈 안전성을 보장한다.
 
-import { MarbleLogAdapter, MarbleLog10Adapter } from '../../Marble/MarbleLogManager.js';
+import {
+    MarbleLogAdapter,
+    MarbleLog10Adapter,
+    MarbleMode1LogAdapter,
+    MarbleMode1Log10Adapter,
+    MarbleMode2LogAdapter,
+    MarbleMode2Log10Adapter,
+    MarbleMode3LogAdapter,
+    MarbleMode3Log10Adapter
+} from '../../Marble/MarbleLogManager.js';
 
 const STORAGE_PREFIX = 'rufo_system_logs_v1_';
 
@@ -22,6 +31,12 @@ class SystemLogManagerImpl {
         this._writeLocks = new Map();
         this.registerGameLogger('marble', MarbleLogAdapter);
         this.registerGameLogger('marble_10', MarbleLog10Adapter);
+        this.registerGameLogger('marble_mode1', MarbleMode1LogAdapter);
+        this.registerGameLogger('marble_mode1_10', MarbleMode1Log10Adapter);
+        this.registerGameLogger('marble_mode2', MarbleMode2LogAdapter);
+        this.registerGameLogger('marble_mode2_10', MarbleMode2Log10Adapter);
+        this.registerGameLogger('marble_mode3', MarbleMode3LogAdapter);
+        this.registerGameLogger('marble_mode3_10', MarbleMode3Log10Adapter);
     }
 
     _withWriteLock(lockKey, task) {
@@ -89,9 +104,16 @@ class SystemLogManagerImpl {
      * 경기 종료 결과를 지정된 게임 로거를 통해 최근 100사이클 로그로 기록한다.
      */
     async recordGameResult(gameId, rawMatchData, options = {}) {
-        const adapter = this.getLogger(gameId);
+        let resolvedId = String(gameId || 'marble');
+        if ((resolvedId === 'marble' || resolvedId === 'marble_10') && rawMatchData?.gameMode) {
+            const is10 = resolvedId === 'marble_10';
+            if (rawMatchData.gameMode === 'speed') resolvedId = is10 ? 'marble_mode1_10' : 'marble_mode1';
+            else if (rawMatchData.gameMode === 'basic') resolvedId = is10 ? 'marble_mode2_10' : 'marble_mode2';
+            else if (rawMatchData.gameMode === 'ember') resolvedId = is10 ? 'marble_mode3_10' : 'marble_mode3';
+        }
+        const adapter = this.getLogger(resolvedId);
         if (!adapter) {
-            return { ok: false, error: `UNKNOWN_GAME_LOGGER:${gameId}` };
+            return { ok: false, error: `UNKNOWN_GAME_LOGGER:${resolvedId}` };
         }
 
         const cycle = typeof adapter.normalizeMatchData === 'function'
@@ -183,8 +205,14 @@ class SystemLogManagerImpl {
             }
 
             let updatedCycles = existingCycles;
-            for (const item of incomingCycles) {
-                updatedCycles = this._pushBoundedCycle(updatedCycles, item, maxCycles, adapter, retentionPolicy);
+            if (replaceExisting && retentionPolicy === 'quantile_preserve' && typeof adapter?.compactCycles === 'function') {
+                updatedCycles = incomingCycles.length > maxCycles
+                    ? adapter.compactCycles(incomingCycles, maxCycles)
+                    : [...incomingCycles];
+            } else {
+                for (const item of incomingCycles) {
+                    updatedCycles = this._pushBoundedCycle(updatedCycles, item, maxCycles, adapter, retentionPolicy);
+                }
             }
 
             const finalMeta = meta !== null ? meta : existingMeta;

@@ -8,7 +8,7 @@ import {
     getActiveWorld
 } from './MarbleRuntime.js';
 import { CARD_IDS } from '../System/Index/Marble/MarbleCardIndex.js';
-import { GAME_CONSTANTS } from '../System/Index/Marble/MarblePriceIndex.js';
+import { GAME_CONSTANTS, stepActiveBoardPos } from '../System/Index/Marble/MarblePriceIndex.js';
 import { getDrawnTreasures } from './MarbleOdyssey.js';
 import { checkAndTriggerClimax, RequiemState } from './MarbleRequiem.js';
 import { getTileFullInvestedValue, applyLapPassBonus } from './MarbleCardNormal.js';
@@ -77,7 +77,8 @@ export function acquireTreasureCard(ctx, card) {
 
     const treasureInstance = {
         ...card,
-        remainingUses: typeof card.maxUses === 'number' ? card.maxUses : 0
+        remainingUses: typeof card.maxUses === 'number' ? card.maxUses : 0,
+        _acquiredSeq: player.nextCardAcquireSeq ? player.nextCardAcquireSeq() : 0
     };
     player.treasureCards.push(treasureInstance);
     if (player.tracker) player.tracker.treasureAcquiredCount++;
@@ -142,8 +143,8 @@ export function executeTreasureCard(ctx, card, onComplete = null) {
 // ==========================================
 
 // [501: ???의 왕관] 부작용: 고민 시간 0.5배 감소 (수의(504) 보유 시 상쇄)
-export function getPlayerThinkTime(player) {
-    const baseTime = GAME_CONSTANTS.THINK_TIME;
+export function getPlayerThinkTime(player, baseSeconds = GAME_CONSTANTS.THINK_TIME) {
+    const baseTime = Number(baseSeconds) > 0 ? Number(baseSeconds) : GAME_CONSTANTS.THINK_TIME;
     if (isTreasureDebuffActive(player, CARD_IDS.TREASURE_CROWN)) {
         return Math.max(1, Math.floor(baseTime * 0.5));
     }
@@ -241,13 +242,13 @@ export function useTreasureActiveCard(ctx, treasureCard, onComplete = null, onCa
                 if (wmShroud) wmShroud.treasureActiveUseCount = (wmShroud.treasureActiveUseCount || 0) + 1;
                 if (onComplete) onComplete(true);
 
-                const oldPos = p.pos;
-                p.pos = (p.pos + step) % 40;
+                const { pos: nextPos, passedStart } = stepActiveBoardPos(p.pos, step, ctx.tiles);
+                p.pos = nextPos;
                 RuntimePopup.showToast(
                     `[${p.name}] [${treasureCard.name}] ${cText.MOVE_FORWARD_PREFIX}${step}${cText.MOVE_SPACE_SUFFIX}`,
                     3200
                 );
-                if (oldPos + step >= 40) {
+                if (passedStart) {
                     applyLapPassBonus(p, { showBlockedToast: true });
                 }
                 ctx.updateRender();

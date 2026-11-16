@@ -11,7 +11,7 @@ import {
 } from './MarbleRuntime.js';
 import { CARD_IDS } from '../System/Index/Marble/MarbleCardIndex.js';
 import { BOARD_TILES } from '../System/Index/Marble/MarbleBoardIndex.js';
-import { GAME_CONSTANTS, BUILDING_COSTS, resolveLapBaseBonus } from '../System/Index/Marble/MarblePriceIndex.js';
+import { GAME_CONSTANTS, BUILDING_COSTS, resolveLapBaseBonus, stepActiveBoardPos } from '../System/Index/Marble/MarblePriceIndex.js';
 import {
     RequiemState,
     canPlayerReceiveLapBonus,
@@ -23,12 +23,12 @@ import {
 import { getPlayerThinkTime } from './MarbleCardTreasure.js';
 import { AIManager } from './MarbleAI.js';
 
-// 진행 순서 및 누적 순회 콤보 기반 기본 순회 보상 산출 (1바퀴: 60/65/75/90만, 2~3바퀴: 75만, 4바퀴+: 85만, 6바퀴+: 100만, 11바퀴+: 125만, 21바퀴+: 150만, [109] 보유 시 1.5배)
+// 진행 순서 및 누적 순회 콤보 기반 기본 순회 보상 산출 ([109] 보유 시 1.5배)
 export function getBaseStartBonusForPlayer(player) {
     if (!player) return GAME_CONSTANTS.START_BONUS;
     const idx = Math.max(0, (Number(player.playerIndex) || 1) - 1);
     const priorLaps = Number(player.tracker?.lapPassCount) || 0;
-    const rawBase = resolveLapBaseBonus(idx, Boolean(player.hasFirstLapPassed), priorLaps);
+    const rawBase = resolveLapBaseBonus(idx, Boolean(player.hasFirstLapPassed), priorLaps, getActiveWorld()?.gameMode);
     const hasSmuggler = Boolean(player.buffs?.['hold_start_buff'] && player.buffs['hold_start_buff'].length > 0);
     return hasSmuggler ? Math.round(rawBase * 1.5) : rawBase;
 }
@@ -154,9 +154,9 @@ export function executeNormalCard(ctx, card, onComplete = null) {
             }
 
             const applyRelativeMove = (spaces) => {
-                const oldPos = p.pos;
-                p.pos = (p.pos + spaces + 40) % 40;
-                if (spaces > 0 && (oldPos + spaces >= 40)) {
+                const { pos: nextPos, passedStart } = stepActiveBoardPos(p.pos, spaces, ctx.tiles);
+                p.pos = nextPos;
+                if (spaces > 0 && passedStart) {
                     applyLapPassBonus(p, { showBlockedToast: true });
                 }
                 ctx.updateRender();
@@ -277,46 +277,14 @@ export function executeNormalCard(ctx, card, onComplete = null) {
             break;
         }
 
-        // [28] 골디의 부동산명함: 발동 시점의 대출 원금(전환 원금 포함) 0.5배 감소, 대신 보유 영토 중 최고 건설 단계 영토 1곳 -2단계 (오두막 이하 lv<=1 제외)
-        case "goldie_realty": {
-            const prevPrincipal = Math.max(0, Math.round(Number(p.loanPrincipal) || 0));
-            const prevConverted = Math.max(0, Math.round(Number(p.loanInterestPrincipal) || 0));
-            const nextPrincipal = Math.round(prevPrincipal * 0.5);
-            const nextConverted = Math.round(prevConverted * 0.5);
-            const reducedPrincipal = (prevPrincipal - nextPrincipal) + (prevConverted - nextConverted);
-            p.loanPrincipal = nextPrincipal;
-            p.loanInterestPrincipal = nextConverted;
-
-            const ownedLands = ctx.tiles.filter(t => t.owner === p && t.type === 'normal');
-            const maxLevel = ownedLands.reduce((mx, t) => Math.max(mx, t.level || 0), -1);
-            let downgraded = false;
-            if (maxLevel >= 2) {
-                const topTiles = ownedLands.filter(t => t.level === maxLevel);
-                const picked = topTiles[Math.floor(Math.random() * topTiles.length)];
-                if (picked) {
-                    picked.level = Math.max(0, picked.level - 2);
-                    downgraded = true;
-                }
-            }
-            if (downgraded) {
-                ctx.updateRender();
-                RuntimePopup.showToast(`[${p.name}] ${uiText.GOLDIE_REALTY_APPLIED} (감면 원금: ${formatMoney(reducedPrincipal)})`, 3400);
-            } else {
-                RuntimePopup.showToast(`[${p.name}] ${uiText.GOLDIE_REALTY_NO_DOWNGRADE} (감면 원금: ${formatMoney(reducedPrincipal)})`, 3400);
-            }
-            ctx.refreshUI();
-            scheduleGameTask(finish, 1800);
-            break;
-        }
-
-        // [27 ~ 35, 50] 보유형 카드 (통행료 면제, 빵주 연구원, 림의 기역, 셰이디의 빅 이벤트, 이면세계, 피라의 대부업명함)
+        // [28 ~ 37] 보유형 카드 (통행료 면제, 빵주 연구원, 림의 기역, 셰이디의 빅 이벤트, 이면세계, 피라의 대부업명함)
         case "hold_immune":
         case "hold_bbangju":
         case "hold_shaydi":
         case "hold_event":
         case "hold_reverse":
         case "hold_pira_loan": {
-            // 서열 2위의 특권(32): 이미 다야의 궁전 소유자라면 획득 즉시 파괴
+            // 서열 2위의 특권(33): 이미 다야의 궁전 소유자라면 획득 즉시 파괴
             if (card.id === CARD_IDS.RANK_2_PRIVILEGE && ctx.tiles[BOARD_TILES.DAYA].owner === p) {
                 RuntimePopup.showToast(`[${p.name}] ${uiText.CARD_DESTROYED_RANK2}`, 3200);
                 scheduleGameTask(finish, 1600);
@@ -324,20 +292,27 @@ export function executeNormalCard(ctx, card, onComplete = null) {
             }
 
             if (!p.buffs[card.actionType]) p.buffs[card.actionType] = [];
-            p.buffs[card.actionType].push(card);
+            const holdEntry = { ...card, _acquiredSeq: p.nextCardAcquireSeq ? p.nextCardAcquireSeq() : 0 };
+            p.buffs[card.actionType].push(holdEntry);
 
-            // 피라의 대부업명함(38): 즉시 기존 실행 중인 대출 원금(및 전환 이자 원금) 0.5배 감소 + 이자율 5% 적용
+            // 피라의 대부업명함(37): 앞으로 모든 대출 원금 0.5배 + 고정 이율 20% + 정산 미상환 이율 2배 (기존 활성 대출에도 즉시 적용)
             if (card.id === CARD_IDS.PIRA_LOAN) {
                 p.hasPiraCard = true;
                 const piraMult = GAME_CONSTANTS.LOAN_PIRA_AMOUNT_MULT || 0.5;
-                if (p.loanPrincipal > 0) {
+                const piraFixedRate = GAME_CONSTANTS.LOAN_PIRA_FIXED_INTEREST_RATE ?? 0.20;
+                if (Array.isArray(p.loanRecords) && p.loanRecords.length > 0) {
+                    p.loanRecords.forEach(rec => {
+                        rec.principal = Math.round((Number(rec.principal) || 0) * piraMult);
+                        rec.fixedInterest = Math.round(rec.principal * piraFixedRate);
+                        rec.isPira = true;
+                    });
+                    if (typeof p._syncLoanAggregates === 'function') p._syncLoanAggregates();
+                } else if (p.loanPrincipal > 0) {
                     p.loanPrincipal = Math.round(p.loanPrincipal * piraMult);
-                }
-                if (p.loanInterestPrincipal > 0) {
-                    p.loanInterestPrincipal = Math.round(p.loanInterestPrincipal * piraMult);
+                    p.loanInterest = Math.round(p.loanPrincipal * piraFixedRate);
                 }
                 RuntimePopup.showToast(`[${p.name}] ${uiText.PIRA_LOAN_APPLIED}`, 3400);
-            // 이면세계(35): 현재 소지한 모든 영토의 시간대(낮/밤) 즉시 역전
+            // 이면세계(36): 현재 소지한 모든 영토의 시간대(낮/밤) 즉시 역전
             } else if (card.id === CARD_IDS.OTHERWORLD) {
                 ctx.tiles.filter(t => t.owner === p && (t.timeType === 'day' || t.timeType === 'night')).forEach(t => {
                     t.timeType = t.timeType === 'day' ? 'night' : 'day';
@@ -352,13 +327,14 @@ export function executeNormalCard(ctx, card, onComplete = null) {
             break;
         }
 
-        // [36 ~ 47] 사용형 카드 (인벤토리 보관)
+        // [38 ~ 50] 사용형 카드 (인벤토리 보관)
         default: {
             if (card.id === CARD_IDS.SIST_DEAL) {
                 p.payMoney(GAME_CONSTANTS.SIST_DEAL_COST, null);
                 RuntimePopup.showToast(`${uiText.SIST_DEAL_PAID} (-${formatMoney(GAME_CONSTANTS.SIST_DEAL_COST)})`, 3200, p.id);
             }
-            p.inventory.push(card);
+            const invEntry = { ...card, _acquiredSeq: p.nextCardAcquireSeq ? p.nextCardAcquireSeq() : 0 };
+            p.inventory.push(invEntry);
             RuntimePopup.showToast(`[${card.name}] ${uiText.CARD_STORED}`, 3200, p.id);
             ctx.refreshUI();
             scheduleGameTask(finish, 1600);
@@ -729,12 +705,47 @@ export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
             break;
         }
 
-        // [47] 루포의 주사위 (1회에 한해 주사위 3개, 1개는 6 고정)
+        // [49] 루포의 주사위 (1회에 한해 주사위 3개, 1개는 6 고정)
         case CARD_IDS.RUFO_DICE: {
             p.hasRufoDiceBuff = true;
             RuntimePopup.closeAll();
             finalizeUse();
             RuntimePopup.showToast(cText.RUFO_DICE_WAIT, 3200, p.id);
+            break;
+        }
+
+        // [50] 골디의 부동산명함 (사용 시점 남은 대출금 원금+이자 0.5배 감소, 대신 보유 영토 중 최고 건설 단계 영토 1곳 -2단계)
+        case CARD_IDS.GOLDIE_REALTY: {
+            const totalDebt = p.getTotalLoanDebt
+                ? p.getTotalLoanDebt()
+                : ((Number(p.loanPrincipal) || 0) + (Number(p.loanInterest) || 0));
+            if (totalDebt <= 0) {
+                RuntimePopup.showToast(cText.CANT_USE_NOW, 2800, p.id);
+                cancelTarget();
+                return;
+            }
+            const { reducedTotal } = p.applyGoldieRealtyDebtReduction
+                ? p.applyGoldieRealtyDebtReduction()
+                : { reducedTotal: 0 };
+
+            const ownedLands = ctx.tiles.filter(t => t.owner === p && t.type === 'normal');
+            const maxLevel = ownedLands.reduce((mx, t) => Math.max(mx, t.level || 0), -1);
+            let downgraded = false;
+            if (maxLevel >= 2) {
+                const topTiles = ownedLands.filter(t => t.level === maxLevel);
+                const picked = topTiles[Math.floor(Math.random() * topTiles.length)];
+                if (picked) {
+                    picked.level = Math.max(0, picked.level - 2);
+                    downgraded = true;
+                }
+            }
+            RuntimePopup.closeAll();
+            finalizeUse();
+            if (downgraded) {
+                RuntimePopup.showToast(`[${p.name}] ${cText.GOLDIE_REALTY_APPLIED} (감면 대출금: ${formatMoney(reducedTotal)})`, 3400);
+            } else {
+                RuntimePopup.showToast(`[${p.name}] ${cText.GOLDIE_REALTY_NO_DOWNGRADE} (감면 대출금: ${formatMoney(reducedTotal)})`, 3400);
+            }
             break;
         }
     }

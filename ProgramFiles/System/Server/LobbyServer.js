@@ -2,13 +2,12 @@
 // 서버 권위적 로비, 대기방 관리, 카운트다운, 재접속/이탈 처리 및 게임 세션 오케스트레이션
 
 import crypto from 'node:crypto';
-import { getGameMeta, pickRandomBotName } from '../GameRegistry.js';
-import { GAME_CONSTANTS } from '../Index/Marble/MarblePriceIndex.js';
+import { getGameMeta, pickRandomBotName, AI_DIFFICULTIES, normalizeAiDifficulty } from '../GameRegistry.js';
+import { GAME_CONSTANTS, getModeConfig, normalizeMarbleMode } from '../Index/Marble/MarblePriceIndex.js';
 import { createGameSession, hasGameSessionSupport } from './GameSessionRegistry.js';
 import { SystemLogManager } from '../Log/SystemLogManager.js';
 
 const SLOT_COLORS = ['#e74c3c', '#3498db', '#f1c40f', '#9b59b6', '#2ecc71', '#e67e22'];
-const AI_ARCHETYPES = ['random', 'aggressive', 'defensive', 'marathon'];
 const CODE_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
 const WAITING_DISCONNECT_GRACE_MS = 20000;
@@ -23,11 +22,12 @@ function sanitizeText(str, maxLen = 24, fallback = '') {
 }
 
 function clampCustomOptions(raw) {
-    // 추후 턴/자금 커스텀 및 세부 파라미터 연동 전까지는 기본 기획 수치(20턴 / 500만)로 고정
-    void raw;
+    const gameMode = normalizeMarbleMode(raw?.gameMode);
+    const modeCfg = getModeConfig(gameMode);
     return {
-        maxTurn: GAME_CONSTANTS.MAX_TURN,
-        initialMoney: GAME_CONSTANTS.INITIAL_MONEY
+        gameMode,
+        maxTurn: modeCfg.maxTurn || GAME_CONSTANTS.MAX_TURN,
+        initialMoney: (modeCfg.initialMoneyByOrder && modeCfg.initialMoneyByOrder[0]) || GAME_CONSTANTS.INITIAL_MONEY
     };
 }
 
@@ -42,7 +42,8 @@ function createEmptySlot(slotIndex) {
         isReady: false,
         isMockHuman: false,
         isConnected: true,
-        aiType: null
+        aiType: null,
+        aiDifficulty: null
     };
 }
 
@@ -179,7 +180,8 @@ export class LobbyServer {
                 isReady: s.isReady,
                 isMockHuman: Boolean(s.isMockHuman),
                 isConnected: s.isConnected !== false,
-                aiType: s.aiType
+                aiType: s.aiType,
+                aiDifficulty: s.aiDifficulty || null
             }))
         };
     }
@@ -285,7 +287,7 @@ export class LobbyServer {
                 }
                 session.nickname = nick;
                 const room = this._getSessionRoom(session);
-                if (room && room.status === 'waiting') {
+                if (room && (room.status === 'waiting' || room.status === 'countdown')) {
                     const slot = room.slots.find(s => s.id === session.playerId);
                     if (slot) {
                         slot.name = nick;
@@ -451,7 +453,7 @@ export class LobbyServer {
                     return;
                 }
                 this._cancelCountdownIfActive(room);
-                this._assignAiSlot(room, slot, msg.aiType || 'random');
+                this._assignAiSlot(room, slot, msg.aiDifficulty || msg.aiType || 'mild');
                 this._syncRoomState(room);
                 this._sendReply(client, msg, true, { room: this._serializeRoom(room) });
                 return;
@@ -464,7 +466,7 @@ export class LobbyServer {
                 let added = false;
                 for (const slot of room.slots) {
                     if (slot.type === 'empty') {
-                        this._assignAiSlot(room, slot, 'random');
+                        this._assignAiSlot(room, slot, 'mild');
                         added = true;
                     }
                 }
@@ -497,8 +499,11 @@ export class LobbyServer {
                     this._sendReply(client, msg, false, null, 'NOT_AI_SLOT');
                     return;
                 }
-                const curIdx = AI_ARCHETYPES.indexOf(slot.aiType || 'random');
-                slot.aiType = AI_ARCHETYPES[(curIdx + 1) % AI_ARCHETYPES.length];
+                const curDiff = normalizeAiDifficulty(slot.aiDifficulty || slot.aiType, 'mild');
+                const curIdx = AI_DIFFICULTIES.indexOf(curDiff);
+                const nextDiff = AI_DIFFICULTIES[(curIdx + 1) % AI_DIFFICULTIES.length];
+                slot.aiDifficulty = nextDiff;
+                slot.aiType = 'random';
                 this._syncRoomState(room);
                 this._sendReply(client, msg, true, { room: this._serializeRoom(room) });
                 return;
@@ -622,8 +627,9 @@ export class LobbyServer {
         return `${p}${crypto.randomInt(100000, 999999)}`;
     }
 
-    _assignAiSlot(room, slot, aiType = 'random') {
+    _assignAiSlot(room, slot, aiDifficulty = 'mild') {
         const usedNames = room.slots.filter(s => s.type !== 'empty' && s !== slot && s.name).map(s => s.name);
+        const normDiff = normalizeAiDifficulty(aiDifficulty, 'mild');
         slot.type = 'ai';
         slot.id = `ai_${room.id}_${slot.slotIndex}`;
         slot.name = pickRandomBotName(usedNames);
@@ -632,7 +638,8 @@ export class LobbyServer {
         slot.isReady = true;
         slot.isMockHuman = false;
         slot.isConnected = true;
-        slot.aiType = AI_ARCHETYPES.includes(aiType) ? aiType : 'random';
+        slot.aiType = 'random';
+        slot.aiDifficulty = normDiff;
     }
 
     _syncRoomState(room) {
@@ -868,11 +875,17 @@ export class LobbyServer {
                 if (this.rooms.has(room.id)) {
                     room.status = 'finished';
                     if (matchLogData && (!this.disableDiskWrite || this.logDir)) {
-                        SystemLogManager.recordGameResult(room.gameId || 'marble', matchLogData, {
+                        const logGameId = room.gameId || 'marble';
+                        SystemLogManager.recordGameResult(logGameId, matchLogData, {
                             logDir: this.logDir
                         }).catch((err) => {
                             console.error('[LobbyServer] Failed to record game log:', err);
                         });
+                        if (logGameId === 'marble') {
+                            SystemLogManager.recordGameResult('marble_10', matchLogData, {
+                                logDir: this.logDir
+                            }).catch(() => {});
+                        }
                     }
                     this._broadcastToRoom(room, {
                         type: 'ROOM_UPDATED',

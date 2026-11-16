@@ -1,7 +1,7 @@
-import { GAME_CONSTANTS, MULTIPLIERS, BUILDING_COSTS } from '../System/Index/Marble/MarblePriceIndex.js';
+import { GAME_CONSTANTS, MULTIPLIERS, BUILDING_COSTS, getModeConfig } from '../System/Index/Marble/MarblePriceIndex.js';
 import { BOARD_TILES, SPECIAL_TERRITORY_IDS, BoardNames } from '../System/Index/Marble/MarbleBoardIndex.js';
 import { LangState } from '../System/LanguageManager.js';
-import { formatMoney, getSettlementText } from './MarbleRuntime.js';
+import { formatMoney, getSettlementText, getActiveWorld } from './MarbleRuntime.js';
 import { getGlobalBbangjuVisits } from './MarbleEconomy.js';
 import { WorldGimmickManager } from './MarbleWorldGimmick.js';
 
@@ -27,6 +27,8 @@ export function getSpecialTerritoryVillageToll(tile) {
 // ==========================================
 export function processFinalSettlement(allPlayers, tiles) {
     const sText = getSettlementText();
+    const world = getActiveWorld();
+    const modeCfg = getModeConfig(world?.gameMode);
 
     // 전체 통계 집계 (모나티엄25 총 방문 횟수, 정령 호수 총 휴식 횟수, 카드 칸 총 도착 횟수, 정비반장 인원수)
     const totalMonatiumVisits = allPlayers.reduce((sum, pl) => sum + (pl.tracker.monatium25Visits || 0), 0);
@@ -35,28 +37,39 @@ export function processFinalSettlement(allPlayers, tiles) {
     const totalBbangjuChiefs = Math.max(1, allPlayers.filter(pl => pl.isBbangjuChief).length);
 
     // 플레이어별 정산 컨텍스트 초기화 (선두 플레이어부터 순서대로)
-    const results = allPlayers.map(p => ({
-        player: p,
-        baseCash: p.isBankrupt ? 0 : p.money,
-        totalAsset: p.isBankrupt ? 0 : p.money,
-        totalLoan: p.isBankrupt ? 0 : (p.getTotalLoanDebt ? p.getTotalLoanDebt() : Math.round((p.loanPrincipal || 0) + (p.loanInterestPrincipal || 0) + (p.loanInterest || 0))),
-        specialTerritoryCollectTotal: 0,
-        specialTerritoryPaidTotal: 0,
-        specialTerritoryPaidCount: 0,
-        stateStealPaidTotal: 0,
-        stateStealPaidCount: 0,
-        kimWorkerCollectCount: 0,
-        kimWorkerCollectTotal: 0,
-        kimWorkerPaidTotal: 0,
-        lakeReward: 0,
-        moonFlowerCollectCount: 0,
-        moonFlowerCollectTotal: 0,
-        lapLeaderReward: 0,
-        isLapLeaderWinner: false,
-        netWorth: 0,
-        isBankruptFinal: p.isBankrupt,
-        categories: []
-    }));
+    const results = allPlayers.map(p => {
+        const loanBreak = (!p.isBankrupt && typeof p.computeSettlementLoanBreakdown === 'function')
+            ? p.computeSettlementLoanBreakdown(world?.currentTurn, world?.gameMode)
+            : {
+                principal: p.isBankrupt ? 0 : Math.round((p.loanPrincipal || 0) + (p.loanInterestPrincipal || 0)),
+                interest: p.isBankrupt ? 0 : Math.round(p.loanInterest || 0),
+                total: p.isBankrupt ? 0 : Math.round((p.loanPrincipal || 0) + (p.loanInterestPrincipal || 0) + (p.loanInterest || 0))
+            };
+        return {
+            player: p,
+            baseCash: p.isBankrupt ? 0 : p.money,
+            totalAsset: p.isBankrupt ? 0 : p.money,
+            loanPrincipal: loanBreak.principal,
+            loanInterest: loanBreak.interest,
+            totalLoan: loanBreak.total,
+            specialTerritoryCollectTotal: 0,
+            specialTerritoryPaidTotal: 0,
+            specialTerritoryPaidCount: 0,
+            stateStealPaidTotal: 0,
+            stateStealPaidCount: 0,
+            kimWorkerCollectCount: 0,
+            kimWorkerCollectTotal: 0,
+            kimWorkerPaidTotal: 0,
+            lakeReward: 0,
+            moonFlowerCollectCount: 0,
+            moonFlowerCollectTotal: 0,
+            lapLeaderReward: 0,
+            isLapLeaderWinner: false,
+            netWorth: 0,
+            isBankruptFinal: p.isBankrupt,
+            categories: []
+        };
+    });
 
     // 1단계: 특수 영토(요충지) 수금에 의한 플레이어 간 가감 선계산
     // 선두 플레이어부터 순서대로 소유한 특수 영토의 마을 통행료를 다른 생존 플레이어에게서 수금 (통행료 면제 카드 보유자는 수금 무효)
@@ -322,8 +335,8 @@ export function processFinalSettlement(allPlayers, tiles) {
         };
 
         // (5) 보유 및 상태 정산 (빵주 정비반장, 김씨노동기, 달바라기 한 송이, 태초의 엘리프)
-        const bbangjuBase = GAME_CONSTANTS.SETTLE_BBANGJU_BASE; // 150만
-        const bbangjuUnit = GAME_CONSTANTS.SETTLE_BBANGJU_UNIT; // 20만
+        const bbangjuBase = modeCfg.settleBbangjuBase ?? GAME_CONSTANTS.SETTLE_BBANGJU_BASE; // 불씨 150만 / 기본 75만
+        const bbangjuUnit = modeCfg.settleBbangjuUnit ?? GAME_CONSTANTS.SETTLE_BBANGJU_UNIT; // 불씨 20만 / 기본 10만
         const isChief = !p.isBankrupt && p.isBbangjuChief;
         const bbangjuCount = isChief ? getGlobalBbangjuVisits() : 0;
         const bbangjuReward = isChief ? Math.round((bbangjuBase + bbangjuCount * bbangjuUnit) / totalBbangjuChiefs) : 0;
@@ -345,52 +358,57 @@ export function processFinalSettlement(allPlayers, tiles) {
                 ? `(${formatMoney(bbangjuBase)} + ${formatMoney(bbangjuUnit)} * ${bbangjuCount}) / ${totalBbangjuChiefs}${sText.UNIT_PERSONS} = +${formatMoney(bbangjuReward)}`
                 : `${formatMoney(bbangjuBase)} + (${formatMoney(bbangjuUnit)} * ${bbangjuCount}) = +${formatMoney(bbangjuReward)}`);
 
+        const stateItems = [];
+        if (modeCfg.enableBbangjuChief) {
+            stateItems.push({
+                label: sText.ITEM_BBANGJU_CHIEF,
+                formula: bbangjuFormulaStr,
+                amount: bbangjuReward,
+                isActive: isChief
+            });
+        }
+        stateItems.push(
+            {
+                label: sText.ITEM_KIM_WORKER,
+                formula: `${formatMoney(stealUnit)} * ${kimActive ? res.kimWorkerCollectCount : 0} = ${kimActive ? '+' : ''}${formatMoney(res.kimWorkerCollectTotal)}`,
+                amount: res.kimWorkerCollectTotal,
+                isActive: kimActive
+            },
+            {
+                label: sText.ITEM_MOON_FLOWER,
+                formula: `${formatMoney(stealUnit)} * ${moonActive ? res.moonFlowerCollectCount : 0} = ${moonActive ? '+' : ''}${formatMoney(res.moonFlowerCollectTotal)}`,
+                amount: res.moonFlowerCollectTotal,
+                isActive: moonActive
+            },
+            {
+                label: sText.ITEM_ORIGIN_ELIF,
+                formula: `${formatMoney(unitReward)} * ${originTurns} = ${originReward > 0 ? '+' : ''}${formatMoney(originReward)}`,
+                amount: originReward,
+                isActive: hasOriginElif && originTurns > 0
+            },
+            {
+                label: sText.ITEM_LAP_LEADER,
+                formula: `${formatMoney(GAME_CONSTANTS.SETTLE_LAP_LEADER_UNIT || 150000)} * ${res.isLapLeaderWinner ? (p.tracker?.lapPassCount || 0) : 0} = ${res.lapLeaderReward > 0 ? '+' : ''}${formatMoney(res.lapLeaderReward)}`,
+                amount: res.lapLeaderReward,
+                isActive: res.isLapLeaderWinner && res.lapLeaderReward > 0
+            },
+            {
+                label: sText.ITEM_STATE_STEAL_PAID,
+                formula: `* ${statePaidActive ? res.stateStealPaidCount : 0} = ${statePaidActive ? '-' : ''}${formatMoney(res.stateStealPaidTotal)}`,
+                amount: -res.stateStealPaidTotal,
+                isActive: statePaidActive,
+                isNegative: statePaidActive
+            }
+        );
+
         const stateCategory = {
             title: sText.CAT_STATE,
-            items: [
-                {
-                    label: sText.ITEM_BBANGJU_CHIEF,
-                    formula: bbangjuFormulaStr,
-                    amount: bbangjuReward,
-                    isActive: isChief
-                },
-                {
-                    label: sText.ITEM_KIM_WORKER,
-                    formula: `${formatMoney(stealUnit)} * ${kimActive ? res.kimWorkerCollectCount : 0} = ${kimActive ? '+' : ''}${formatMoney(res.kimWorkerCollectTotal)}`,
-                    amount: res.kimWorkerCollectTotal,
-                    isActive: kimActive
-                },
-                {
-                    label: sText.ITEM_MOON_FLOWER,
-                    formula: `${formatMoney(stealUnit)} * ${moonActive ? res.moonFlowerCollectCount : 0} = ${moonActive ? '+' : ''}${formatMoney(res.moonFlowerCollectTotal)}`,
-                    amount: res.moonFlowerCollectTotal,
-                    isActive: moonActive
-                },
-                {
-                    label: sText.ITEM_ORIGIN_ELIF,
-                    formula: `${formatMoney(unitReward)} * ${originTurns} = ${originReward > 0 ? '+' : ''}${formatMoney(originReward)}`,
-                    amount: originReward,
-                    isActive: hasOriginElif && originTurns > 0
-                },
-                {
-                    label: sText.ITEM_LAP_LEADER,
-                    formula: `${formatMoney(GAME_CONSTANTS.SETTLE_LAP_LEADER_UNIT || 150000)} * ${res.isLapLeaderWinner ? (p.tracker?.lapPassCount || 0) : 0} = ${res.lapLeaderReward > 0 ? '+' : ''}${formatMoney(res.lapLeaderReward)}`,
-                    amount: res.lapLeaderReward,
-                    isActive: res.isLapLeaderWinner && res.lapLeaderReward > 0
-                },
-                {
-                    label: sText.ITEM_STATE_STEAL_PAID,
-                    formula: `* ${statePaidActive ? res.stateStealPaidCount : 0} = ${statePaidActive ? '-' : ''}${formatMoney(res.stateStealPaidTotal)}`,
-                    amount: -res.stateStealPaidTotal,
-                    isActive: statePaidActive,
-                    isNegative: statePaidActive
-                }
-            ]
+            items: stateItems
         };
 
-        // (6) 대출 원금 및 이자 청산
-        const loanPrincipal = p.isBankrupt ? 0 : (p.getTotalPrincipalBalance ? p.getTotalPrincipalBalance() : ((p.loanPrincipal || 0) + (p.loanInterestPrincipal || 0)));
-        const loanInterest = p.isBankrupt ? 0 : Math.round(p.loanInterest || 0);
+        // (6) 대출 원금 및 정산 미상환 이자 청산
+        const loanPrincipal = res.loanPrincipal || 0;
+        const loanInterest = res.loanInterest || 0;
         const hasLoan = !p.isBankrupt && p.loanCount > 0;
 
         const loanCategory = {

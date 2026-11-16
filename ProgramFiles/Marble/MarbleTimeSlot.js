@@ -1,6 +1,15 @@
 import { TimeSlotConfig } from '../System/Index/Marble/MarbleBoardIndex.js';
-import { GAME_CONSTANTS, MULTIPLIERS } from '../System/Index/Marble/MarblePriceIndex.js';
+import { GAME_CONSTANTS, MULTIPLIERS, getModeConfig } from '../System/Index/Marble/MarblePriceIndex.js';
 import { getActiveWorld } from './MarbleRuntime.js';
+
+function getTimeSlotModeBounds() {
+    const cfg = getModeConfig(getActiveWorld()?.gameMode);
+    return {
+        dayStartTurn: cfg.timeDayStartTurn ?? GAME_CONSTANTS.TIME_DAY_START_TURN,
+        slotDuration: cfg.timeSlotDuration ?? GAME_CONSTANTS.TIME_SLOT_DURATION,
+        endTurn: cfg.worldGimmickEndTurn ?? GAME_CONSTANTS.WORLD_GIMMICK_END_TURN
+    };
+}
 
 export const TimeSlotSystem = {
     get currentPhase() { return getActiveWorld().timeSlot.currentPhase; },
@@ -48,9 +57,10 @@ export const TimeSlotSystem = {
     // 글로벌 턴 갱신 시 호출되어 시간대 전환 및 잔여 턴 카운팅 수행
     advanceGlobalTurn(globalTurn) {
         const prevPhase = this.currentPhase;
+        const { dayStartTurn, slotDuration, endTurn } = getTimeSlotModeBounds();
 
-        // 20번째 글로벌 턴에서는 모든 월드 기믹 강제 종료 -> 통상 상태
-        if (globalTurn >= GAME_CONSTANTS.WORLD_GIMMICK_END_TURN) {
+        // 마지막 글로벌 턴(불씨 20 / 기본 15 / 스피드 10)에서는 모든 월드 기믹 강제 종료 -> 통상 상태
+        if (globalTurn >= endTurn) {
             this.currentPhase = 'none';
             this.remainingTurns = 0;
             return {
@@ -61,8 +71,8 @@ export const TimeSlotSystem = {
             };
         }
 
-        // 1 ~ 9번째 턴: 통상 상태
-        if (globalTurn < GAME_CONSTANTS.TIME_DAY_START_TURN) {
+        // 낮 시작 턴 이전: 통상 상태
+        if (globalTurn < dayStartTurn) {
             this.currentPhase = 'none';
             this.remainingTurns = 0;
             return {
@@ -73,10 +83,10 @@ export const TimeSlotSystem = {
             };
         }
 
-        // 10번째 턴 도달 시: 낮 시간대(5턴) 개시
-        if (this.currentPhase === 'none' && !this.hasDayFinished && globalTurn >= GAME_CONSTANTS.TIME_DAY_START_TURN) {
+        // 낮 시작 턴 도달 시: 낮 시간대 개시 (스피드 3턴 / 기본·불씨 5턴)
+        if (this.currentPhase === 'none' && !this.hasDayFinished && globalTurn >= dayStartTurn) {
             this.currentPhase = 'day';
-            this.remainingTurns = GAME_CONSTANTS.TIME_SLOT_DURATION; // 10, 11, 12, 13, 14턴 (총 5턴)
+            this.remainingTurns = slotDuration;
         } 
         // 낮 진행 중 글로벌 턴 경과
         else if (this.currentPhase === 'day') {
@@ -84,7 +94,7 @@ export const TimeSlotSystem = {
             if (this.remainingTurns <= 0) {
                 this.hasDayFinished = true;
                 this.currentPhase = 'night';
-                this.remainingTurns = GAME_CONSTANTS.TIME_SLOT_DURATION; // 15, 16, 17, 18, 19턴 (총 5턴)
+                this.remainingTurns = slotDuration;
             }
         } 
         // 밤 진행 중 글로벌 턴 경과

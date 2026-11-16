@@ -8,6 +8,7 @@ import {
 } from './MarbleRuntime.js';
 import { CARD_IDS } from '../System/Index/Marble/MarbleCardIndex.js';
 import { BOARD_TILES } from '../System/Index/Marble/MarbleBoardIndex.js';
+import { getModeConfig } from '../System/Index/Marble/MarblePriceIndex.js';
 import { WorldGimmickManager } from './MarbleWorldGimmick.js';
 import { OdysseyManager, getDrawnTreasures } from './MarbleOdyssey.js';
 import { RequiemState } from './MarbleRequiem.js';
@@ -92,6 +93,20 @@ export function isCardEligible(card, ctx) {
     const { player, tiles, allPlayers } = ctx;
     if (!card) return false;
     const drawnTreasures = getDrawnTreasures();
+    const modeCfg = getModeConfig(getActiveWorld()?.gameMode);
+
+    // 0-A. 스피드/기본 모드에서는 보물 카드(501~506) 및 그을음·보물 전용 특수 카드(111~114) 미등장
+    if (!modeCfg.enableTreasureAndRequiem) {
+        if (card.id >= 500) return false;
+        if (
+            card.id === CARD_IDS.SPEC_ODYSSEY ||
+            card.id === CARD_IDS.SPEC_WOLF_STEAL ||
+            card.id === CARD_IDS.SPEC_JUDGMENT ||
+            card.id === CARD_IDS.SPEC_CULT_WISH
+        ) {
+            return false;
+        }
+    }
 
     // 0. 보물 카드(501~506): 이미 등장했거나 그을음 발동 이후에는 절대 재등장 불가
     if (card.id >= 500 && (RequiemState.hasSootEverTriggered || RequiemState.isSootState || drawnTreasures.has(card.id))) {
@@ -103,8 +118,9 @@ export function isCardEligible(card, ctx) {
         return false;
     }
 
-    // 2. 시간가속(110): 이미 시간대가 모두 끝난 20턴에는 등장하지 않음
-    if (card.id === CARD_IDS.SPEC_TIME_ACCEL && ctx.turnManager && ctx.turnManager.globalTurn >= 20) {
+    // 2. 시간가속(110): 이미 시간대가 모두 끝난 마지막 턴(스피드 10 / 기본 15 / 불씨 20)에는 등장하지 않음
+    const endTurn = modeCfg.worldGimmickEndTurn || 20;
+    if (card.id === CARD_IDS.SPEC_TIME_ACCEL && ctx.turnManager && ctx.turnManager.globalTurn >= endTurn) {
         return false;
     }
 
@@ -330,6 +346,8 @@ export function canUseActiveCard(card, ctx) {
             return tiles.some(t => t.owner === p && (t.timeType === 'day' || t.timeType === 'night'));
         case CARD_IDS.RUFO_DICE:
             return !p.hasRufoDiceBuff;
+        case CARD_IDS.GOLDIE_REALTY:
+            return (p.getTotalLoanDebt ? p.getTotalLoanDebt() : ((p.loanPrincipal || 0) + (p.loanInterest || 0))) > 0;
         case CARD_IDS.SPEC_TIME_ACCEL: {
             const activeType = WorldGimmickManager.getActiveGimmickType();
             return activeType === 'day' || activeType === 'night';

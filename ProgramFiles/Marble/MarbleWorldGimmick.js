@@ -1,5 +1,5 @@
 import { TimeSlotSystem } from './MarbleTimeSlot.js';
-import { GAME_CONSTANTS } from '../System/Index/Marble/MarblePriceIndex.js';
+import { GAME_CONSTANTS, getModeConfig } from '../System/Index/Marble/MarblePriceIndex.js';
 import {
     RuntimePopup,
     getActiveWorld,
@@ -39,9 +39,12 @@ export const WorldGimmickManager = {
 
     reset() {
         const w = getActiveWorld();
+        const modeCfg = getModeConfig(w?.gameMode);
         w.currentTurn = 1;
         w.currentTime = 'none';
-        w.bbangjuState = 'recruiting';
+        w.bbangjuState = modeCfg.enableBbangjuChief
+            ? 'recruiting'
+            : ((modeCfg.bbangjuOpenTurn || 1) > 1 ? 'locked' : 'finished');
         w.bbangjuChiefs = [];
         w.isFurryBeach = false;
         w.furryManualOpenUsed = false;
@@ -101,11 +104,18 @@ export const WorldGimmickManager = {
 
     // 4턴 시작 시 정비반장 정산
     resolveBbangju(players) {
+        const modeCfg = getModeConfig(getActiveWorld()?.gameMode);
+        if (!modeCfg.enableBbangjuChief) {
+            this.bbangjuState = 'finished';
+            this.bbangjuChiefs = [];
+            return;
+        }
         if (this.bbangjuState !== 'recruiting') return;
         this.bbangjuState = 'finished';
         const gText = getGimmickText();
 
-        const supporters = players.filter(p => p.bbangjuPaidTotal >= (GAME_CONSTANTS.BBANGJU_SUPPORT_INSTALLMENT * 3));
+        const installment = modeCfg.bbangjuSupportInstallment || GAME_CONSTANTS.BBANGJU_SUPPORT_INSTALLMENT;
+        const supporters = players.filter(p => p.bbangjuPaidTotal >= (installment * 3));
 
         // 4명 전부면 무효, 1~3명이면 정비반장 임명, 0명이면 공석
         if (supporters.length > 0 && supporters.length < 4) {

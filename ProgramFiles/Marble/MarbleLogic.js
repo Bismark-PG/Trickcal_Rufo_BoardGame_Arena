@@ -3,27 +3,53 @@ import { TimeSlotSystem } from './MarbleTimeSlot.js';
 import { WorldGimmickManager } from './MarbleWorldGimmick.js';
 import { LangState } from '../System/LanguageManager.js';
 import { BOARD_TILES, BoardNames, SPECIAL_TERRITORY_IDS, getBoardTileType } from '../System/Index/Marble/MarbleBoardIndex.js';
-import { TILE_BASE_PRICES, BUILDING_COSTS, MULTIPLIERS, GAME_CONSTANTS } from '../System/Index/Marble/MarblePriceIndex.js';
+import { TILE_BASE_PRICES, BUILDING_COSTS, MULTIPLIERS, GAME_CONSTANTS, isTileExcludedInMode, getModeConfig } from '../System/Index/Marble/MarblePriceIndex.js';
 import { getTreasurePurchaseMultiplier, getTreasureTollMultiplierDelta } from './MarbleCardTreasure.js';
 import { getRequiemPurchaseMultiplier, getRequiemTollPayerDelta } from './MarbleRequiem.js';
+import { getActiveWorld } from './MarbleRuntime.js';
 
-const U = 1080 / 13; 
-
-export function generateTiles() {
+export function generateTiles(mode = null) {
+    const effectiveMode = mode || getActiveWorld()?.gameMode || 'ember';
+    const modeCfg = getModeConfig(effectiveMode);
+    const N = modeCfg.gridUnits || 13;
+    const U = 1080 / N;
     const tiles = [];
     for (let side = 0; side < 4; side++) {
+        let activeSlot = 0;
         for (let i = 0; i < 10; i++) {
-            let cx = 0, cy = 0;
-            if (i === 0) {
-                if (side === 0) { cx = U; cy = 12 * U; } else if (side === 1) { cx = U; cy = U; } else if (side === 2) { cx = 12 * U; cy = U; } else if (side === 3) { cx = 12 * U; cy = 12 * U; }
-            } else {
-                if (side === 0) { cx = U; cy = 11 * U - (i - 0.5) * U; } else if (side === 1) { cx = 2 * U + (i - 0.5) * U; cy = U; } else if (side === 2) { cx = 12 * U; cy = 2 * U + (i - 0.5) * U; } else if (side === 3) { cx = 11 * U - (i - 0.5) * U; cy = 12 * U; }
-            }
             const globalId = side * 10 + i;
-            const tileType = getBoardTileType(globalId);
+            const isDisabled = isTileExcludedInMode(globalId, effectiveMode);
+            let cx = -9999, cy = -9999;
+            if (i === 0) {
+                if (side === 0) { cx = (N - 1) * U; cy = (N - 1) * U; }
+                else if (side === 1) { cx = U; cy = (N - 1) * U; }
+                else if (side === 2) { cx = U; cy = U; }
+                else if (side === 3) { cx = (N - 1) * U; cy = U; }
+            } else if (!isDisabled) {
+                activeSlot += 1;
+                if (side === 0) { cx = (N - 1.5 - activeSlot) * U; cy = (N - 1) * U; }
+                else if (side === 1) { cx = U; cy = (N - 1.5 - activeSlot) * U; }
+                else if (side === 2) { cx = (1.5 + activeSlot) * U; cy = U; }
+                else if (side === 3) { cx = (N - 1) * U; cy = (1.5 + activeSlot) * U; }
+            }
+            const rawTileType = getBoardTileType(globalId);
+            const tileType = isDisabled ? 'disabled' : rawTileType;
             const tileName = BoardNames[globalId][LangState.current] || BoardNames[globalId].ko;
-            const isSpecialToll = SPECIAL_TERRITORY_IDS.includes(globalId);
-            tiles.push({ id: globalId, type: tileType, name: tileName, side: side, x: cx, y: cy, owner: null, level: -1, basePrice: TILE_BASE_PRICES[globalId], isSpecialToll: isSpecialToll });
+            const isSpecialToll = !isDisabled && SPECIAL_TERRITORY_IDS.includes(globalId);
+            tiles.push({
+                id: globalId,
+                type: tileType,
+                rawType: rawTileType,
+                isDisabled,
+                name: tileName,
+                side: side,
+                x: cx,
+                y: cy,
+                owner: null,
+                level: -1,
+                basePrice: isDisabled ? 0 : TILE_BASE_PRICES[globalId],
+                isSpecialToll: isSpecialToll
+            });
         }
     }
     TimeSlotSystem.initTiles(tiles); return tiles;

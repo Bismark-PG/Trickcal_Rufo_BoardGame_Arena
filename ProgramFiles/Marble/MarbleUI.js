@@ -3,7 +3,7 @@ import { LangState } from '../System/LanguageManager.js';
 import { MarbleLang } from '../System/Index/Marble/MarbleUIIndex.js';
 import { GimmickLang } from '../System/Index/Marble/MarbleGimmickIndex.js';
 import { BOARD_TILES } from '../System/Index/Marble/MarbleBoardIndex.js';
-import { GAME_CONSTANTS } from '../System/Index/Marble/MarblePriceIndex.js';
+import { GAME_CONSTANTS, getModeConfig } from '../System/Index/Marble/MarblePriceIndex.js';
 import { CardUILang } from '../System/Index/Marble/MarbleCardUIIndex.js';
 import { SettlementLang } from '../System/Index/Marble/MarbleSettlementIndex.js';
 import { escapeHtml } from '../Lobby/LobbyUI.js';
@@ -26,6 +26,7 @@ function resolveRenderWorld(worldState = null) {
     if (worldState) return worldState;
     if (activeRenderWorld) return activeRenderWorld;
     return {
+        gameMode: 'ember',
         currentTurn: WorldGimmickManager.currentTurn,
         maxTurn: GAME_CONSTANTS.MAX_TURN,
         currentTime: WorldGimmickManager.currentTime,
@@ -143,14 +144,17 @@ export function createPlayerUI(player, worldState = null) {
         ? `<span style="font-size: 14px; background: #e74c3c; color: #fff; padding: 2px 7px; border-radius: 5px; margin-left: 8px; vertical-align: middle;">OFFLINE</span>`
         : '';
     return `
-        <div style="position: absolute; bottom: 40px; left: 40px; width: 450px; min-height: 160px; background-color: rgba(0,0,0,0.8); border: 4px solid ${player.color}; border-radius: 15px; display: flex; align-items: center; padding: 20px; box-sizing: border-box; box-shadow: 5px 5px 15px rgba(0,0,0,0.3); color: #fff;">
-            <div style="width: 120px; height: 120px; background-color: #fff; margin-right: 20px; border-radius: 10px; display:flex; justify-content:center; align-items:center; color:#000; flex-shrink:0;">${text.PORTRAIT}</div>
-            <div>
-                <h2 style="margin: 0; font-size: 32px; color: ${player.color}; line-height: 1.1;">${escapeHtml(player.name)}${disconnectTag}</h2>
-                ${badgesHtml}
-                <p style="margin: 5px 0 2px 0; font-size: 20px;">${text.MONEY} ${player.money.toLocaleString()}</p>
-                <p style="margin: 2px 0; font-size: 20px;">${text.TERRITORY} ${player.territoryCount}${text.EA}</p>
+        <div style="position: absolute; bottom: 40px; left: 40px; display: flex; align-items: flex-end; gap: 20px;">
+            <div style="width: 440px; min-height: 160px; background-color: rgba(0,0,0,0.8); border: 4px solid ${player.color}; border-radius: 15px; display: flex; align-items: center; padding: 20px; box-sizing: border-box; box-shadow: 5px 5px 15px rgba(0,0,0,0.3); color: #fff;">
+                <div style="width: 120px; height: 120px; background-color: #fff; margin-right: 20px; border-radius: 10px; display:flex; justify-content:center; align-items:center; color:#000; flex-shrink:0;">${text.PORTRAIT}</div>
+                <div style="flex: 1; min-width: 0;">
+                    <h2 style="margin: 0; font-size: 32px; color: ${player.color}; line-height: 1.1;">${escapeHtml(player.name)}${disconnectTag}</h2>
+                    ${badgesHtml}
+                    <p style="margin: 6px 0 2px 0; font-size: 20px;">${text.MONEY} ${player.money.toLocaleString()}</p>
+                    <p style="margin: 2px 0; font-size: 20px;">${text.TERRITORY} ${player.territoryCount}${text.EA}</p>
+                </div>
             </div>
+            <button id="btn-territories" type="button" style="font-family: inherit; padding: 25px 38px; font-size: 30px; font-weight: bold; cursor: pointer; border-radius: 15px; border: none; background-color: #2980b9; color: white; box-shadow: 0 10px 20px rgba(0,0,0,0.4); white-space: nowrap; flex-shrink: 0;">${text.BTN_TERRITORIES || '보유영토'}</button>
         </div>
     `;
 }
@@ -215,9 +219,8 @@ export function createDiceButton(player, canRoll = true, hasUsableCards = false)
     const text = pickLangDict(MarbleLang, LangState.current);
     const cText = pickLangDict(CardUILang, LangState.current);
 
-    const canUseCard = canRoll && hasUsableCards;
-    const invBtnBg = canUseCard ? '#9b59b6' : '#7f8c8d';
-    const invBtnCursor = canUseCard ? 'pointer' : 'not-allowed';
+    const invBtnBg = '#9b59b6';
+    const invBtnCursor = 'pointer';
 
     const rollBtnBg = canRoll ? '#f39c12' : '#7f8c8d';
     const rollBtnCursor = canRoll ? 'pointer' : 'not-allowed';
@@ -225,8 +228,8 @@ export function createDiceButton(player, canRoll = true, hasUsableCards = false)
     return `
         <div style="position: absolute; bottom: 40px; right: 40px; display: flex; flex-direction: column; align-items: flex-end;">
             <div style="display: flex; gap: 20px;">
-                <button id="btn-inventory" style="font-family: inherit; padding: 25px 40px; font-size: 30px; font-weight: bold; cursor: ${invBtnCursor}; border-radius: 15px; border: none; background-color: ${invBtnBg}; color: white; box-shadow: 0 10px 20px rgba(0,0,0,0.4);" ${!canUseCard ? 'disabled' : ''}>${cText.BTN_INVENTORY}</button>
-                <button id="btn-roll" style="font-family: inherit; padding: 25px 60px; font-size: 36px; font-weight: bold; cursor: ${rollBtnCursor}; border-radius: 15px; border: none; background-color: ${rollBtnBg}; color: white; box-shadow: 0 10px 20px rgba(0,0,0,0.4);" ${!canRoll ? 'disabled' : ''}>${text.ROLL_DICE}</button>
+                <button id="btn-inventory" type="button" style="font-family: inherit; padding: 25px 40px; font-size: 30px; font-weight: bold; cursor: ${invBtnCursor}; border-radius: 15px; border: none; background-color: ${invBtnBg}; color: white; box-shadow: 0 10px 20px rgba(0,0,0,0.4);">${cText.BTN_INVENTORY}</button>
+                <button id="btn-roll" type="button" style="font-family: inherit; padding: 25px 60px; font-size: 36px; font-weight: bold; cursor: ${rollBtnCursor}; border-radius: 15px; border: none; background-color: ${rollBtnBg}; color: white; box-shadow: 0 10px 20px rgba(0,0,0,0.4);" ${!canRoll ? 'disabled' : ''}>${text.ROLL_DICE}</button>
             </div>
         </div>
     `;
@@ -248,25 +251,18 @@ export function createDiceOverlay() {
 
 export function createTurnOrderOverlay() {
     return `
-        <div id="turn-order-overlay" style="display: none; position: absolute; inset: 0; background: rgba(10, 14, 24, 0.82); backdrop-filter: blur(4px); z-index: 950; justify-content: center; align-items: center; padding: 20px;">
-            <div style="width: 100%; max-width: 720px; background: linear-gradient(160deg, #1b2236 0%, #121726 100%); border: 2px solid rgba(241, 196, 15, 0.72); border-radius: 18px; padding: 26px 28px; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.65); color: #f4f6fb; text-align: center;">
-                <h2 id="turn-order-title" style="margin: 0 0 8px 0; font-size: 24px; font-weight: 800; color: #f1c40f;"></h2>
+        <div id="turn-order-overlay" style="display: none; position: absolute; inset: 0; background: rgba(10, 14, 24, 0.84); backdrop-filter: blur(4px); z-index: 950; justify-content: center; align-items: center; padding: 20px; box-sizing: border-box;">
+            <div style="width: 100%; max-width: 820px; background: linear-gradient(160deg, #1b2236 0%, #121726 100%); border: 2px solid rgba(241, 196, 15, 0.75); border-radius: 20px; padding: 28px 30px; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.68); color: #f4f6fb; text-align: center; box-sizing: border-box;">
+                <h2 id="turn-order-title" style="margin: 0 0 8px 0; font-size: 26px; font-weight: 800; color: #f1c40f;"></h2>
                 <p id="turn-order-desc" style="margin: 0 0 14px 0; font-size: 14px; color: #cfd8e3; line-height: 1.5;"></p>
                 <div id="turn-order-tie-banner" style="display: none; margin: 0 auto 14px auto; padding: 8px 14px; border-radius: 10px; background: rgba(231, 76, 60, 0.2); border: 1px solid rgba(231, 76, 60, 0.7); color: #ffd2cc; font-size: 13px; font-weight: 700;"></div>
+                <div id="turn-order-countdown" style="display: none; margin-bottom: 14px; font-size: 16px; font-weight: 800; color: #7bed9f;"></div>
 
-                <div id="turn-order-roll-view" style="display: none;">
-                    <div style="display: flex; justify-content: center; align-items: center; gap: 18px; margin: 16px 0;">
-                        <img id="turn-order-my-d1" src="./Resource/Texture/Marble/Dice/Dice_N_1.png" style="width: 84px; height: 84px; object-fit: contain; filter: drop-shadow(0 6px 12px rgba(0,0,0,0.45));" />
-                        <img id="turn-order-my-d2" src="./Resource/Texture/Marble/Dice/Dice_N_1.png" style="width: 84px; height: 84px; object-fit: contain; filter: drop-shadow(0 6px 12px rgba(0,0,0,0.45));" />
-                    </div>
-                    <div id="turn-order-my-status" style="min-height: 24px; margin-bottom: 14px; font-size: 15px; font-weight: 700; color: #f1c40f;"></div>
-                    <button id="turn-order-roll-btn" type="button" style="display: inline-flex; align-items: center; justify-content: center; padding: 12px 30px; font-size: 16px; font-weight: 800; color: #1a1f2e; background: linear-gradient(135deg, #f7d348, #e6a817); border: none; border-radius: 12px; cursor: pointer; box-shadow: 0 6px 18px rgba(241, 196, 15, 0.35);"></button>
-                    <div id="turn-order-wait-list" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 18px;"></div>
-                </div>
+                <div id="turn-order-grid" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin: 14px 0 18px 0;"></div>
 
-                <div id="turn-order-result-view" style="display: none;">
-                    <div id="turn-order-countdown" style="margin-bottom: 16px; font-size: 14px; font-weight: 700; color: #7bed9f;"></div>
-                    <div id="turn-order-result-grid" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px;"></div>
+                <div id="turn-order-action-area" style="min-height: 54px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;">
+                    <div id="turn-order-my-status" style="min-height: 20px; font-size: 14px; font-weight: 700; color: #f1c40f;"></div>
+                    <button id="turn-order-roll-btn" type="button" style="display: none; align-items: center; justify-content: center; padding: 13px 34px; font-size: 17px; font-weight: 800; color: #1a1f2e; background: linear-gradient(135deg, #f7d348, #e6a817); border: none; border-radius: 12px; cursor: pointer; box-shadow: 0 6px 18px rgba(241, 196, 15, 0.35);"></button>
                 </div>
             </div>
         </div>
@@ -326,6 +322,41 @@ export function createPopupOverlay() {
             <p id="void-game-desc" style="margin: 0 0 18px 0; font-size: 20px; color: #ecf0f1; line-height: 1.5;"></p>
             <div id="void-timer" style="font-size: 22px; color: #e74c3c; margin-bottom: 22px;">${text.REMAIN_TIME} ${GAME_CONSTANTS.THINK_TIME}${text.SEC}</div>
             <button id="void-game-roll-btn" type="button" style="font-family: inherit; padding: 15px 46px; font-size: 24px; font-weight: 800; background: linear-gradient(135deg, #f39c12, #e67e22); color: #fff; border: none; border-radius: 12px; cursor: pointer; box-shadow: 0 8px 22px rgba(243, 156, 18, 0.35);"></button>
+        </div>
+        <div id="hand-popup" style="display: none; font-family: inherit; position: absolute; top: 47%; left: 50%; transform: translate(-50%, -50%); background: rgba(24, 34, 48, 0.96); border: 4px solid #9b59b6; padding: 26px 28px; border-radius: 20px; box-shadow: 0 20px 50px rgba(0,0,0,0.75); z-index: 45; width: 680px; max-width: 92vw; color: #fff;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                <h2 id="hand-title" style="margin: 0; font-size: 30px; color: #e0b3ff;"></h2>
+                <button id="hand-close-btn" type="button" style="font-family: inherit; width: 38px; height: 38px; font-size: 22px; font-weight: bold; background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.28); border-radius: 10px; cursor: pointer; line-height: 1;">✕</button>
+            </div>
+            <p id="hand-desc" style="margin: 0 0 16px 0; font-size: 16px; color: #cbd5e1;"></p>
+            <div id="hand-list" style="display: flex; flex-direction: column; gap: 14px; max-height: 430px; overflow-y: auto; padding-right: 6px;"></div>
+        </div>
+        <div id="hand-detail-popup" style="display: none; font-family: inherit; position: absolute; top: 47%; left: 50%; transform: translate(-50%, -50%); background: rgba(20, 26, 40, 0.98); border: 4px solid #f1c40f; padding: 26px 28px; border-radius: 18px; box-shadow: 0 24px 60px rgba(0,0,0,0.85); z-index: 55; width: 450px; max-width: 90vw; color: #fff;">
+            <button id="hand-detail-close-btn" type="button" style="position: absolute; top: 14px; right: 14px; font-family: inherit; width: 34px; height: 34px; font-size: 20px; font-weight: bold; background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; cursor: pointer; line-height: 1;">✕</button>
+            <div id="hand-detail-badge" style="display: inline-block; padding: 4px 10px; border-radius: 6px; font-size: 13px; font-weight: bold; margin-bottom: 10px;"></div>
+            <h3 id="hand-detail-title" style="margin: 0 36px 12px 0; font-size: 26px; color: #f1c40f;"></h3>
+            <p id="hand-detail-desc" style="margin: 0 0 16px 0; font-size: 17px; line-height: 1.55; color: #ecf0f1; white-space: pre-line;"></p>
+            <div id="hand-detail-status" style="margin: 0 0 16px 0; font-size: 14px; color: #f39c12; min-height: 20px;"></div>
+            <div id="hand-detail-actions" style="display: none; justify-content: flex-end; gap: 10px;">
+                <button id="hand-detail-use-btn" type="button" style="font-family: inherit; width: 100%; padding: 12px 20px; font-size: 20px; font-weight: bold; background: #2ecc71; color: #fff; border: none; border-radius: 10px; cursor: pointer;">사용하기</button>
+            </div>
+        </div>
+        <div id="territory-popup" style="display: none; font-family: inherit; position: absolute; top: 47%; left: 50%; transform: translate(-50%, -50%); background: rgba(22, 36, 52, 0.96); border: 4px solid #3498db; padding: 26px 28px; border-radius: 20px; box-shadow: 0 20px 50px rgba(0,0,0,0.75); z-index: 45; width: 700px; max-width: 92vw; color: #fff;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
+                <h2 id="territory-title" style="margin: 0; font-size: 30px; color: #74b9ff;"></h2>
+                <button id="territory-close-btn" type="button" style="font-family: inherit; width: 38px; height: 38px; font-size: 22px; font-weight: bold; background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.28); border-radius: 10px; cursor: pointer; line-height: 1;">✕</button>
+            </div>
+            <div id="territory-list" style="display: flex; flex-direction: column; gap: 10px; max-height: 440px; overflow-y: auto; padding-right: 6px;"></div>
+        </div>
+        <div id="territory-detail-popup" style="display: none; font-family: inherit; position: absolute; top: 47%; left: 50%; transform: translate(-50%, -50%); background: rgba(18, 28, 42, 0.98); border: 4px solid #3498db; padding: 26px 28px; border-radius: 18px; box-shadow: 0 24px 60px rgba(0,0,0,0.85); z-index: 55; width: 500px; max-width: 90vw; color: #fff;">
+            <button id="territory-detail-close-btn" type="button" style="position: absolute; top: 14px; right: 14px; font-family: inherit; width: 34px; height: 34px; font-size: 20px; font-weight: bold; background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; cursor: pointer; line-height: 1;">✕</button>
+            <h3 id="territory-detail-title" style="margin: 0 36px 8px 0; font-size: 26px; color: #74b9ff;"></h3>
+            <div id="territory-detail-meta" style="margin: 0 0 14px 0; font-size: 15px; color: #cbd5e1;"></div>
+            <div id="territory-detail-stats" style="display: flex; flex-direction: column; gap: 8px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; font-size: 16px;"></div>
+            <div id="territory-detail-upgrades" style="display: flex; flex-direction: column; gap: 6px; font-size: 15px;"></div>
+        </div>
+        <div id="board-peek-container" style="display: none; position: absolute; bottom: 28px; left: 50%; transform: translateX(-50%); z-index: 90;">
+            <button id="btn-board-peek" type="button" style="font-family: inherit; padding: 12px 26px; font-size: 19px; font-weight: bold; background: rgba(20, 30, 46, 0.94); color: #f8fafc; border: 3px solid #f1c40f; border-radius: 12px; cursor: pointer; box-shadow: 0 10px 24px rgba(0,0,0,0.55);"></button>
         </div>
     `;
 }
@@ -439,7 +470,7 @@ export const PopupManager = {
             document.getElementById('close-buttons').style.display = 'none';
         }
     },
-    showBuyPopup(tile, costs, playerMoney, onBuyCallback, onCancelCallback) {
+    showBuyPopup(tile, costs, playerMoney, onBuyCallback, onCancelCallback, maxAllowedLvl = null) {
         this.closeAll();
         const text = pickLangDict(MarbleLang, LangState.current);
         const gText = pickLangDict(GimmickLang, LangState.current);
@@ -453,6 +484,9 @@ export const PopupManager = {
         document.getElementById('event-timer').style.display = 'block';
         const buyBtns = document.getElementById('buy-buttons');
         buyBtns.style.display = 'flex';
+        const firstVisitMax = Number.isInteger(maxAllowedLvl)
+            ? maxAllowedLvl
+            : (getModeConfig(resolveRenderWorld()?.gameMode).firstVisitMaxLevel || 2);
         let btnsHTML = '';
         if (tile.level === 3) {
             const canAfford = playerMoney >= costs[4];
@@ -463,9 +497,10 @@ export const PopupManager = {
             const bg = canAfford ? '#2ecc71' : '#7f8c8d';
             btnsHTML += `<button class="action-btn" data-level="3" data-afford="${canAfford}" style="font-family: inherit; padding: 15px; background: ${bg}; color: #fff; border: none; border-radius: 8px; cursor: pointer;">${text.BLD_3} (${formatMoney(costs[3])})</button>`;
         } else {
-            const textLv = [text.BLD_0, text.BLD_1, text.BLD_2];
-            const colors = ['#95a5a6', '#e74c3c', '#3498db'];
-            for (let l = 0; l <= 2; l++) {
+            const maxInitLvl = Math.min(3, firstVisitMax);
+            const textLv = [text.BLD_0, text.BLD_1, text.BLD_2, text.BLD_3];
+            const colors = ['#95a5a6', '#e74c3c', '#3498db', '#2ecc71'];
+            for (let l = 0; l <= maxInitLvl; l++) {
                 if (tile.level < l) {
                     const canAfford = playerMoney >= costs[l];
                     const bg = canAfford ? colors[l] : '#7f8c8d';
@@ -601,7 +636,7 @@ export const PopupManager = {
         document.getElementById('portal-desc').innerText = `${text.PORTAL_FEE_LABEL} ${feeStr} / ${text.PORTAL_DESC}`;
         const grid = document.getElementById('portal-grid');
         grid.innerHTML = '';
-        tiles.filter(t => t.id !== BOARD_TILES.BBANGJU).forEach(t => {
+        tiles.filter(t => t.id !== BOARD_TILES.BBANGJU && !t.isDisabled && t.type !== 'disabled').forEach(t => {
             const btn = document.createElement('button');
             btn.innerText = getTileName(t);
             btn.style.cssText = `font-family: inherit; padding: 10px; font-size: 16px; background: ${t.type === 'normal' ? '#2c3e50' : '#8e44ad'}; color: white; border: 2px solid #fff; border-radius: 8px; cursor: pointer;`;
@@ -665,8 +700,14 @@ export function renderBoardState(ctx, boardImg, tiles, allPlayers, worldState = 
     const playerById = new Map(allPlayers.map(p => [p.id, p]));
 
     tiles.forEach(tile => {
-        if (tile.id % 10 === 0) { ctx.font = `bold 36px ${currentFont}`; ctx.fillStyle = '#e74c3c'; }
-        else { ctx.font = `bold 22px ${currentFont}`; ctx.fillStyle = '#2c3e50'; }
+        if (tile.isDisabled || tile.type === 'disabled') return;
+        if (tile.id % 10 === 0) {
+            ctx.font = `bold 36px ${currentFont}`;
+            ctx.fillStyle = '#e74c3c';
+        } else {
+            ctx.font = `bold 22px ${currentFont}`;
+            ctx.fillStyle = '#2c3e50';
+        }
         ctx.fillText(getTileName(tile, worldState), tile.x, tile.y);
 
         // 시간대 속성(낮/밤) 표시 (그을음/빛무리 진행 중에는 우선도에 의해 비활성 흐림 표시)
@@ -689,15 +730,19 @@ export function renderBoardState(ctx, boardImg, tiles, allPlayers, worldState = 
 
         if (ownerObj) {
             ctx.fillStyle = ownerObj.color; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
-            let dx = 0, dy = 0; const offsetDist = (1080 / 13 / 2) * 0.8;
-            if (tile.side === 0) dx = offsetDist; else if (tile.side === 1) dy = offsetDist;
-            else if (tile.side === 2) dx = -offsetDist; else if (tile.side === 3) dy = -offsetDist;
-            const tx = tile.x + dx + 25; const ty = tile.y + dy;
+            const gridN = getModeConfig(resolveRenderWorld(worldState).gameMode || 'ember').gridUnits || 13;
+            const U = 1080 / gridN;
+            let dx = 0, dy = 0; const offsetDist = U * 0.8;
+            if (tile.side === 0) dy = -offsetDist;
+            else if (tile.side === 1) dx = offsetDist;
+            else if (tile.side === 2) dy = offsetDist;
+            else if (tile.side === 3) dx = -offsetDist;
+            const tx = tile.x + dx; const ty = tile.y + dy;
 
             ctx.beginPath();
             let shapeLevel = tile.level;
             if (tile.type === 'special_buy' || tile.type === 'bread') shapeLevel = 4;
-            const r = 15;
+            const r = Math.max(12, Math.round(U * 0.17));
             if (shapeLevel === 0) ctx.arc(tx, ty, r, 0, Math.PI * 2);
             else if (shapeLevel === 1) { ctx.moveTo(tx, ty - r); ctx.lineTo(tx + r, ty + r); ctx.lineTo(tx - r, ty + r); }
             else if (shapeLevel === 2) ctx.rect(tx - r, ty - r, r * 2, r * 2);
@@ -734,16 +779,16 @@ export function renderBoardState(ctx, boardImg, tiles, allPlayers, worldState = 
 
 export function showSettlementPopup(results, onReturnCallback, customBtnLabel = null) {
     const sText = pickLangDict(SettlementLang, LangState.current);
-    const uiLayer = document.getElementById('ui-layer') || document.body;
+    const uiLayer = document.getElementById('ui-layer') || document.getElementById('app') || document.body;
     const prev = document.getElementById('settlement-popup');
     if (prev) prev.remove();
 
     const overlay = document.createElement('div');
     overlay.id = 'settlement-popup';
-    overlay.style.cssText = 'position: absolute; inset: 0; background: rgba(10, 14, 22, 0.92); z-index: 95; display: flex; justify-content: center; align-items: center; color: #fff; font-family: inherit;';
+    overlay.style.cssText = 'position: absolute; inset: 0; background: rgba(10, 14, 22, 0.92); z-index: 95; display: flex; justify-content: center; align-items: center; color: #fff; font-family: inherit; padding: 20px; box-sizing: border-box;';
 
     const panel = document.createElement('div');
-    panel.style.cssText = 'width: 1480px; height: 900px; background: #1a2332; border: 4px solid #f1c40f; border-radius: 20px; padding: 30px 36px; box-sizing: border-box; display: flex; flex-direction: column; box-shadow: 0 24px 60px rgba(0,0,0,0.8);';
+    panel.style.cssText = 'width: min(1480px, 95%); height: min(900px, 92%); background: #1a2332; border: 4px solid #f1c40f; border-radius: 20px; padding: 26px 32px; box-sizing: border-box; display: flex; flex-direction: column; box-shadow: 0 24px 60px rgba(0,0,0,0.8);';
 
     panel.innerHTML = `
         <div style="display:flex; justify-content:space-between; align-items:flex-end; border-bottom: 2px solid #2e3e57; padding-bottom: 16px; margin-bottom: 18px;">
