@@ -3,11 +3,17 @@ export const MarbleLang = {
         TILE_START: "시작", TILE_ISLAND: "무인도", TILE_FUND: "발전기금", TILE_PORTAL: "차원이동장치", TILE_CARD: "차원이동카드", TILE_NORMAL: "칸",
         ROLL_DICE: "주사위 굴리기 🎲", CURRENT_TURN: "현재 턴:", REMAIN_TIME: "남은 시간:", SEC: "초",
         PLAYER_ME: "플레이어 (나)", NPC: "NPC", MONEY: "소지금:", TERRITORY: "영토:", EA: "개", CURRENCY: "엘드르 달러",
-        BADGE_CHIEF: "🔧 정비반장", BADGE_CHIEF_SHORT: "🔧 반장", RANK_SUFFIX: "위",
+        BADGE_CHIEF: "🔧 정비반장", BADGE_CHIEF_SHORT: "🔧 반장",
+        BADGE_MOUNTAIN_DISCIPLE: "🏔️ 제자", BADGE_MOUNTAIN_DISCIPLE_SHORT: "🏔️ 제자",
+        RANK_SUFFIX: "위",
         ROLLING: "주사위 굴리는 중...", RESULT: "결과:", MOVE: "이동!",
         EVENT: "이벤트", CLOSE: "닫기", BUY_CANCEL: "구매 안함", PORTRAIT: "초상화",
         
         PORTAL_TITLE: "빵주 탑승", PORTAL_DESC: "이동할 곳을 선택하세요.", PORTAL_FEE_LABEL: "이용료:", PORTAL_FREE: "무료 (정비반장)", PORTAL_CANCEL: "포기하기",
+        PORTAL_BOARD_GUIDE: "이동할 칸을 보드판에서 직접 선택해주세요.",
+        PORTAL_CONFIRM_MOVE: "이 칸으로 이동하시겠습니까?",
+        PORTAL_CONFIRM_YES: "예", PORTAL_CONFIRM_NO: "아니요",
+        TOAST_MY_TURN: "🎲 내 턴입니다! 주사위를 굴려주세요!",
         BUY_TITLE: "구매", BUY_DESC: "어떤 건물을 지으시겠습니까?",
         TOLL_TITLE: "통행료 지불", TOLL_DESC: "의 영토입니다.", NOT_ENOUGH_MONEY: "비용이 부족합니다!",
         
@@ -98,6 +104,7 @@ export const MarbleLang = {
         TURN_ORDER_RANK_SUFFIX: "등",
         TURN_ORDER_ROLLED_TAG: "완료",
         TURN_ORDER_WAITING_TAG: "대기중",
+        TURN_ORDER_AUTO_ROLL_PREFIX: "자동 굴림까지",
         TURN_ORDER_AUTO_START_PREFIX: "자동 시작까지"
     },
     

@@ -4,9 +4,11 @@ import { MarbleLang } from '../System/Index/Marble/MarbleUIIndex.js';
 import { GimmickLang } from '../System/Index/Marble/MarbleGimmickIndex.js';
 import { BOARD_TILES } from '../System/Index/Marble/MarbleBoardIndex.js';
 import { GAME_CONSTANTS, getModeConfig } from '../System/Index/Marble/MarblePriceIndex.js';
-import { CardUILang } from '../System/Index/Marble/MarbleCardUIIndex.js';
+import { CardUILang, formatCardDisplayTitle, getCardGradeTheme } from '../System/Index/Marble/MarbleCardUIIndex.js';
 import { SettlementLang } from '../System/Index/Marble/MarbleSettlementIndex.js';
 import { escapeHtml } from '../Lobby/LobbyUI.js';
+import { ErrorTracker } from '../System/ErrorTracker.js';
+import { getCachedMarbleImage, isMarbleImageError } from './MarbleAssetLoader.js';
 import { WorldGimmickManager } from './MarbleWorldGimmick.js';
 import { getPlayerThinkTime } from './MarbleCardTreasure.js';
 import { RequiemState } from './MarbleRequiem.js';
@@ -108,6 +110,9 @@ function buildPlayerBadgesHtml(player, isCompact = false, worldState = null) {
 
     if (player.isBbangjuChief) {
         badges.push(`<span style="font-size:${fontSize}; background:#f39c12; color:#fff; padding:${pad}; border-radius:5px;">${isCompact ? text.BADGE_CHIEF_SHORT : text.BADGE_CHIEF}</span>`);
+    }
+    if (player.hasMountainBuff) {
+        badges.push(`<span style="font-size:${fontSize}; background:#16a085; color:#fff; padding:${pad}; border-radius:5px;">${isCompact ? (text.BADGE_MOUNTAIN_DISCIPLE_SHORT || '🏔️ 제자') : (text.BADGE_MOUNTAIN_DISCIPLE || '🏔️ 제자')}</span>`);
     }
     if (player.isReincarnated) {
         badges.push(`<span style="font-size:${fontSize}; background:#c0392b; color:#fff; padding:${pad}; border-radius:5px;">${gText.BADGE_REINCARNATION}</span>`);
@@ -273,8 +278,9 @@ export function createPopupOverlay() {
     const text = pickLangDict(MarbleLang, LangState.current);
     return `
         <div id="toast-popup" style="display: none; position: absolute; top: 10%; left: 50%; transform: translateX(-50%); flex-direction: column; align-items: center; gap: 10px; max-width: 72%; z-index: 100; pointer-events: none;"></div>
-        <div id="event-popup" style="display: none; font-family: inherit; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: rgba(44, 62, 80, 0.95); border: 5px solid #fff; padding: 40px; border-radius: 20px; text-align: center; box-shadow: 0 20px 50px rgba(0,0,0,0.7); z-index: 20; min-width: 400px; color: #fff;">
-            <h2 id="event-title" style="margin: 0 0 20px 0; font-size: 40px; color: #f1c40f;"></h2>
+        <div id="event-popup" style="display: none; font-family: inherit; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: rgba(44, 62, 80, 0.96); border: 5px solid #fff; padding: 36px 40px; border-radius: 20px; text-align: center; box-shadow: 0 20px 50px rgba(0,0,0,0.7); z-index: 20; min-width: 440px; max-width: 90vw; box-sizing: border-box; color: #fff;">
+            <div id="event-bg-banner" style="display: none; width: 100%; height: 245px; border-radius: 14px; margin-bottom: 18px; background-size: cover; background-position: center; border: 2px solid rgba(255,255,255,0.25); box-shadow: 0 10px 24px rgba(0,0,0,0.35);"></div>
+            <h2 id="event-title" style="margin: 0 0 18px 0; font-size: 38px; color: #f1c40f;"></h2>
             <p id="event-desc" style="font-size: 24px; margin-bottom: 30px; line-height: 1.4;"></p>
             <div id="event-timer" style="font-size: 24px; color: #e74c3c; margin-bottom: 20px; display: none;"></div>
             <div id="buy-buttons" style="display: none; gap: 15px; justify-content: center; flex-wrap: wrap;"></div>
@@ -348,17 +354,97 @@ export function createPopupOverlay() {
             </div>
             <div id="territory-list" style="display: flex; flex-direction: column; gap: 10px; max-height: 440px; overflow-y: auto; padding-right: 6px;"></div>
         </div>
-        <div id="territory-detail-popup" style="display: none; font-family: inherit; position: absolute; top: 47%; left: 50%; transform: translate(-50%, -50%); background: rgba(18, 28, 42, 0.98); border: 4px solid #3498db; padding: 26px 28px; border-radius: 18px; box-shadow: 0 24px 60px rgba(0,0,0,0.85); z-index: 55; width: 500px; max-width: 90vw; color: #fff;">
-            <button id="territory-detail-close-btn" type="button" style="position: absolute; top: 14px; right: 14px; font-family: inherit; width: 34px; height: 34px; font-size: 20px; font-weight: bold; background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; cursor: pointer; line-height: 1;">✕</button>
-            <h3 id="territory-detail-title" style="margin: 0 36px 8px 0; font-size: 26px; color: #74b9ff;"></h3>
-            <div id="territory-detail-meta" style="margin: 0 0 14px 0; font-size: 15px; color: #cbd5e1;"></div>
-            <div id="territory-detail-stats" style="display: flex; flex-direction: column; gap: 8px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; font-size: 16px;"></div>
-            <div id="territory-detail-upgrades" style="display: flex; flex-direction: column; gap: 6px; font-size: 15px;"></div>
+        <div id="territory-detail-popup" style="display: none; font-family: inherit; position: absolute; top: 48%; left: 50%; transform: translate(-50%, -50%); background: rgba(18, 28, 42, 0.98); border: 4px solid #3498db; padding: 0; border-radius: 20px; box-shadow: 0 24px 60px rgba(0,0,0,0.85); z-index: 55; width: 720px; max-width: 92vw; overflow: hidden; box-sizing: border-box; color: #fff;">
+            <button id="territory-detail-close-btn" type="button" style="position: absolute; top: 14px; right: 14px; z-index: 2; font-family: inherit; width: 38px; height: 38px; font-size: 22px; font-weight: bold; background: rgba(15, 23, 42, 0.78); color: #fff; border: 1px solid rgba(255,255,255,0.35); border-radius: 10px; cursor: pointer; line-height: 1;">✕</button>
+            <div id="territory-detail-bg-banner" style="display: none; width: 100%; height: 270px; background-size: cover; background-position: center; border-bottom: 2px solid rgba(255,255,255,0.18);"></div>
+            <div style="padding: 22px 28px 26px 28px;">
+                <h3 id="territory-detail-title" style="margin: 0 42px 8px 0; font-size: 28px; color: #74b9ff;"></h3>
+                <p id="territory-detail-desc" style="margin: 0 0 12px 0; font-size: 16px; color: #e2e8f0; line-height: 1.45;"></p>
+                <div id="territory-detail-meta" style="margin: 0 0 14px 0; font-size: 15px; color: #cbd5e1;"></div>
+                <div id="territory-detail-stats" style="display: flex; flex-direction: column; gap: 8px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); border-radius: 12px; padding: 12px 16px; margin-bottom: 14px; font-size: 16px;"></div>
+                <div id="territory-detail-upgrades" style="display: flex; flex-direction: column; gap: 6px; font-size: 15px;"></div>
+                <div id="territory-detail-portal-confirm" style="display: none; margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.18);">
+                    <p id="territory-detail-portal-question" style="margin: 0 0 12px 0; font-size: 20px; font-weight: bold; color: #f1c40f; text-align: center;"></p>
+                    <div style="display: flex; gap: 12px;">
+                        <button id="territory-detail-portal-yes" type="button" style="font-family: inherit; flex: 1; padding: 13px 18px; font-size: 20px; font-weight: bold; background: #2ecc71; color: #fff; border: none; border-radius: 10px; cursor: pointer;">예</button>
+                        <button id="territory-detail-portal-no" type="button" style="font-family: inherit; flex: 1; padding: 13px 18px; font-size: 20px; font-weight: bold; background: #7f8c8d; color: #fff; border: none; border-radius: 10px; cursor: pointer;">아니요</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="portal-hint-banner" style="display: none; font-family: inherit; position: absolute; top: 150px; left: 50%; transform: translateX(-50%); background: rgba(16, 24, 38, 0.94); border: 3px solid #9b59b6; border-radius: 16px; padding: 14px 24px; box-shadow: 0 14px 32px rgba(0,0,0,0.6); z-index: 50; color: #fff; align-items: center; gap: 18px; white-space: nowrap;">
+            <div>
+                <div id="portal-hint-title" style="font-size: 20px; font-weight: bold; color: #d2b4de;"></div>
+                <div id="portal-hint-sub" style="font-size: 14px; color: #cbd5e1; margin-top: 2px;"></div>
+            </div>
+            <div id="portal-hint-timer" style="font-size: 18px; font-weight: bold; color: #f39c12;"></div>
+            <button id="portal-hint-cancel-btn" type="button" style="font-family: inherit; padding: 9px 16px; font-size: 15px; font-weight: bold; background: #7f8c8d; color: #fff; border: none; border-radius: 8px; cursor: pointer;"></button>
         </div>
         <div id="board-peek-container" style="display: none; position: absolute; bottom: 28px; left: 50%; transform: translateX(-50%); z-index: 90;">
             <button id="btn-board-peek" type="button" style="font-family: inherit; padding: 12px 26px; font-size: 19px; font-weight: bold; background: rgba(20, 30, 46, 0.94); color: #f8fafc; border: 3px solid #f1c40f; border-radius: 12px; cursor: pointer; box-shadow: 0 10px 24px rgba(0,0,0,0.55);"></button>
         </div>
     `;
+}
+
+const _trackedBgCache = new Map();
+
+/**
+ * 타일 세부 배경(BG) 배너 로드 실패 시 1회 재시도(ErrorTracker) 및 안전 숨김 폴백 처리.
+ */
+export function applyTrackedBannerBg(bannerEl, bgPath, onStateChange = null) {
+    if (!bannerEl) return;
+    if (!bgPath) {
+        bannerEl.dataset.pendingBg = '';
+        bannerEl.style.backgroundImage = '';
+        bannerEl.style.display = 'none';
+        if (onStateChange) onStateChange(false);
+        return;
+    }
+
+    let cached = _trackedBgCache.get(bgPath);
+    if (!cached) {
+        if (getCachedMarbleImage(bgPath)) {
+            cached = 'ok';
+            _trackedBgCache.set(bgPath, 'ok');
+        } else if (isMarbleImageError(bgPath)) {
+            cached = 'error';
+            _trackedBgCache.set(bgPath, 'error');
+        }
+    }
+    if (cached === 'error') {
+        bannerEl.dataset.pendingBg = '';
+        bannerEl.style.backgroundImage = '';
+        bannerEl.style.display = 'none';
+        if (onStateChange) onStateChange(false);
+        return;
+    }
+
+    bannerEl.dataset.pendingBg = bgPath;
+    bannerEl.style.backgroundImage = `url("${bgPath}")`;
+    bannerEl.style.display = 'block';
+    if (onStateChange) onStateChange(true);
+
+    if (cached === 'ok' || typeof Image !== 'function') return;
+
+    const probe = new Image();
+    ErrorTracker.trackImage(probe, {
+        critical: false,
+        label: 'MarbleTileBG',
+        onFallback: () => {
+            _trackedBgCache.set(bgPath, 'error');
+            if (bannerEl.dataset.pendingBg === bgPath) {
+                bannerEl.style.backgroundImage = '';
+                bannerEl.style.display = 'none';
+                if (onStateChange) onStateChange(false);
+            }
+        }
+    });
+    probe.onload = () => {
+        if (probe.naturalWidth > 0) {
+            _trackedBgCache.set(bgPath, 'ok');
+        }
+    };
+    probe.src = bgPath;
 }
 
 export const PopupManager = {
@@ -402,8 +488,25 @@ export const PopupManager = {
             container.style.display = 'none';
         }
     },
-    showChoicePopup(title, desc, buttonsConfig) {
+    setEventBanner(bgPath = null) {
+        const popupEl = document.getElementById('event-popup');
+        const bannerEl = document.getElementById('event-bg-banner');
+        if (!popupEl || !bannerEl) return;
+        applyTrackedBannerBg(bannerEl, bgPath, (visible) => {
+            if (visible) {
+                popupEl.style.minWidth = '';
+                popupEl.style.width = '820px';
+                popupEl.style.padding = '24px 30px 28px 30px';
+            } else {
+                popupEl.style.minWidth = '';
+                popupEl.style.width = '';
+                popupEl.style.padding = '36px 40px';
+            }
+        });
+    },
+    showChoicePopup(title, desc, buttonsConfig, bgPath = null) {
         this.closeAll();
+        this.setEventBanner(bgPath);
         document.getElementById('event-popup').style.display = 'block';
         document.getElementById('event-title').innerText = title;
         document.getElementById('event-title').style.color = '#f1c40f';
@@ -413,6 +516,7 @@ export const PopupManager = {
         document.getElementById('event-timer').style.display = 'block';
         const btnContainer = document.getElementById('buy-buttons');
         btnContainer.style.display = 'flex';
+        btnContainer.style.width = '';
         btnContainer.innerHTML = '';
 
         const makeChoiceBtn = (cfg) => {
@@ -441,6 +545,13 @@ export const PopupManager = {
                 rowItems.forEach(cfg => {
                     const btn = makeChoiceBtn(cfg);
                     if (cfg.align === 'right') btn.style.marginLeft = 'auto';
+                    if (rowItems.length === 1 && !cfg.align) {
+                        btn.style.flex = '1';
+                        btn.style.width = '100%';
+                        btn.style.textAlign = 'left';
+                        btn.style.whiteSpace = 'pre-line';
+                        btn.style.lineHeight = '1.45';
+                    }
                     rowDiv.appendChild(btn);
                 });
                 btnContainer.appendChild(rowDiv);
@@ -454,24 +565,42 @@ export const PopupManager = {
             });
         }
     },
-    showNormalPopup(title, desc, showCloseBtn, onEndCallback) {
+    showNormalPopup(title, desc, showCloseBtn, onEndCallback, bgPath = null, hideUpperTimer = true, uiOpts = null) {
         this.closeAll();
+        this.setEventBanner(bgPath);
+        const text = pickLangDict(MarbleLang, LangState.current);
         document.getElementById('event-popup').style.display = 'block';
         document.getElementById('event-title').innerText = title;
-        document.getElementById('event-title').style.color = '#fff';
+        document.getElementById('event-title').style.color = uiOpts?.titleColor || '#fff';
         document.getElementById('event-desc').innerText = desc;
         document.getElementById('buy-buttons').style.display = 'none';
         document.getElementById('crisis-buttons').style.display = 'none';
-        document.getElementById('event-timer').style.display = showCloseBtn ? 'block' : 'none';
+        document.getElementById('event-timer').style.display = (showCloseBtn && !hideUpperTimer) ? 'block' : 'none';
+        const closeBtn = document.getElementById('close-btn');
         if (showCloseBtn) {
             document.getElementById('close-buttons').style.display = 'block';
-            document.getElementById('close-btn').onclick = onEndCallback;
+            if (closeBtn) {
+                const baseLabel = uiOpts?.confirmText || text.CLOSE;
+                closeBtn.dataset.baseLabel = baseLabel;
+                closeBtn.innerText = baseLabel;
+                closeBtn.style.background = uiOpts?.buttonColor || '#3498db';
+                closeBtn.style.border = uiOpts?.borderColor ? `2px solid ${uiOpts.borderColor}` : 'none';
+                closeBtn.disabled = false;
+                closeBtn.onclick = onEndCallback;
+            }
         } else {
             document.getElementById('close-buttons').style.display = 'none';
         }
     },
-    showBuyPopup(tile, costs, playerMoney, onBuyCallback, onCancelCallback, maxAllowedLvl = null) {
+    showBuyPopup(tile, costs, playerMoney, onBuyCallback, onCancelCallback, maxAllowedLvl = null, bgPath = null) {
         this.closeAll();
+        this.setEventBanner(bgPath);
+        const popupEl = document.getElementById('event-popup');
+        if (popupEl) {
+            popupEl.style.minWidth = '820px';
+            popupEl.style.width = 'auto';
+            popupEl.style.maxWidth = '92vw';
+        }
         const text = pickLangDict(MarbleLang, LangState.current);
         const gText = pickLangDict(GimmickLang, LangState.current);
         const timeBadge = tile.timeType === 'day' ? ` [${gText.TILE_TIME_DAY}]` : (tile.timeType === 'night' ? ` [${gText.TILE_TIME_NIGHT}]` : '');
@@ -484,18 +613,23 @@ export const PopupManager = {
         document.getElementById('event-timer').style.display = 'block';
         const buyBtns = document.getElementById('buy-buttons');
         buyBtns.style.display = 'flex';
+        buyBtns.style.flexDirection = 'column';
+        buyBtns.style.flexWrap = 'nowrap';
+        buyBtns.style.gap = '12px';
+        buyBtns.style.width = '100%';
         const firstVisitMax = Number.isInteger(maxAllowedLvl)
             ? maxAllowedLvl
             : (getModeConfig(resolveRenderWorld()?.gameMode).firstVisitMaxLevel || 2);
-        let btnsHTML = '';
+        let rowBtnsHTML = '';
+        const actionBtnStyle = (bg) => `font-family: inherit; flex: 1 1 auto; white-space: nowrap; padding: 14px 10px; font-size: 16px; font-weight: bold; background: ${bg}; color: #fff; border: none; border-radius: 8px; cursor: pointer;`;
         if (tile.level === 3) {
             const canAfford = playerMoney >= costs[4];
             const bg = canAfford ? '#f1c40f' : '#7f8c8d';
-            btnsHTML += `<button class="action-btn" data-level="4" data-afford="${canAfford}" style="font-family: inherit; padding: 15px; background: ${bg}; color: #fff; border: none; border-radius: 8px; cursor: pointer;">${text.BLD_4} (${formatMoney(costs[4])})</button>`;
+            rowBtnsHTML += `<button class="action-btn" data-level="4" data-afford="${canAfford}" style="${actionBtnStyle(bg)}">${text.BLD_4} (${formatMoney(costs[4])})</button>`;
         } else if (tile.level === 2) {
             const canAfford = playerMoney >= costs[3];
             const bg = canAfford ? '#2ecc71' : '#7f8c8d';
-            btnsHTML += `<button class="action-btn" data-level="3" data-afford="${canAfford}" style="font-family: inherit; padding: 15px; background: ${bg}; color: #fff; border: none; border-radius: 8px; cursor: pointer;">${text.BLD_3} (${formatMoney(costs[3])})</button>`;
+            rowBtnsHTML += `<button class="action-btn" data-level="3" data-afford="${canAfford}" style="${actionBtnStyle(bg)}">${text.BLD_3} (${formatMoney(costs[3])})</button>`;
         } else {
             const maxInitLvl = Math.min(3, firstVisitMax);
             const textLv = [text.BLD_0, text.BLD_1, text.BLD_2, text.BLD_3];
@@ -504,11 +638,16 @@ export const PopupManager = {
                 if (tile.level < l) {
                     const canAfford = playerMoney >= costs[l];
                     const bg = canAfford ? colors[l] : '#7f8c8d';
-                    btnsHTML += `<button class="action-btn" data-level="${l}" data-afford="${canAfford}" style="font-family: inherit; padding: 15px; background: ${bg}; color: #fff; border: none; border-radius: 8px; cursor: pointer;">${textLv[l]} (${formatMoney(costs[l])})</button>`;
+                    rowBtnsHTML += `<button class="action-btn" data-level="${l}" data-afford="${canAfford}" style="${actionBtnStyle(bg)}">${textLv[l]} (${formatMoney(costs[l])})</button>`;
                 }
             }
         }
-        btnsHTML += `<button id="cancel-btn" style="font-family: inherit; padding: 15px; background: #7f8c8d; color: #fff; border: none; border-radius: 8px; width: 100%; cursor: pointer;">${text.BUY_CANCEL}</button>`;
+        const btnsHTML = `
+            <div style="display: flex; flex-wrap: nowrap; gap: 10px; width: 100%; justify-content: center;">
+                ${rowBtnsHTML}
+            </div>
+            <button id="cancel-btn" style="font-family: inherit; padding: 14px; font-size: 18px; font-weight: bold; background: #7f8c8d; color: #fff; border: none; border-radius: 8px; width: 100%; cursor: pointer;">${text.BUY_CANCEL}</button>
+        `;
         buyBtns.innerHTML = btnsHTML;
         document.querySelectorAll('.action-btn').forEach(btn => {
             btn.onclick = (e) => {
@@ -521,6 +660,7 @@ export const PopupManager = {
     },
     showCrisisPopup(toll, canSellCover, onSell, onLoan) {
         this.closeAll();
+        this.setEventBanner(null);
         const text = pickLangDict(MarbleLang, LangState.current);
         document.getElementById('event-popup').style.display = 'block';
         document.getElementById('event-title').innerText = text.CRISIS_TITLE;
@@ -588,9 +728,10 @@ export const PopupManager = {
         const grid = document.getElementById('target-grid');
         grid.innerHTML = '';
         inventory.forEach(card => {
+            const theme = getCardGradeTheme(card);
             const btn = document.createElement('button');
-            btn.innerHTML = `<b style="color:#f1c40f; font-size: 20px;">${escapeHtml(card.name)}</b><br><span style="font-size:14px;">${escapeHtml(card.desc)}</span>`;
-            btn.style.cssText = 'font-family: inherit; padding: 15px 10px; background: #2c3e50; color: white; border: 2px solid #fff; border-radius: 8px; cursor: pointer; text-align: left;';
+            btn.innerHTML = `<b style="color:${theme.accent}; font-size: 20px;">${escapeHtml(formatCardDisplayTitle(card))}</b><br><span style="font-size:14px;">${escapeHtml(card.desc)}</span>`;
+            btn.style.cssText = `font-family: inherit; padding: 15px 10px; background: ${theme.cardBg}; color: white; border: 2px solid ${theme.border}; border-radius: 8px; cursor: pointer; text-align: left;`;
             btn.onclick = () => onUseCallback(card);
             grid.appendChild(btn);
         });
@@ -682,8 +823,26 @@ export const PopupManager = {
             };
         }
     },
+    showPortalBoardPrompt(onCancelCallback, reqFee = 0, isFree = false) {
+        this.closeAll();
+        const text = pickLangDict(MarbleLang, LangState.current);
+        const banner = document.getElementById('portal-hint-banner');
+        const titleEl = document.getElementById('portal-hint-title');
+        const subEl = document.getElementById('portal-hint-sub');
+        const cancelBtn = document.getElementById('portal-hint-cancel-btn');
+        if (!banner) return;
+        const feeStr = isFree ? text.PORTAL_FREE : formatMoney(reqFee);
+        if (titleEl) titleEl.innerText = `🚀 ${text.PORTAL_BOARD_GUIDE || '이동할 칸을 보드판에서 직접 선택해주세요.'}`;
+        if (subEl) subEl.innerText = `${text.PORTAL_TITLE} (${text.PORTAL_FEE_LABEL} ${feeStr})`;
+        if (cancelBtn) {
+            cancelBtn.innerText = text.PORTAL_CANCEL || '포기하기';
+            cancelBtn.onclick = onCancelCallback;
+        }
+        banner.style.display = 'flex';
+    },
     closeAll() {
-        ['event-popup', 'portal-popup', 'sell-popup', 'target-popup', 'void-game-popup'].forEach(id => {
+        this.setEventBanner(null);
+        ['event-popup', 'portal-popup', 'portal-hint-banner', 'sell-popup', 'target-popup', 'void-game-popup'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.style.display = 'none';
         });
@@ -692,7 +851,15 @@ export const PopupManager = {
 
 export function renderBoardState(ctx, boardImg, tiles, allPlayers, worldState = null) {
     ctx.clearRect(0, 0, 1080, 1080);
-    ctx.drawImage(boardImg, 0, 0, 1080, 1080);
+    if (boardImg && boardImg.complete && boardImg.naturalWidth > 0) {
+        ctx.drawImage(boardImg, 0, 0, 1080, 1080);
+    } else {
+        ctx.fillStyle = '#f5efe0';
+        ctx.fillRect(0, 0, 1080, 1080);
+        ctx.strokeStyle = '#c8b89a';
+        ctx.lineWidth = 8;
+        ctx.strokeRect(4, 4, 1072, 1072);
+    }
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     const currentFont = SettingsManager.getCanvasFont();
     const { isOverridden, currentTime } = resolveGimmickStatus(worldState);

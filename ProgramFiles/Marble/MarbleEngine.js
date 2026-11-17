@@ -176,6 +176,7 @@ export class MarbleGameEngine {
 
         this._promptSeq = 0;
         this.pendingPrompt = null;
+        this._arrivalTileId = null;
 
         this.diceState = {
             visible: false,
@@ -298,12 +299,17 @@ export class MarbleGameEngine {
                     onCancel: null
                 });
             },
-            showNormalPopup: (title, desc, showCloseBtn, onEndCallback) => {
+            showNormalPopup: (title, desc, showCloseBtn, onEndCallback, options = null) => {
                 this._setPendingPrompt({
                     kind: 'NORMAL',
                     title,
                     desc,
-                    showCloseBtn: Boolean(showCloseBtn)
+                    showCloseBtn: Boolean(showCloseBtn),
+                    isNormalAlert: Boolean(showCloseBtn),
+                    confirmText: options?.confirmText || null,
+                    titleColor: options?.titleColor || null,
+                    buttonColor: options?.buttonColor || null,
+                    borderColor: options?.borderColor || null
                 }, {
                     onRespond: () => {
                         this.pendingPrompt = null;
@@ -485,11 +491,17 @@ export class MarbleGameEngine {
 
     _setPendingPrompt(publicPayload, handlers) {
         const active = this.turnManager?.getCurrentPlayer();
+        const needsArrivalTile = (
+            publicPayload.tileId === undefined &&
+            this._arrivalTileId !== null &&
+            (publicPayload.kind === 'BUY' || publicPayload.kind === 'CHOICE' || publicPayload.kind === 'NORMAL')
+        );
         this.pendingPrompt = {
             promptId: ++this._promptSeq,
             revision: 1,
             targetPlayerId: active ? active.id : null,
             ...publicPayload,
+            ...(needsArrivalTile ? { tileId: this._arrivalTileId } : {}),
             onRespond: handlers.onRespond,
             onCancel: handlers.onCancel
         };
@@ -680,10 +692,12 @@ export class MarbleGameEngine {
             tied: false
         }));
         this._turnOrderBrackets = [this.allPlayers.map(p => p.id)];
+        const autoRollSec = Math.max(1, Number(GAME_CONSTANTS.TURN_ORDER_ROLL_TIME) || 5);
         this.turnOrderState = {
             visible: true,
             stage: 'ROLLING',
             round: 1,
+            rollSecondsLeft: autoRollSec,
             rerollSecondsLeft: 0,
             resultSecondsLeft: 0,
             tieNotice: '',
@@ -696,6 +710,23 @@ export class MarbleGameEngine {
                 this.schedule(() => this._rollTurnOrderPlayer(entry.id), 450 + entry.slotIndex * 300);
             }
         }
+
+        for (let s = 1; s < autoRollSec; s++) {
+            this.schedule(() => {
+                if (this.destroyed || !this.turnOrderState || this.turnOrderState.stage !== 'ROLLING' || this.turnOrderState.round !== 1) return;
+                this.turnOrderState.rollSecondsLeft = autoRollSec - s;
+                this.emitState();
+            }, s * 1000);
+        }
+
+        this.schedule(() => {
+            if (this.destroyed || !this.turnOrderState || this.turnOrderState.stage !== 'ROLLING' || this.turnOrderState.round !== 1) return;
+            this.turnOrderState.rollSecondsLeft = 0;
+            const pendingIds = this.turnOrderState.players.filter(e => !e.rolled).map(e => e.id);
+            for (const pid of pendingIds) {
+                this._rollTurnOrderPlayer(pid);
+            }
+        }, autoRollSec * 1000);
     }
 
     _rollTurnOrderPlayer(playerId) {
@@ -1188,6 +1219,7 @@ export class MarbleGameEngine {
 
     startTurn() {
         if (this.destroyed || this.isGameOver) return;
+        this._arrivalTileId = null;
         if (this.turnManager.globalTurn > this.maxTurn) {
             this.finishGame();
             return;
@@ -1373,37 +1405,41 @@ export class MarbleGameEngine {
                 const reqDesc = installment === 250000
                     ? (gText.BBANGJU_REQ_DESC_BASIC || gText.BBANGJU_REQ_DESC.replace('50만', '25만').replace('500,000', '250,000').replace('50万', '25万'))
                     : gText.BBANGJU_REQ_DESC;
-                this.turnTimer.start(getPlayerThinkTime(player), () => {
-                    this.port.closeAll();
-                    this.isWaitingAction = false;
-                    player.bbangjuPaidTotal = -1;
-                    this.processBbangjuInstallment(player);
-                });
-                this.port.showChoicePopup(gText.BBANGJU_REQ_TITLE, reqDesc, [
-                    {
-                        text: gText.BTN_ACCEPT,
-                        color: '#3498db',
-                        action: () => {
-                            this.turnTimer.stop();
-                            this.port.closeAll();
-                            this.isWaitingAction = false;
-                            player.bbangjuSupportTurns = 3;
-                            this.processBbangjuInstallment(player);
-                        }
-                    },
-                    {
-                        text: gText.BTN_REJECT,
-                        color: '#e74c3c',
-                        action: () => {
-                            this.turnTimer.stop();
-                            this.port.closeAll();
-                            this.isWaitingAction = false;
-                            player.bbangjuPaidTotal = -1;
-                            this.processBbangjuInstallment(player);
-                        }
-                    }
-                ]);
                 this.emitState();
+                this.schedule(() => {
+                    if (this.destroyed || this.isGameOver || this.turnManager?.getCurrentPlayer() !== player) return;
+                    this.turnTimer.start(getPlayerThinkTime(player), () => {
+                        this.port.closeAll();
+                        this.isWaitingAction = false;
+                        player.bbangjuPaidTotal = -1;
+                        this.processBbangjuInstallment(player);
+                    });
+                    this.port.showChoicePopup(gText.BBANGJU_REQ_TITLE, reqDesc, [
+                        {
+                            text: gText.BTN_ACCEPT,
+                            color: '#3498db',
+                            action: () => {
+                                this.turnTimer.stop();
+                                this.port.closeAll();
+                                this.isWaitingAction = false;
+                                player.bbangjuSupportTurns = 3;
+                                this.processBbangjuInstallment(player);
+                            }
+                        },
+                        {
+                            text: gText.BTN_REJECT,
+                            color: '#e74c3c',
+                            action: () => {
+                                this.turnTimer.stop();
+                                this.port.closeAll();
+                                this.isWaitingAction = false;
+                                player.bbangjuPaidTotal = -1;
+                                this.processBbangjuInstallment(player);
+                            }
+                        }
+                    ]);
+                    this.emitState();
+                }, 850);
                 return;
             }
         } else {
@@ -1873,6 +1909,7 @@ export class MarbleGameEngine {
 
     proceedEndTurn() {
         if (this.destroyed || this.isGameOver) return;
+        this._arrivalTileId = null;
         this.turnTimer.stop();
         this.port.closeAll();
         this.isWaitingAction = false;
@@ -1946,6 +1983,7 @@ export class MarbleGameEngine {
 
     executeRoll() {
         if (this.destroyed || this.isGameOver || this.isRolling || this.isWaitingAction) return;
+        this._arrivalTileId = null;
         this.isRolling = true;
         this.isPreRollPhase = false;
         this.turnTimer.stop();
@@ -2156,6 +2194,7 @@ export class MarbleGameEngine {
         this.isWaitingAction = true;
 
         const tile = this.tiles[player.pos];
+        this._arrivalTileId = tile ? tile.id : null;
         const viaRoll = Boolean(player._rollingMoveInProgress);
         player._rollingMoveInProgress = false;
         if (!viaRoll && tile) {
@@ -2415,6 +2454,33 @@ export class MarbleGameEngine {
         const isSoot = Boolean(this.world.requiem?.isSootState);
         const viewerPlayer = viewerId ? this.allPlayers.find(p => p.id === viewerId) : null;
 
+        let snapshotTiles = [];
+        this.runSynced(() => {
+            snapshotTiles = this.tiles.map(t => {
+                const baseOwnerToll = t.owner ? calculateToll(t, null) : 0;
+                const viewerToll = (t.owner && viewerPlayer && t.owner.id !== viewerPlayer.id)
+                    ? calculateToll(t, viewerPlayer)
+                    : baseOwnerToll;
+                return {
+                    id: t.id,
+                    type: t.type,
+                    rawType: t.rawType || t.type,
+                    isDisabled: Boolean(t.isDisabled),
+                    name: t.name,
+                    side: t.side,
+                    x: t.x,
+                    y: t.y,
+                    ownerId: t.owner ? t.owner.id : null,
+                    level: t.level,
+                    basePrice: t.basePrice,
+                    currentToll: baseOwnerToll,
+                    viewerToll,
+                    isSpecialToll: Boolean(t.isSpecialToll),
+                    timeType: t.timeType || 'none'
+                };
+            });
+        });
+
         return {
             roomId: this.roomId,
             myPlayerId: viewerId,
@@ -2518,6 +2584,8 @@ export class MarbleGameEngine {
                     hasDreamState: Boolean(p.hasDreamState),
                     hasMountainBuff: Boolean(p.hasMountainBuff),
                     hasFirstLapPassed: Boolean(p.hasFirstLapPassed),
+                    hasVisitedAltar: Boolean(p.hasVisitedAltar),
+                    altarVisitCount: p.altarVisitCount || 0,
                     hasRufoDiceBuff: (isViewer || this.isGameOver) ? Boolean(p.hasRufoDiceBuff) : false,
                     hasErpinDiceBuff: (isViewer || this.isGameOver) ? Boolean(p.hasErpinDiceBuff) : false,
                     hasSistDiscountBuff: (isViewer || this.isGameOver) ? Boolean(p.hasSistDiscountBuff) : false,
@@ -2536,21 +2604,7 @@ export class MarbleGameEngine {
                     treasureCards: viewerTreasures
                 };
             }),
-            tiles: this.tiles.map(t => ({
-                id: t.id,
-                type: t.type,
-                rawType: t.rawType || t.type,
-                isDisabled: Boolean(t.isDisabled),
-                name: t.name,
-                side: t.side,
-                x: t.x,
-                y: t.y,
-                ownerId: t.owner ? t.owner.id : null,
-                level: t.level,
-                basePrice: t.basePrice,
-                isSpecialToll: Boolean(t.isSpecialToll),
-                timeType: t.timeType || 'none'
-            })),
+            tiles: snapshotTiles,
             diceState: { ...this.diceState },
             turnOrderState: this.turnOrderState
                 ? {

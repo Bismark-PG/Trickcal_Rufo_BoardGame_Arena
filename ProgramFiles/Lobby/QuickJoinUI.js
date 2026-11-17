@@ -1,8 +1,9 @@
 import { changeScene } from '../Main.js';
 import { LangState } from '../System/LanguageManager.js';
 import { LobbyLang } from '../System/Index/LobbyIndex.js';
+import { inferGameIdFromCode } from '../System/GameRegistry.js';
 import { RoomManager } from './RoomManager.js';
-import { escapeHtml, showLobbyToast } from './LobbyUI.js';
+import { escapeHtml, showLobbyToast, ensureGameTabAccess } from './LobbyUI.js';
 
 /**
  * 메인 아레나 화면에서 룸 코드를 입력해 해당하는 게임의 대기방으로 바로 이동하는 빠른 참가 모달.
@@ -88,8 +89,17 @@ export function openQuickJoinModal(container) {
 
             const password = pwInput?.value || '';
             // expectedGameId에 null을 넘겨 EMRB / UNOS 등 종목과 무관하게 코드로 자동 매칭한다.
+            // 다중 탭 검사는 방 입장이 실제로 성공한 직후에만 수행해 오타/존재하지 않는 코드 시 기존 탭 오인 퇴장 및 상태 잔류를 막는다.
             const res = await RoomManager.joinRoomByCode(normalizedCode, null, password);
             if (res && res.ok) {
+                const targetGameId = res.room?.gameId || inferGameIdFromCode(normalizedCode);
+                if (targetGameId && RoomManager.isOnline()) {
+                    const tabRes = await ensureGameTabAccess(container, targetGameId);
+                    if (!tabRes.allowed) {
+                        closeModal();
+                        return;
+                    }
+                }
                 closeModal();
                 changeScene('room');
                 return;

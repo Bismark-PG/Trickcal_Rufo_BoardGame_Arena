@@ -7,6 +7,7 @@ import { LobbyLang } from '../System/Index/LobbyIndex.js';
 import { GAME_CONSTANTS, getModeConfig, normalizeMarbleMode } from '../System/Index/Marble/MarblePriceIndex.js';
 import { NetworkClient } from '../System/NetworkClient.js';
 import { SystemLogManager } from '../System/Log/SystemLogManager.js';
+import { ErrorTracker } from '../System/ErrorTracker.js';
 import { MarbleGameEngine } from '../Marble/MarbleEngine.js';
 
 const SLOT_COLORS = ['#e74c3c', '#3498db', '#f1c40f', '#9b59b6', '#2ecc71', '#e67e22'];
@@ -24,8 +25,34 @@ const SERVER_ERROR_TO_KEY = {
     NEED_HUMAN: 'TOAST_NEED_MIN_PLAYERS',
     NOT_ALL_READY: 'TOAST_NEED_MIN_PLAYERS',
     GAME_IN_DEVELOPMENT: 'ERR_GAME_IN_DEVELOPMENT',
-    INVALID_NICKNAME: 'NICK_EMPTY_ERR'
+    INVALID_NICKNAME: 'NICK_EMPTY_ERR',
+    ROOM_CREATE_BANNED: 'ERR_ROOM_CREATE_BANNED',
+    ROOM_CREATE_RATE_LIMITED: 'ERR_ROOM_CREATE_RATE_LIMITED',
+    SERVER_ROOM_LIMIT_REACHED: 'ERR_SERVER_ROOM_LIMIT_REACHED',
+    COUNTDOWN_LOCKED: 'ERR_COUNTDOWN_LOCKED',
+    CANNOT_TRANSFER_HOST: 'ERR_CANNOT_TRANSFER_HOST'
 };
+
+const STORAGE_OFFLINE_STRIKES = 'ag_offline_host_idle_strikes';
+const STORAGE_OFFLINE_BAN_UNTIL = 'ag_offline_room_ban_until';
+
+function readSafeStorageInt(key, fallback = 0) {
+    try {
+        if (typeof localStorage === 'undefined') return fallback;
+        const n = Number(localStorage.getItem(key));
+        return Number.isFinite(n) ? n : fallback;
+    } catch (_) {
+        return fallback;
+    }
+}
+
+function writeSafeStorageInt(key, val) {
+    try {
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(key, String(val));
+        }
+    } catch (_) {}
+}
 
 function createEmptySlot(slotIndex) {
     return {
@@ -79,6 +106,7 @@ export const RoomManager = {
     _nextRoomSeq: 1,
     _nextMockSeq: 1,
     _netInitialized: false,
+    _consecutiveActionTimeouts: 0,
     _uiListeners: new Set(),
     _gameListeners: new Set(),
 
@@ -173,6 +201,10 @@ export const RoomManager = {
             NetworkClient.subscribe('GAME_STATE', (msg) => {
                 if (msg.snapshot) {
                     this.activeSnapshot = msg.snapshot;
+                    this._consecutiveActionTimeouts = 0;
+                    const activeGameId = this.onlineCurrentRoom?.gameId;
+                    const meta = activeGameId ? getGameMeta(activeGameId) : null;
+                    ErrorTracker.markTransitionComplete(meta?.sceneGame || 'marble');
                     this._emitGame('STATE', msg.snapshot);
                 }
             });
@@ -203,6 +235,23 @@ export const RoomManager = {
                 this.activeSnapshot = null;
                 this._emitUi('KICKED_FROM_ROOM', msg);
                 this._emitGame('KICKED', msg);
+            });
+
+            NetworkClient.subscribe('TAB_REPLACED', (msg) => {
+                this.clearGhostSession({ skipServerLeave: true });
+                this._emitUi('TAB_REPLACED', msg);
+                this._emitGame('TAB_REPLACED', msg);
+            });
+
+            NetworkClient.subscribe('NETWORK_RECONNECT_EXHAUSTED', (msg) => {
+                if (this.onlineCurrentRoom || this.activeSnapshot) {
+                    ErrorTracker.reportNetworkDesync({
+                        reason: 'RECONNECT_EXHAUSTED',
+                        message: `WebSocket reconnect failed after ${msg?.attempts || 3} attempts`,
+                        gameId: this.onlineCurrentRoom?.gameId || 'marble',
+                        scene: this.activeSnapshot ? 'marble' : 'room'
+                    });
+                }
             });
         }
 
@@ -294,52 +343,69 @@ export const RoomManager = {
             : (lang === 'en'
                 ? [
                     { code: 'EMRBSMP101', title: 'Beginners Welcome! Friendly Match', host: 'Erpin', max: 4, aiCount: 1, isPrivate: false },
-                    { code: 'EMRBSMP204', title: 'Fast 2-Player Tactics', host: 'Ner', max: 2, aiCount: 0, isPrivate: false },
+                    { code: 'EMRBSMP204', title: 'Fast 2-Player Tactics', host: 'Ner', max: 2, aiCount: 1, isPrivate: false, noMockHost: true, mode: 'speed' },
                     { code: 'EMRBSMP777', title: 'Secret Cult Practice Room', host: 'Rufo', max: 4, aiCount: 2, isPrivate: true }
                 ]
                 : (lang === 'ja'
                     ? [
                         { code: 'EMRBSMP101', title: '初心者歓迎！まったりマルチ', host: 'エルフィン', max: 4, aiCount: 1, isPrivate: false },
-                        { code: 'EMRBSMP204', title: 'サクッと2人対戦部屋', host: 'ネル', max: 2, aiCount: 0, isPrivate: false },
+                        { code: 'EMRBSMP204', title: 'サクッと2人対戦部屋', host: 'ネル', max: 2, aiCount: 1, isPrivate: false, noMockHost: true, mode: 'speed' },
                         { code: 'EMRBSMP777', title: '教団秘密練習ルーム', host: 'ルポ', max: 4, aiCount: 2, isPrivate: true }
                     ]
                     : [
                         { code: 'EMRBSMP101', title: '초보 환영! 즐겁게 한 판 하실 분', host: '에르핀', max: 4, aiCount: 1, isPrivate: false },
-                        { code: 'EMRBSMP204', title: '빠른 2인 전략전 테스트', host: '네르', max: 2, aiCount: 0, isPrivate: false },
+                        { code: 'EMRBSMP204', title: '빠른 2인 전략전 테스트', host: '네르', max: 2, aiCount: 1, isPrivate: false, noMockHost: true, mode: 'speed' },
                         { code: 'EMRBSMP777', title: '교단 비밀 연습실', host: '루포', max: 4, aiCount: 2, isPrivate: true }
                     ]));
 
         samples.forEach((s, idx) => {
             const roomId = `sample_${gameId}_${idx + 1}`;
             const slots = Array.from({ length: s.max }, (_, i) => createEmptySlot(i));
-            slots[0] = {
-                slotIndex: 0,
-                type: 'human',
-                id: `sample_host_${idx + 1}`,
-                name: s.host,
-                color: SLOT_COLORS[0],
-                isHost: true,
-                isReady: true,
-                isMockHuman: true,
-                isConnected: true,
-                aiType: null
-            };
-            for (let a = 1; a <= s.aiCount && a < s.max; a++) {
-                const usedNames = slots.filter(sl => sl.type !== 'empty' && sl.name).map(sl => sl.name);
-                const sampleDiff = AI_DIFFICULTIES[Math.floor(Math.random() * AI_DIFFICULTIES.length)];
-                slots[a] = {
-                    slotIndex: a,
+            if (s.noMockHost) {
+                slots[1] = {
+                    slotIndex: 1,
                     type: 'ai',
-                    id: `sample_ai_${idx}_${a}`,
-                    name: pickRandomBotName(usedNames),
-                    color: SLOT_COLORS[a % SLOT_COLORS.length],
+                    id: `sample_ai_${idx}_1`,
+                    name: s.host,
+                    color: SLOT_COLORS[1 % SLOT_COLORS.length],
                     isHost: false,
                     isReady: true,
                     isMockHuman: false,
                     isConnected: true,
                     aiType: 'random',
-                    aiDifficulty: sampleDiff
+                    aiDifficulty: 'mild'
                 };
+            } else {
+                slots[0] = {
+                    slotIndex: 0,
+                    type: 'human',
+                    id: `sample_host_${idx + 1}`,
+                    name: s.host,
+                    color: SLOT_COLORS[0],
+                    isHost: true,
+                    isReady: false,
+                    isMockHuman: true,
+                    isConnected: true,
+                    joinedSeq: 1,
+                    aiType: null
+                };
+                for (let a = 1; a <= s.aiCount && a < s.max; a++) {
+                    const usedNames = slots.filter(sl => sl.type !== 'empty' && sl.name).map(sl => sl.name);
+                    const sampleDiff = AI_DIFFICULTIES[Math.floor(Math.random() * AI_DIFFICULTIES.length)];
+                    slots[a] = {
+                        slotIndex: a,
+                        type: 'ai',
+                        id: `sample_ai_${idx}_${a}`,
+                        name: pickRandomBotName(usedNames),
+                        color: SLOT_COLORS[a % SLOT_COLORS.length],
+                        isHost: false,
+                        isReady: true,
+                        isMockHuman: false,
+                        isConnected: true,
+                        aiType: 'random',
+                        aiDifficulty: sampleDiff
+                    };
+                }
             }
 
             this.rooms.push({
@@ -350,12 +416,14 @@ export const RoomManager = {
                 isPrivate: s.isPrivate,
                 hasPassword: false,
                 maxPlayers: s.max,
-                hostId: slots[0].id,
+                hostId: s.noMockHost ? null : slots[0].id,
+                aiOpponentName: s.noMockHost ? s.host : null,
                 status: 'waiting',
                 countdownSec: 0,
                 isSample: true,
+                _nextJoinSeq: 2,
                 createdAt: Date.now() - (samples.length - idx) * 10000,
-                customOptions: getDefaultCustomOptions(),
+                customOptions: getDefaultCustomOptions(s.mode ? { gameMode: s.mode } : null),
                 slots
             });
         });
@@ -390,11 +458,67 @@ export const RoomManager = {
 
     getHostName(room) {
         const host = room?.slots?.find(s => s.isHost);
-        return host?.name || '-';
+        return host?.name || room?.aiOpponentName || '-';
     },
 
     getOccupiedCount(room) {
         return room ? room.slots.filter(s => s.type !== 'empty').length : 0;
+    },
+
+    getOfflineRoomCreateBanUntil() {
+        const until = readSafeStorageInt(STORAGE_OFFLINE_BAN_UNTIL, 0);
+        if (until > Date.now()) return until;
+        if (until > 0) writeSafeStorageInt(STORAGE_OFFLINE_BAN_UNTIL, 0);
+        return 0;
+    },
+
+    resetOfflineHostIdleStrikes() {
+        writeSafeStorageInt(STORAGE_OFFLINE_STRIKES, 0);
+    },
+
+    shouldRunOfflineHostIdleTimer(room = this.getCurrentRoom()) {
+        if (this.isOnline() || !room || room.status !== 'waiting') return false;
+        if (room.hostId !== this.localPlayer.id) return false;
+        const otherHumans = room.slots.filter(s => s.type === 'human' && s.id !== room.hostId && s.isConnected !== false);
+        if (otherHumans.length < 1) return false;
+        return this.canStart(room).canStart;
+    },
+
+    handleOfflineHostIdleTimeout() {
+        const room = this.getCurrentRoom();
+        if (!room || !this.shouldRunOfflineHostIdleTimer(room)) return null;
+
+        const myIdx = room.slots.findIndex(s => s.id === this.localPlayer.id);
+        if (myIdx !== -1) {
+            room.slots[myIdx] = createEmptySlot(myIdx);
+        }
+
+        const nextHostCandidates = room.slots
+            .filter(s => s.type === 'human' && s.id !== this.localPlayer.id)
+            .sort((a, b) => (a.joinedSeq ?? a.slotIndex) - (b.joinedSeq ?? b.slotIndex));
+
+        if (!room.isSample && nextHostCandidates.length === 0) {
+            this.rooms = this.rooms.filter(r => r.id !== room.id);
+        } else if (nextHostCandidates.length > 0) {
+            const nextHost = nextHostCandidates[0];
+            nextHost.isHost = true;
+            nextHost.isReady = false;
+            room.hostId = nextHost.id;
+        } else {
+            room.hostId = null;
+        }
+        room.status = 'waiting';
+        this.currentRoomId = null;
+
+        const nextStrikes = readSafeStorageInt(STORAGE_OFFLINE_STRIKES, 0) + 1;
+        if (nextStrikes >= 3) {
+            const bannedUntil = Date.now() + 3600000;
+            writeSafeStorageInt(STORAGE_OFFLINE_STRIKES, 0);
+            writeSafeStorageInt(STORAGE_OFFLINE_BAN_UNTIL, bannedUntil);
+            return { roomId: room.id, gameId: room.gameId, reason: 'HOST_IDLE_BANNED', strikeCount: nextStrikes, bannedUntil };
+        }
+        writeSafeStorageInt(STORAGE_OFFLINE_STRIKES, nextStrikes);
+        return { roomId: room.id, gameId: room.gameId, reason: 'HOST_IDLE_KICKED', strikeCount: nextStrikes, bannedUntil: 0 };
     },
 
     async createRoom({ gameId, title, isPrivate = false, password = '', maxPlayers = 4, customOptions = null }) {
@@ -414,11 +538,16 @@ export const RoomManager = {
                 customOptions: fixedOptions
             });
             if (!res.ok) {
-                return { ok: false, errorCode: mapServerError(res.error) };
+                return { ok: false, errorCode: mapServerError(res.error), errorData: res.data || null };
             }
             this.onlineCurrentRoom = res.data.room;
             this.currentRoomId = res.data.room.id;
             return { ok: true, room: res.data.room };
+        }
+
+        const banUntil = this.getOfflineRoomCreateBanUntil();
+        if (banUntil > Date.now()) {
+            return { ok: false, errorCode: 'ERR_ROOM_CREATE_BANNED', errorData: { bannedUntil: banUntil } };
         }
 
         const meta = getGameMeta(gameId);
@@ -437,9 +566,10 @@ export const RoomManager = {
             name: this.localPlayer.name,
             color: SLOT_COLORS[0],
             isHost: true,
-            isReady: true,
+            isReady: false,
             isMockHuman: false,
             isConnected: true,
+            joinedSeq: 1,
             aiType: null
         };
 
@@ -454,6 +584,7 @@ export const RoomManager = {
             hostId: this.localPlayer.id,
             status: 'waiting',
             countdownSec: 0,
+            _nextJoinSeq: 2,
             isSample: false,
             createdAt: Date.now(),
             customOptions: fixedOptions,
@@ -523,18 +654,24 @@ export const RoomManager = {
         const emptySlot = room.slots.find(s => s.type === 'empty');
         if (!emptySlot) return { ok: false, errorCode: 'ERR_ROOM_FULL' };
 
+        if (!room._nextJoinSeq) room._nextJoinSeq = 2;
+        const shouldBecomeHost = !room.slots.some(s => s.type === 'human' && s.isHost);
         room.slots[emptySlot.slotIndex] = {
             slotIndex: emptySlot.slotIndex,
             type: 'human',
             id: this.localPlayer.id,
             name: this.localPlayer.name,
             color: getNextUnusedColor(room, emptySlot.slotIndex),
-            isHost: false,
+            isHost: shouldBecomeHost,
             isReady: false,
             isMockHuman: false,
             isConnected: true,
+            joinedSeq: room._nextJoinSeq++,
             aiType: null
         };
+        if (shouldBecomeHost) {
+            room.hostId = this.localPlayer.id;
+        }
         this.currentRoomId = room.id;
         return { ok: true, room };
     },
@@ -560,15 +697,21 @@ export const RoomManager = {
             room.slots[myIdx] = createEmptySlot(myIdx);
         }
 
-        const realHumans = room.slots.filter(s => s.type === 'human' && !s.isMockHuman);
+        const realHumans = room.slots
+            .filter(s => s.type === 'human' && !s.isMockHuman)
+            .sort((a, b) => (a.joinedSeq ?? a.slotIndex) - (b.joinedSeq ?? b.slotIndex));
         if (!room.isSample && realHumans.length === 0) {
             this.rooms = this.rooms.filter(r => r.id !== room.id);
         } else if (room.hostId === this.localPlayer.id) {
-            const nextHost = room.slots.find(s => s.type === 'human');
+            const nextHost = realHumans[0] || null;
             if (nextHost) {
                 nextHost.isHost = true;
-                nextHost.isReady = true;
+                nextHost.isReady = false;
                 room.hostId = nextHost.id;
+            } else if (room.isSample && room.aiOpponentName) {
+                room.hostId = null;
+            } else if (!room.isSample) {
+                this.rooms = this.rooms.filter(r => r.id !== room.id);
             }
         }
 
@@ -599,6 +742,9 @@ export const RoomManager = {
                 startOfflineNow: check.canStart
             };
         }
+        if (room.status === 'countdown') {
+            return { ok: false, errorCode: 'ERR_COUNTDOWN_LOCKED' };
+        }
         target.isReady = !target.isReady;
         return { ok: true };
     },
@@ -611,7 +757,7 @@ export const RoomManager = {
             return res.ok;
         }
         const room = this.getCurrentRoom();
-        if (!room || !room.slots[slotIndex] || room.slots[slotIndex].type !== 'empty') return false;
+        if (!room || room.hostId !== this.localPlayer.id || !room.slots[slotIndex] || room.slots[slotIndex].type !== 'empty') return false;
         const usedNames = room.slots.filter(s => s.type !== 'empty' && s.name).map(s => s.name);
         room.slots[slotIndex] = {
             slotIndex,
@@ -636,7 +782,7 @@ export const RoomManager = {
             return Boolean(res.ok && res.data?.added);
         }
         const room = this.getCurrentRoom();
-        if (!room) return false;
+        if (!room || room.hostId !== this.localPlayer.id) return false;
         let changed = false;
         room.slots.forEach(s => {
             if (s.type === 'empty') {
@@ -667,7 +813,7 @@ export const RoomManager = {
             return Boolean(res.ok && res.data?.cleared);
         }
         const room = this.getCurrentRoom();
-        if (!room) return false;
+        if (!room || room.hostId !== this.localPlayer.id) return false;
         let changed = false;
         room.slots.forEach((s, idx) => {
             if (s.type === 'ai') {
@@ -685,6 +831,7 @@ export const RoomManager = {
             return res.ok;
         }
         const room = this.getCurrentRoom();
+        if (!room || room.hostId !== this.localPlayer.id) return false;
         const slot = room?.slots[slotIndex];
         if (!slot || slot.type !== 'ai') return false;
         const curDiff = normalizeAiDifficulty(slot.aiDifficulty || slot.aiType, 'mild');
@@ -698,8 +845,10 @@ export const RoomManager = {
     addMockHuman(slotIndex) {
         if (this.isOnline()) return false;
         const room = this.getCurrentRoom();
+        if (!room || room.hostId !== this.localPlayer.id) return false;
         const slot = room?.slots[slotIndex];
         if (!slot || slot.type !== 'empty') return false;
+        if (!room._nextJoinSeq) room._nextJoinSeq = 2;
         const usedNames = new Set(room.slots.map(s => s.name));
         const pickName = MOCK_NAMES.find(n => !usedNames.has(n)) || `유저${this._nextMockSeq}`;
         room.slots[slotIndex] = {
@@ -709,12 +858,41 @@ export const RoomManager = {
             name: pickName,
             color: getNextUnusedColor(room, slotIndex),
             isHost: false,
-            isReady: false,
+            isReady: true,
             isMockHuman: true,
             isConnected: true,
+            joinedSeq: room._nextJoinSeq++,
             aiType: null
         };
         return true;
+    },
+
+    async transferHost(slotIndex) {
+        if (this.isOnline()) {
+            const res = await NetworkClient.request('TRANSFER_HOST', { slotIndex });
+            if (res.ok && res.data?.room) {
+                this.onlineCurrentRoom = res.data.room;
+            }
+            return { ok: res.ok, errorCode: res.ok ? null : mapServerError(res.error) };
+        }
+        const room = this.getCurrentRoom();
+        if (!room || room.hostId !== this.localPlayer.id || room.status !== 'waiting') {
+            return { ok: false, errorCode: 'ERR_CANNOT_TRANSFER_HOST' };
+        }
+        const target = room.slots[slotIndex];
+        if (!target || target.type !== 'human' || target.isHost) {
+            return { ok: false, errorCode: 'ERR_CANNOT_TRANSFER_HOST' };
+        }
+        const oldHost = room.slots.find(s => s.id === room.hostId);
+        if (oldHost) {
+            oldHost.isHost = false;
+            oldHost.isReady = false;
+        }
+        target.isHost = true;
+        target.isReady = false;
+        room.hostId = target.id;
+        this._emitUi('ROOM_UPDATED', room);
+        return { ok: true, room };
     },
 
     async clearSlot(slotIndex) {
@@ -724,6 +902,7 @@ export const RoomManager = {
             return res.ok;
         }
         const room = this.getCurrentRoom();
+        if (!room || room.hostId !== this.localPlayer.id) return false;
         const slot = room?.slots[slotIndex];
         if (!slot || slot.type === 'empty' || slot.isHost) return false;
         room.slots[slotIndex] = createEmptySlot(slotIndex);
@@ -746,7 +925,7 @@ export const RoomManager = {
             return res.ok;
         }
         const room = this.getCurrentRoom();
-        if (!room) return false;
+        if (!room || room.hostId !== this.localPlayer.id) return false;
         room.customOptions = fixedOptions;
         this._emitUi('ROOM_UPDATED', room);
         return true;
@@ -773,22 +952,24 @@ export const RoomManager = {
 
     getReadinessSummary(room = this.getCurrentRoom()) {
         if (!room) {
-            return { occupied: 0, humanCount: 0, readyHumanCount: 0, aiCount: 0, hasMinPlayers: false, allHumansReady: false };
+            return { occupied: 0, humanCount: 0, totalHumanCount: 0, readyHumanCount: 0, aiCount: 0, hasMinPlayers: false, allHumansReady: false };
         }
         const meta = getGameMeta(room.gameId);
         const minP = meta ? meta.minPlayers : 2;
         const active = room.slots.filter(s => s.type !== 'empty');
         const humans = active.filter(s => s.type === 'human');
-        const readyHumans = humans.filter(s => s.isReady);
+        const nonHostHumans = humans.filter(s => !s.isHost);
+        const readyHumans = nonHostHumans.filter(s => s.isReady);
         const ais = active.filter(s => s.type === 'ai');
 
         return {
             occupied: active.length,
-            humanCount: humans.length,
+            humanCount: nonHostHumans.length,
+            totalHumanCount: humans.length,
             readyHumanCount: readyHumans.length,
             aiCount: ais.length,
             hasMinPlayers: active.length >= minP,
-            allHumansReady: humans.length >= 1 && readyHumans.length === humans.length
+            allHumansReady: humans.length >= 1 && readyHumans.length === nonHostHumans.length
         };
     },
 
@@ -837,11 +1018,14 @@ export const RoomManager = {
                     if (event?.targetPlayerId && event.targetPlayerId !== viewer) {
                         return;
                     }
-                    if (event?.type === 'GAME_OVER' && event.matchLogData) {
-                        const logGameId = room?.gameId || 'marble';
-                        SystemLogManager.recordGameResult(logGameId, event.matchLogData).catch(() => {});
-                        if (logGameId === 'marble') {
-                            SystemLogManager.recordGameResult('marble_10', event.matchLogData).catch(() => {});
+                    if (event?.type === 'GAME_OVER') {
+                        this.resetOfflineHostIdleStrikes();
+                        if (event.matchLogData) {
+                            const logGameId = room?.gameId || 'marble';
+                            SystemLogManager.recordGameResult(logGameId, event.matchLogData).catch(() => {});
+                            if (logGameId === 'marble') {
+                                SystemLogManager.recordGameResult('marble_10', event.matchLogData).catch(() => {});
+                            }
                         }
                     }
                     this._emitGame('EVENT', event);
@@ -882,6 +1066,18 @@ export const RoomManager = {
         }
     },
 
+    clearGhostSession({ skipServerLeave = false } = {}) {
+        this.stopLocalGameSession();
+        const hadOnlineRoom = Boolean(this.onlineCurrentRoom || this.currentRoomId);
+        this.onlineCurrentRoom = null;
+        this.currentRoomId = null;
+        this.activeSnapshot = null;
+        this._consecutiveActionTimeouts = 0;
+        if (!skipServerLeave && hadOnlineRoom && this.isOnline()) {
+            NetworkClient.request('LEAVE_ROOM', {}, 2000).catch(() => {});
+        }
+    },
+
     async sendGameAction(action) {
         if (this.isOnline()) {
             const room = this.getCurrentRoom();
@@ -889,6 +1085,30 @@ export const RoomManager = {
                 roomId: room ? room.id : this.activeSnapshot?.roomId,
                 action
             });
+            if (res.ok) {
+                this._consecutiveActionTimeouts = 0;
+            } else if (res.error === 'GAME_NOT_ACTIVE' || res.error === 'NO_ROOM') {
+                this._consecutiveActionTimeouts = 0;
+                if (room || this.activeSnapshot) {
+                    ErrorTracker.reportNetworkDesync({
+                        reason: res.error,
+                        message: `Server rejected GAME_ACTION (${res.error})`,
+                        gameId: room?.gameId || 'marble',
+                        scene: 'marble'
+                    });
+                }
+            } else if (res.error === 'REQUEST_TIMEOUT') {
+                this._consecutiveActionTimeouts += 1;
+                if (this._consecutiveActionTimeouts >= 2 && (room || this.activeSnapshot)) {
+                    this._consecutiveActionTimeouts = 0;
+                    ErrorTracker.reportNetworkDesync({
+                        reason: 'RPC_TIMEOUT',
+                        message: 'Consecutive GAME_ACTION RPC timeouts',
+                        gameId: room?.gameId || 'marble',
+                        scene: 'marble'
+                    });
+                }
+            }
             return res;
         }
         if (this.localEngine) {

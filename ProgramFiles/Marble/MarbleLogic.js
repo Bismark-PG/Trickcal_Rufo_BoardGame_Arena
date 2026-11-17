@@ -55,6 +55,37 @@ export function generateTiles(mode = null) {
     TimeSlotSystem.initTiles(tiles); return tiles;
 }
 
+/**
+ * 모드별 격자 규격(speed 11U / basic 12U / ember 13U)에 맞춰 타일의 1080×1080 캔버스 클릭 히트박스를 반환한다.
+ */
+export function getTileHitBox(tile, gameMode = null) {
+    if (!tile || tile.isDisabled || tile.type === 'disabled') return null;
+    const effectiveMode = gameMode || getActiveWorld()?.gameMode || 'ember';
+    const gridN = getModeConfig(effectiveMode).gridUnits || 13;
+    const U = 1080 / gridN;
+    const isCorner = (tile.id % 10) === 0;
+    const isHorizontalSide = tile.side === 0 || tile.side === 2;
+    const halfW = isCorner ? U : (isHorizontalSide ? U * 0.5 : U);
+    const halfH = isCorner ? U : (isHorizontalSide ? U : U * 0.5);
+    return { x: tile.x, y: tile.y, halfW, halfH };
+}
+
+/**
+ * 1080×1080 캔버스 좌표(cx, cy)에 해당하는 활성 보드 타일을 반환한다.
+ */
+export function findTileAtCanvasPoint(cx, cy, tiles = [], gameMode = null) {
+    if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Array.isArray(tiles)) return null;
+    const effectiveMode = gameMode || getActiveWorld()?.gameMode || 'ember';
+    for (const tile of tiles) {
+        const box = getTileHitBox(tile, effectiveMode);
+        if (!box) continue;
+        if (Math.abs(cx - box.x) <= box.halfW && Math.abs(cy - box.y) <= box.halfH) {
+            return tile;
+        }
+    }
+    return null;
+}
+
 export function calculatePurchaseCost(tile, targetLevel, player = null, options = {}) {
     if (targetLevel < 0 || targetLevel > 4) return 0;
     let rawCost = 0;

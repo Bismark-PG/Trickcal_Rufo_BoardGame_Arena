@@ -16,18 +16,21 @@ import {
     renderBoardState,
     showSettlementPopup,
     PopupManager,
-    setActiveRenderWorld
+    setActiveRenderWorld,
+    applyTrackedBannerBg
 } from '../Marble/MarbleUI.js';
 import { pickLangDict, formatMoney, getTileName } from '../Marble/MarbleRuntime.js';
-import { calculatePurchaseCost, getTileSellValue } from '../Marble/MarbleLogic.js';
+import { calculatePurchaseCost, getTileSellValue, findTileAtCanvasPoint } from '../Marble/MarbleLogic.js';
 import { LangState } from '../System/LanguageManager.js';
 import { MarbleLang } from '../System/Index/Marble/MarbleUIIndex.js';
-import { CardUILang } from '../System/Index/Marble/MarbleCardUIIndex.js';
+import { CardUILang, formatCardDisplayTitle, getCardGradeTheme } from '../System/Index/Marble/MarbleCardUIIndex.js';
 import { GimmickLang } from '../System/Index/Marble/MarbleGimmickIndex.js';
-import { BOARD_TILES } from '../System/Index/Marble/MarbleBoardIndex.js';
+import { BOARD_TILES, resolveTileBgPath, getTileIntroDesc } from '../System/Index/Marble/MarbleBoardIndex.js';
 import { GAME_CONSTANTS, BUILDING_COSTS, MULTIPLIERS, getModeConfig } from '../System/Index/Marble/MarblePriceIndex.js';
 import { LobbyLang } from '../System/Index/LobbyIndex.js';
 import { getGameMeta } from '../System/GameRegistry.js';
+import { ErrorTracker } from '../System/ErrorTracker.js';
+import { getCachedMarbleImage, preloadMarbleAssets } from '../Marble/MarbleAssetLoader.js';
 
 const DICE_NORMAL_PATH = './Resource/Texture/Marble/Dice/Dice_N_';
 const DICE_ERPIN_PATH = './Resource/Texture/Marble/Dice/Dice_E_';
@@ -70,7 +73,17 @@ export function initMarble(container, sceneParams = null) {
     const initialBoardMode = sceneParams?.room?.customOptions?.gameMode || 'ember';
     let loadedBoardSrc = getModeConfig(initialBoardMode).boardTexture || './Resource/Texture/Marble/Board_Mode_Ember.png';
     const boardImg = new Image();
-    boardImg.src = loadedBoardSrc;
+    ErrorTracker.trackImage(boardImg, { critical: true, label: 'MarbleBoard' });
+    const getActiveBoardImage = () => getCachedMarbleImage(loadedBoardSrc) || boardImg;
+    if (!getCachedMarbleImage(loadedBoardSrc)) {
+        boardImg.src = loadedBoardSrc;
+    }
+    preloadMarbleAssets();
+
+    ['dice-img-1', 'dice-img-2', 'dice-img-3'].forEach((id) => {
+        const dImg = container.querySelector(`#${id}`);
+        if (dImg) ErrorTracker.trackImage(dImg, { critical: false, label: `MarbleDice:${id}` });
+    });
 
     let isCleanedUp = false;
     let latestSnapshot = null;
@@ -88,11 +101,13 @@ export function initMarble(container, sceneParams = null) {
     let selectedHandCard = null;
     let isTerritoryOpen = false;
     let selectedTerritoryId = null;
+    let selectedTerritorySource = null;
     let isPeekingBoard = false;
     const peekSavedDisplay = new Map();
     let latestMainHudPlayer = null;
     let latestViewTiles = [];
     let latestCanActNow = false;
+    let announcedTurnKey = null;
 
     const PEEK_TARGET_IDS = [
         'event-popup',
@@ -205,7 +220,7 @@ export function initMarble(container, sceneParams = null) {
         const btn = document.getElementById('btn-board-peek');
         if (!bar || !btn) return;
         const isBlockingScene = !snapshot || snapshot.phase === 'GAME_OVER' || Boolean(snapshot.afkAutoAlert);
-        const hasAnyOverlay = isHandOpen || isTerritoryOpen || Boolean(snapshot?.pendingPrompt);
+        const hasAnyOverlay = isHandOpen || isTerritoryOpen || selectedTerritoryId !== null || Boolean(snapshot?.pendingPrompt);
         if (isBlockingScene || !hasAnyOverlay) {
             if (isPeekingBoard) {
                 isPeekingBoard = false;
@@ -240,6 +255,7 @@ export function initMarble(container, sceneParams = null) {
     const closeTerritoryPopups = () => {
         isTerritoryOpen = false;
         selectedTerritoryId = null;
+        selectedTerritorySource = null;
         const p = document.getElementById('territory-popup');
         const d = document.getElementById('territory-detail-popup');
         if (p) p.style.display = 'none';
@@ -284,22 +300,19 @@ export function initMarble(container, sceneParams = null) {
         const actionsEl = document.getElementById('hand-detail-actions');
         const useBtn = document.getElementById('hand-detail-use-btn');
 
-        const badgeMap = {
-            use: { text: cText.INV_SEC_USE || '사용형 카드', bg: '#8e44ad' },
-            hold: { text: cText.INV_SEC_HOLD || '보유형 카드', bg: '#2980b9' },
-            treasure: { text: cText.INV_SEC_TREASURE || '보물 카드', bg: '#d35400' }
-        };
-        const badgeMeta = badgeMap[card.subType] || badgeMap.use;
+        const theme = getCardGradeTheme(card);
         if (badgeEl) {
-            badgeEl.innerText = badgeMeta.text;
-            badgeEl.style.background = badgeMeta.bg;
+            badgeEl.innerText = `${theme.label} · ${cText[`INV_SEC_${card.subType === 'hold' ? 'HOLD' : (card.subType === 'treasure' ? 'TREASURE' : 'USE')}`] || (card.subType === 'treasure' ? '보물 카드' : (card.subType === 'hold' ? '보유형 카드' : '사용형 카드'))}`;
+            badgeEl.style.background = theme.buttonBg;
             badgeEl.style.color = '#fff';
         }
+        detailEl.style.borderColor = theme.accent;
         if (titleEl) {
             const usesSuffix = (card.subType === 'treasure' && card.maxUses > 0)
                 ? ` (${cText.TREASURE_USES_LEFT || '남은 횟수:'} ${card.remainingUses}/${card.maxUses})`
                 : '';
-            titleEl.innerText = `${card.name || ''}${usesSuffix}`;
+            titleEl.innerText = `${formatCardDisplayTitle(card)}${usesSuffix}`;
+            titleEl.style.color = theme.accent;
         }
         if (descEl) descEl.innerText = card.desc || '';
 
@@ -403,17 +416,18 @@ export function initMarble(container, sceneParams = null) {
                     secWrap.appendChild(header);
 
                     sec.items.forEach((card) => {
+                        const theme = getCardGradeTheme(card);
                         const rowBtn = document.createElement('button');
                         rowBtn.type = 'button';
                         const usableTag = card.subType === 'hold'
-                            ? `<span style="font-size: 12px; padding: 3px 8px; border-radius: 6px; background: rgba(52, 152, 219, 0.25); color: #74b9ff;">보유중</span>`
+                            ? `<span style="font-size: 12px; padding: 3px 8px; border-radius: 6px; background: ${theme.badgeBg}; color: ${theme.badgeText};">보유중</span>`
                             : (isMyWindow && card.canUseNow
                                 ? `<span style="font-size: 12px; padding: 3px 8px; border-radius: 6px; background: rgba(46, 204, 113, 0.28); color: #2ecc71;">사용 가능</span>`
                                 : (card.subType === 'treasure' && card.maxUses > 0
-                                    ? `<span style="font-size: 12px; padding: 3px 8px; border-radius: 6px; background: rgba(243, 156, 18, 0.22); color: #f8c471;">${card.remainingUses}/${card.maxUses}</span>`
-                                    : `<span style="font-size: 12px; padding: 3px 8px; border-radius: 6px; background: rgba(255,255,255,0.1); color: #cbd5e1;">상세보기</span>`));
-                        rowBtn.style.cssText = 'font-family: inherit; width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.18); border-radius: 10px; color: #fff; cursor: pointer; text-align: left;';
-                        rowBtn.innerHTML = `<span style="font-size: 18px; font-weight: bold;">${escapeHtml(card.name || '')}</span>${usableTag}`;
+                                    ? `<span style="font-size: 12px; padding: 3px 8px; border-radius: 6px; background: ${theme.badgeBg}; color: ${theme.badgeText};">${card.remainingUses}/${card.maxUses}</span>`
+                                    : `<span style="font-size: 12px; padding: 3px 8px; border-radius: 6px; background: ${theme.badgeBg}; color: ${theme.badgeText};">상세보기</span>`));
+                        rowBtn.style.cssText = `font-family: inherit; width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; background: ${theme.cardBg}; border: 1.5px solid ${theme.border}; border-radius: 10px; color: #fff; cursor: pointer; text-align: left;`;
+                        rowBtn.innerHTML = `<span style="font-size: 18px; font-weight: bold; color: ${theme.accent};">${escapeHtml(formatCardDisplayTitle(card))}</span>${usableTag}`;
                         rowBtn.onclick = () => {
                             selectedHandCard = { id: card.id, index: card.index, subType: card.subType };
                             renderHandDetailPopup(latestSnapshot, latestMainHudPlayer, latestCanActNow);
@@ -438,14 +452,22 @@ export function initMarble(container, sceneParams = null) {
     const renderTerritoryDetailPopup = (snapshot, viewTiles, mainHudPlayer) => {
         const detailEl = document.getElementById('territory-detail-popup');
         if (!detailEl) return;
-        if (!isTerritoryOpen || selectedTerritoryId === null || !mainHudPlayer) {
+        const canShowOwned = isTerritoryOpen && selectedTerritorySource === 'owned' && mainHudPlayer;
+        const canShowBoard = selectedTerritorySource === 'board' || selectedTerritorySource === 'portal_confirm';
+        if (selectedTerritoryId === null || (!canShowOwned && !canShowBoard)) {
             detailEl.style.display = 'none';
             peekSavedDisplay.delete('territory-detail-popup');
             return;
         }
-        const tile = (viewTiles || []).find(t => t.id === selectedTerritoryId && t.ownerId === mainHudPlayer.id);
+        const tile = (viewTiles || []).find(t => (
+            t.id === selectedTerritoryId
+            && !t.isDisabled
+            && t.type !== 'disabled'
+            && (!canShowOwned || t.ownerId === mainHudPlayer.id)
+        ));
         if (!tile) {
             selectedTerritoryId = null;
+            selectedTerritorySource = null;
             detailEl.style.display = 'none';
             peekSavedDisplay.delete('territory-detail-popup');
             return;
@@ -453,40 +475,151 @@ export function initMarble(container, sceneParams = null) {
 
         const mText = pickLangDict(MarbleLang, LangState.current);
         const gText = pickLangDict(GimmickLang, LangState.current);
+        const bannerEl = document.getElementById('territory-detail-bg-banner');
         const titleEl = document.getElementById('territory-detail-title');
+        const descEl = document.getElementById('territory-detail-desc');
         const metaEl = document.getElementById('territory-detail-meta');
         const statsEl = document.getElementById('territory-detail-stats');
         const upgEl = document.getElementById('territory-detail-upgrades');
+        const portalConfirmEl = document.getElementById('territory-detail-portal-confirm');
+        const portalQEl = document.getElementById('territory-detail-portal-question');
+        const portalYesBtn = document.getElementById('territory-detail-portal-yes');
+        const portalNoBtn = document.getElementById('territory-detail-portal-no');
 
-        if (titleEl) titleEl.innerText = getTileName(tile, snapshot?.world);
+        const tileName = getTileName(tile, snapshot?.world);
+        const bgPath = resolveTileBgPath(tile, snapshot?.world, mainHudPlayer, { isArrival: false });
+        applyTrackedBannerBg(bannerEl, bgPath);
+
+        if (titleEl) titleEl.innerText = tileName;
+        if (descEl) {
+            if (canShowOwned) {
+                descEl.style.display = 'none';
+            } else {
+                descEl.style.display = 'block';
+                descEl.innerText = getTileIntroDesc(tileName);
+            }
+        }
+
+        const isBuyable = tile.type === 'normal' || tile.type === 'special_buy';
+        const ownerPlayer = tile.owner || (tile.ownerId ? (snapshot?.players || []).find(p => p.id === tile.ownerId) : null);
+
         if (metaEl) {
             const timeBadge = tile.timeType === 'day'
                 ? `<span style="color: #f39c12; font-weight: bold;">[${gText.TILE_TIME_DAY || '낮'}]</span> `
                 : (tile.timeType === 'night' ? `<span style="color: #9b59b6; font-weight: bold;">[${gText.TILE_TIME_NIGHT || '밤'}]</span> ` : '');
-            metaEl.innerHTML = `${timeBadge}현재 단계: <b>${escapeHtml(getTileLevelText(tile, mText))}</b> · 매입가: ${escapeHtml(formatMoney(getTileBuyPrice(tile)))}`;
-        }
-        if (statsEl) {
-            const oneXToll = getTileBaseOneX(tile);
-            const canSell = !isSpecialTerritoryTile(tile) && tile.level >= 0;
-            const sellStr = canSell ? formatMoney(getTileSellValue(tile)) : '매각 불가';
-            statsEl.innerHTML = `
-                <div style="display:flex; justify-content:space-between;"><span>1배수 기본 통행료</span><strong style="color:#f1c40f;">${escapeHtml(formatMoney(oneXToll))}</strong></div>
-                <div style="display:flex; justify-content:space-between;"><span>매각 가격</span><strong style="color:#2ecc71;">${escapeHtml(sellStr)}</strong></div>
-            `;
-        }
-        if (upgEl) {
-            const rows = getTileUpgradeRows(tile, mText);
-            if (rows.length === 0) {
-                upgEl.innerHTML = `<div style="padding: 10px 12px; background: rgba(255,255,255,0.05); border-radius: 10px; color: #94a3b8; text-align: center;">${isSpecialTerritoryTile(tile) && tile.id !== BOARD_TILES.MONATIUM_25 ? '추가 증축 없음' : '최고 단계 건설 완료'}</div>`;
+            if (canShowOwned) {
+                metaEl.innerHTML = `${timeBadge}현재 단계: <b>${escapeHtml(getTileLevelText(tile, mText))}</b> · 매입가: ${escapeHtml(formatMoney(getTileBuyPrice(tile)))}`;
+            } else if (isBuyable) {
+                const ownerBadge = ownerPlayer
+                    ? `<span style="color: ${ownerPlayer.color || '#fff'}; font-weight: bold;">${escapeHtml(ownerPlayer.name)}</span>`
+                    : `<span style="color: #94a3b8;">미소유</span>`;
+                const levelLabel = tile.level >= 0 ? getTileLevelText(tile, mText) : '미건설 (빈 땅)';
+                metaEl.innerHTML = `${timeBadge}소유주: ${ownerBadge} · 건물: <b>${escapeHtml(levelLabel)}</b>`;
             } else {
-                const headerHtml = `<div style="font-size: 14px; font-weight: bold; color: #74b9ff; margin-bottom: 2px;">다음 단계별 증축 비용</div>`;
-                const rowsHtml = rows.map(r => `
-                    <div style="display:flex; justify-content:space-between; align-items:center; padding: 7px 10px; background: rgba(255,255,255,0.05); border-radius: 8px;">
-                        <span>${escapeHtml(r.label)}</span>
-                        <span style="color:#e2e8f0;">단계 <b>${escapeHtml(formatMoney(r.stepCost))}</b> <span style="color:#94a3b8;">(누적 ${escapeHtml(formatMoney(r.cumCost))})</span></span>
-                    </div>
-                `).join('');
-                upgEl.innerHTML = headerHtml + rowsHtml;
+                const kindLabel = tile.type === 'card' ? '차원 열쇠 카드 칸' : '특수 이벤트 칸';
+                metaEl.innerHTML = `${timeBadge}<span style="color: #74b9ff; font-weight: bold;">${escapeHtml(kindLabel)}</span> · 보드 #${tile.id}`;
+            }
+        }
+
+        if (statsEl) {
+            if (canShowOwned) {
+                const oneXToll = getTileBaseOneX(tile);
+                const appliedToll = Number.isFinite(tile.currentToll) ? tile.currentToll : oneXToll;
+                const canSell = !isSpecialTerritoryTile(tile) && tile.level >= 0;
+                const sellStr = canSell ? formatMoney(getTileSellValue(tile)) : '매각 불가';
+                statsEl.style.display = 'flex';
+                statsEl.innerHTML = `
+                    <div style="display:flex; justify-content:space-between;"><span>1배수 기본 통행료</span><strong style="color:#f1c40f;">${escapeHtml(formatMoney(oneXToll))}</strong></div>
+                    <div style="display:flex; justify-content:space-between;"><span>현재 통행료 (적용 버프 반영)</span><strong style="color:#ff9f43;">${escapeHtml(formatMoney(appliedToll))}</strong></div>
+                    <div style="display:flex; justify-content:space-between;"><span>매각 가격</span><strong style="color:#2ecc71;">${escapeHtml(sellStr)}</strong></div>
+                `;
+            } else if (isBuyable) {
+                const oneXToll = tile.level >= 0 ? getTileBaseOneX(tile) : 0;
+                const currentToll = tile.level >= 0
+                    ? (Number.isFinite(tile.viewerToll) ? tile.viewerToll : (Number.isFinite(tile.currentToll) ? tile.currentToll : oneXToll))
+                    : 0;
+                const dayaRow = tile.id === BOARD_TILES.DAYA
+                    ? `<div style="display:flex; justify-content:space-between;"><span>인수 비용</span><strong style="color:#e84393;">${escapeHtml(formatMoney(GAME_CONSTANTS.DAYA_TAKE))}</strong></div>`
+                    : '';
+                statsEl.style.display = 'flex';
+                statsEl.innerHTML = `
+                    <div style="display:flex; justify-content:space-between;"><span>1배수 기본 통행료</span><strong style="color:#f1c40f;">${escapeHtml(formatMoney(oneXToll))}</strong></div>
+                    <div style="display:flex; justify-content:space-between;"><span>현재 통행료</span><strong style="color:#ff9f43;">${escapeHtml(formatMoney(currentToll))}</strong></div>
+                    ${dayaRow}
+                `;
+            } else if (tile.id === BOARD_TILES.MOUNTAIN) {
+                const disciple = (snapshot?.players || []).find(p => p.hasMountainBuff);
+                const mountainText = disciple
+                    ? `${disciple.name}님이 현자의 가르침을 받고 있습니다.`
+                    : '현재 가르침을 받고 있는 플레이어가 없습니다.';
+                statsEl.style.display = 'flex';
+                statsEl.innerHTML = `<div style="display:flex; justify-content:space-between; gap:12px;"><span>정령산 제자</span><strong style="color:#1abc9c;">${escapeHtml(mountainText)}</strong></div>`;
+            } else if (tile.id === BOARD_TILES.ALTAR) {
+                const altarStatus = mainHudPlayer?.hasVisitedAltar ? '포탈 개방 완료 (다음 도착 시 특수 보물 이동)' : '미방문 (최초 도착 시 보물 확률 해금)';
+                statsEl.style.display = 'flex';
+                statsEl.innerHTML = `<div style="display:flex; justify-content:space-between;"><span>제단 상태</span><strong style="color:#f1c40f;">${escapeHtml(altarStatus)}</strong></div>`;
+            } else {
+                statsEl.style.display = 'none';
+                statsEl.innerHTML = '';
+            }
+        }
+
+        if (upgEl) {
+            if (!canShowOwned) {
+                upgEl.style.display = 'none';
+                upgEl.innerHTML = '';
+            } else {
+                upgEl.style.display = 'flex';
+                const rows = getTileUpgradeRows(tile, mText);
+                if (rows.length === 0) {
+                    upgEl.innerHTML = `<div style="padding: 10px 12px; background: rgba(255,255,255,0.05); border-radius: 10px; color: #94a3b8; text-align: center;">${isSpecialTerritoryTile(tile) && tile.id !== BOARD_TILES.MONATIUM_25 ? '추가 증축 없음' : '최고 단계 건설 완료'}</div>`;
+                } else {
+                    const headerHtml = `<div style="font-size: 14px; font-weight: bold; color: #74b9ff; margin-bottom: 2px;">다음 단계별 증축 비용</div>`;
+                    const rowsHtml = rows.map(r => `
+                        <div style="display:flex; justify-content:space-between; align-items:center; padding: 7px 10px; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                            <span>${escapeHtml(r.label)}</span>
+                            <span style="color:#e2e8f0;">단계 <b>${escapeHtml(formatMoney(r.stepCost))}</b> <span style="color:#94a3b8;">(누적 ${escapeHtml(formatMoney(r.cumCost))})</span></span>
+                        </div>
+                    `).join('');
+                    upgEl.innerHTML = headerHtml + rowsHtml;
+                }
+            }
+        }
+
+        if (portalConfirmEl) {
+            const activePrompt = snapshot?.pendingPrompt;
+            if (selectedTerritorySource === 'portal_confirm' && activePrompt?.kind === 'PORTAL') {
+                const feeStr = activePrompt.isFree ? mText.PORTAL_FREE : formatMoney(activePrompt.reqFee || 0);
+                if (portalQEl) {
+                    portalQEl.innerText = `${mText.PORTAL_CONFIRM_MOVE || '이 칸으로 이동하시겠습니까?'} (${mText.PORTAL_FEE_LABEL || '이용료:'} ${feeStr})`;
+                }
+                if (portalYesBtn) {
+                    portalYesBtn.innerText = mText.PORTAL_CONFIRM_YES || '예';
+                    portalYesBtn.onclick = async () => {
+                        selectedTerritoryId = null;
+                        selectedTerritorySource = null;
+                        detailEl.style.display = 'none';
+                        peekSavedDisplay.delete('territory-detail-popup');
+                        await RoomManager.sendGameAction({
+                            type: 'PROMPT_RESPOND',
+                            promptId: activePrompt.promptId,
+                            tileId: tile.id
+                        });
+                    };
+                }
+                if (portalNoBtn) {
+                    portalNoBtn.innerText = mText.PORTAL_CONFIRM_NO || '아니요';
+                    portalNoBtn.onclick = () => {
+                        selectedTerritoryId = null;
+                        selectedTerritorySource = null;
+                        detailEl.style.display = 'none';
+                        peekSavedDisplay.delete('territory-detail-popup');
+                        syncBoardPeekUi(latestSnapshot);
+                    };
+                }
+                portalConfirmEl.style.display = 'block';
+            } else {
+                portalConfirmEl.style.display = 'none';
             }
         }
 
@@ -503,10 +636,14 @@ export function initMarble(container, sceneParams = null) {
         if (!popupEl) return;
         if (!isTerritoryOpen || !mainHudPlayer) {
             popupEl.style.display = 'none';
-            const dEl = document.getElementById('territory-detail-popup');
-            if (dEl) dEl.style.display = 'none';
             peekSavedDisplay.delete('territory-popup');
-            peekSavedDisplay.delete('territory-detail-popup');
+            if ((selectedTerritorySource === 'board' || selectedTerritorySource === 'portal_confirm') && selectedTerritoryId !== null) {
+                renderTerritoryDetailPopup(snapshot, viewTiles, mainHudPlayer);
+            } else {
+                const dEl = document.getElementById('territory-detail-popup');
+                if (dEl) dEl.style.display = 'none';
+                peekSavedDisplay.delete('territory-detail-popup');
+            }
             return;
         }
 
@@ -548,6 +685,7 @@ export function initMarble(container, sceneParams = null) {
                     `;
                     rowBtn.onclick = () => {
                         selectedTerritoryId = tile.id;
+                        selectedTerritorySource = 'owned';
                         renderTerritoryDetailPopup(latestSnapshot, latestViewTiles, latestMainHudPlayer);
                         syncBoardPeekUi(latestSnapshot);
                     };
@@ -662,13 +800,20 @@ export function initMarble(container, sceneParams = null) {
         const currentText = pickLangDict(MarbleLang, LangState.current);
         const safeSec = Math.max(0, Number(timeLeft) || 0);
         const timeStr = `${currentText.REMAIN_TIME} ${safeSec}${currentText.SEC}`;
-        ['turn-timer', 'event-timer', 'portal-timer', 'target-timer', 'void-timer'].forEach(id => {
+        const isNormalAlert = Boolean(latestSnapshot?.pendingPrompt?.kind === 'NORMAL' && latestSnapshot?.pendingPrompt?.showCloseBtn);
+        ['turn-timer', 'event-timer', 'portal-timer', 'target-timer', 'void-timer', 'portal-hint-timer'].forEach(id => {
             const el = document.getElementById(id);
-            if (el) el.innerText = timeStr;
+            if (!el) return;
+            if (id === 'event-timer' && isNormalAlert) {
+                el.style.display = 'none';
+                return;
+            }
+            el.innerText = timeStr;
         });
         const closeBtn = document.getElementById('close-btn');
         if (closeBtn && closeBtn.parentElement && closeBtn.parentElement.style.display !== 'none') {
-            closeBtn.innerText = `${currentText.CLOSE} (${safeSec})`;
+            const baseLabel = closeBtn.dataset.baseLabel || currentText.CLOSE;
+            closeBtn.innerText = `${baseLabel} (${safeSec})`;
         }
     };
 
@@ -706,6 +851,7 @@ export function initMarble(container, sceneParams = null) {
         }
 
         const isResultStage = state.stage === 'RESULT';
+        const rollSec = Math.max(0, Number(state.rollSecondsLeft) || 0);
         if (titleEl) {
             titleEl.innerText = isResultStage
                 ? (currentText.TURN_ORDER_RESULT_TITLE || '최종 순번 결정 완료!')
@@ -719,8 +865,13 @@ export function initMarble(container, sceneParams = null) {
         if (countdownEl) {
             if (isResultStage) {
                 countdownEl.style.display = 'block';
+                countdownEl.style.color = '#7bed9f';
                 const sec = Math.max(0, Number(state.resultSecondsLeft) || 0);
                 countdownEl.innerText = `${currentText.TURN_ORDER_AUTO_START_PREFIX || '자동 시작까지'} ${sec}${currentText.SEC || '초'}`;
+            } else if (state.stage === 'ROLLING' && rollSec > 0) {
+                countdownEl.style.display = 'block';
+                countdownEl.style.color = '#f39c12';
+                countdownEl.innerText = `${currentText.TURN_ORDER_AUTO_ROLL_PREFIX || '자동 굴림까지'} ${rollSec}${currentText.SEC || '초'}`;
             } else {
                 countdownEl.style.display = 'none';
             }
@@ -772,11 +923,13 @@ export function initMarble(container, sceneParams = null) {
 
                 const d1Img = document.createElement('img');
                 if (isMe) d1Img.id = 'turn-order-my-d1';
+                ErrorTracker.trackImage(d1Img, { critical: false, label: 'TurnOrderDice1' });
                 d1Img.src = `${DICE_NORMAL_PATH}${face1}.png`;
                 d1Img.style.cssText = `width: 50px; height: 50px; object-fit: contain; opacity: ${diceOpacity}; transition: transform 0.08s, opacity 0.18s;`;
 
                 const d2Img = document.createElement('img');
                 if (isMe) d2Img.id = 'turn-order-my-d2';
+                ErrorTracker.trackImage(d2Img, { critical: false, label: 'TurnOrderDice2' });
                 d2Img.src = `${DICE_NORMAL_PATH}${face2}.png`;
                 d2Img.style.cssText = `width: 50px; height: 50px; object-fit: contain; opacity: ${diceOpacity}; transition: transform 0.08s, opacity 0.18s;`;
 
@@ -813,13 +966,15 @@ export function initMarble(container, sceneParams = null) {
         if (myEntry && !isResultStage) {
             const canClick = !myEntry.isAi && !myEntry.rolled && state.stage === 'ROLLING' && !isTurnOrderSpinning;
             if (rollBtn) {
-                rollBtn.innerText = currentText.TURN_ORDER_ROLL_BTN || '주사위 굴리기';
+                const baseRollLabel = currentText.TURN_ORDER_ROLL_BTN || '주사위 굴리기';
+                rollBtn.innerText = rollSec > 0 ? `${baseRollLabel} (${rollSec})` : baseRollLabel;
                 rollBtn.style.display = canClick ? 'inline-flex' : 'none';
                 rollBtn.disabled = false;
                 rollBtn.onclick = async () => {
                     if (isCleanedUp) return;
                     rollBtn.disabled = true;
                     rollBtn.style.display = 'none';
+                    ErrorTracker.addBreadcrumb('GAME', 'Marble turn-order roll');
                     startTurnOrderSpin();
                     const res = await RoomManager.sendGameAction({ type: 'TURN_ORDER_ROLL' });
                     if (res && res.ok === false && !isCleanedUp) {
@@ -895,8 +1050,11 @@ export function initMarble(container, sceneParams = null) {
         if (!prompt) {
             if (activePromptKey !== null) {
                 PopupManager.closeAll();
+                if (selectedTerritorySource === 'portal_confirm') {
+                    closeTerritoryPopups();
+                }
                 activePromptKey = null;
-                ['event-popup', 'portal-popup', 'sell-popup', 'target-popup', 'void-game-popup'].forEach(id => peekSavedDisplay.delete(id));
+                ['event-popup', 'portal-popup', 'portal-hint-banner', 'sell-popup', 'target-popup', 'void-game-popup'].forEach(id => peekSavedDisplay.delete(id));
             }
             return;
         }
@@ -920,6 +1078,14 @@ export function initMarble(container, sceneParams = null) {
             promptId: prompt.promptId
         });
 
+        const promptTile = (prompt.tileId !== undefined && prompt.tileId !== null)
+            ? (viewTiles[prompt.tileId] || { id: prompt.tileId, type: prompt.tileType, timeType: prompt.timeType })
+            : null;
+        const promptPlayer = snapshot?.players?.find(p => p.id === snapshot.activePlayerId) || null;
+        const promptBgPath = promptTile
+            ? resolveTileBgPath(promptTile, snapshot?.world, promptPlayer, { isArrival: true })
+            : null;
+
         switch (prompt.kind) {
             case 'CHOICE':
                 PopupManager.showChoicePopup(
@@ -932,7 +1098,8 @@ export function initMarble(container, sceneParams = null) {
                         align: btn.align,
                         disabled: btn.disabled,
                         action: () => respond({ buttonIndex: btn.index })
-                    }))
+                    })),
+                    promptBgPath
                 );
                 break;
 
@@ -941,7 +1108,15 @@ export function initMarble(container, sceneParams = null) {
                     prompt.title,
                     prompt.desc,
                     Boolean(prompt.showCloseBtn),
-                    prompt.showCloseBtn ? () => respond({}) : null
+                    prompt.showCloseBtn ? () => respond({}) : null,
+                    promptBgPath,
+                    Boolean(prompt.showCloseBtn),
+                    {
+                        confirmText: prompt.confirmText,
+                        titleColor: prompt.titleColor,
+                        buttonColor: prompt.buttonColor,
+                        borderColor: prompt.borderColor
+                    }
                 );
                 break;
 
@@ -958,7 +1133,8 @@ export function initMarble(container, sceneParams = null) {
                     prompt.playerMoney,
                     (level) => respond({ level }),
                     () => cancel(),
-                    prompt.maxAllowedLvl
+                    prompt.maxAllowedLvl,
+                    promptBgPath
                 );
                 break;
             }
@@ -1001,11 +1177,7 @@ export function initMarble(container, sceneParams = null) {
                 break;
 
             case 'PORTAL': {
-                const validSet = new Set(prompt.validTileIds || []);
-                const portalTiles = viewTiles.filter(t => validSet.has(t.id));
-                PopupManager.showPortalPopup(
-                    portalTiles,
-                    (tileId) => respond({ tileId }),
+                PopupManager.showPortalBoardPrompt(
                     () => cancel(),
                     prompt.reqFee || 0,
                     Boolean(prompt.isFree)
@@ -1026,6 +1198,7 @@ export function initMarble(container, sceneParams = null) {
     const handleSettlement = (results) => {
         if (isCleanedUp || settlementShown || !Array.isArray(results)) return;
         settlementShown = true;
+        ErrorTracker.addBreadcrumb('GAME', 'Marble settlement shown');
         closeHandPopups();
         closeTerritoryPopups();
         setBoardPeek(false);
@@ -1065,10 +1238,13 @@ export function initMarble(container, sceneParams = null) {
         const targetBoardSrc = getModeConfig(snapshot.world?.gameMode || initialBoardMode).boardTexture;
         if (targetBoardSrc && loadedBoardSrc !== targetBoardSrc) {
             loadedBoardSrc = targetBoardSrc;
-            boardImg.src = targetBoardSrc;
+            if (!getCachedMarbleImage(targetBoardSrc)) {
+                boardImg.src = targetBoardSrc;
+            }
         }
-        if (boardImg.complete) {
-            renderBoardState(ctx, boardImg, viewTiles, snapshot.players || [], snapshot.world);
+        const activeBoardImg = getActiveBoardImage();
+        if (activeBoardImg && activeBoardImg.complete && activeBoardImg.naturalWidth > 0) {
+            renderBoardState(ctx, activeBoardImg, viewTiles, snapshot.players || [], snapshot.world);
         }
 
         const activePlayer = playerById.get(snapshot.activePlayerId) || snapshot.players?.[0];
@@ -1102,9 +1278,29 @@ export function initMarble(container, sceneParams = null) {
         }
 
         const canActNow = Boolean(snapshot.canAct && (!RoomManager.isOnline() || snapshot.activePlayerId === RoomManager.localPlayer.id));
+        const isMyTurnStage = Boolean(
+            snapshot.phase !== 'TURN_ORDER'
+            && snapshot.phase !== 'GAME_OVER'
+            && activePlayer
+            && !activePlayer.isAi
+            && (!RoomManager.isOnline() || activePlayer.id === RoomManager.localPlayer.id)
+        );
+        const turnKey = isMyTurnStage ? `${snapshot.world?.currentTurn || 1}:${activePlayer.id}` : null;
+        const justStartedMyTurn = Boolean(isMyTurnStage && turnKey && turnKey !== announcedTurnKey);
+        if (isMyTurnStage) {
+            announcedTurnKey = turnKey;
+        }
         latestMainHudPlayer = mainHudPlayer || null;
         latestViewTiles = viewTiles;
         latestCanActNow = canActNow;
+
+        if (justStartedMyTurn) {
+            closeHandPopups();
+            closeTerritoryPopups();
+            setBoardPeek(false);
+            const mTextTurn = pickLangDict(MarbleLang, LangState.current);
+            PopupManager.showToast(mTextTurn.TOAST_MY_TURN || '🎲 내 턴입니다! 주사위를 굴려주세요!', 2600);
+        }
 
         const terrBtn = document.getElementById('btn-territories');
         if (terrBtn) {
@@ -1113,6 +1309,8 @@ export function initMarble(container, sceneParams = null) {
                     closeTerritoryPopups();
                 } else {
                     closeHandPopups();
+                    selectedTerritoryId = null;
+                    selectedTerritorySource = null;
                     setBoardPeek(false);
                     isTerritoryOpen = true;
                     renderTerritoryPopup(latestSnapshot, latestViewTiles, latestMainHudPlayer);
@@ -1131,6 +1329,7 @@ export function initMarble(container, sceneParams = null) {
         if (rollBtn && canActNow) {
             rollBtn.onclick = async () => {
                 rollBtn.disabled = true;
+                ErrorTracker.addBreadcrumb('GAME', `Marble roll dice (T${snapshot.world?.currentTurn || 1})`);
                 closeHandPopups();
                 closeTerritoryPopups();
                 setBoardPeek(false);
@@ -1165,6 +1364,7 @@ export function initMarble(container, sceneParams = null) {
         renderTerritoryPopup(snapshot, viewTiles, mainHudPlayer);
         syncBoardPeekUi(snapshot);
         updateTimerDom(snapshot.timerLeft);
+        ErrorTracker.markTransitionComplete('marble');
 
         if (snapshot.phase === 'GAME_OVER' && snapshot.settlementResults) {
             handleSettlement(snapshot.settlementResults);
@@ -1208,12 +1408,102 @@ export function initMarble(container, sceneParams = null) {
     if (territoryDetailCloseBtn) {
         territoryDetailCloseBtn.onclick = () => {
             selectedTerritoryId = null;
+            selectedTerritorySource = null;
             const d = document.getElementById('territory-detail-popup');
             if (d) d.style.display = 'none';
             peekSavedDisplay.delete('territory-detail-popup');
             syncBoardPeekUi(latestSnapshot);
         };
     }
+
+    const canvasPointFromEvent = (evt) => {
+        if (!canvas || evt.target !== canvas) return null;
+        if (canvas.clientWidth <= 0 || canvas.clientHeight <= 0) return null;
+        if (evt.offsetX < 0 || evt.offsetX > canvas.clientWidth || evt.offsetY < 0 || evt.offsetY > canvas.clientHeight) {
+            return null;
+        }
+        return {
+            x: (evt.offsetX / canvas.clientWidth) * canvas.width,
+            y: (evt.offsetY / canvas.clientHeight) * canvas.height
+        };
+    };
+
+    const isPortalPromptActive = () => Boolean(
+        latestSnapshot
+        && latestSnapshot.pendingPrompt
+        && latestSnapshot.pendingPrompt.kind === 'PORTAL'
+    );
+
+    const isBoardInspectAllowed = () => (
+        Boolean(latestSnapshot)
+        && latestSnapshot.phase !== 'GAME_OVER'
+        && latestSnapshot.phase !== 'TURN_ORDER'
+        && !isPeekingBoard
+        && !latestSnapshot.afkAutoAlert
+        && (!latestSnapshot.pendingPrompt || isPortalPromptActive())
+    );
+
+    const onCanvasMouseMove = (evt) => {
+        if (!isBoardInspectAllowed()) {
+            canvas.style.cursor = 'default';
+            return;
+        }
+        const pt = canvasPointFromEvent(evt);
+        const hit = pt ? findTileAtCanvasPoint(pt.x, pt.y, latestViewTiles, latestSnapshot?.world?.gameMode) : null;
+        if (!hit) {
+            canvas.style.cursor = 'default';
+            return;
+        }
+        if (isPortalPromptActive()) {
+            const validIds = latestSnapshot.pendingPrompt.validTileIds || [];
+            canvas.style.cursor = validIds.includes(hit.id) ? 'pointer' : 'not-allowed';
+            return;
+        }
+        canvas.style.cursor = 'pointer';
+    };
+
+    const onCanvasClick = (evt) => {
+        if (!isBoardInspectAllowed()) return;
+        const pt = canvasPointFromEvent(evt);
+        if (!pt) return;
+        const hit = findTileAtCanvasPoint(pt.x, pt.y, latestViewTiles, latestSnapshot?.world?.gameMode);
+        if (!hit) return;
+
+        if (isPortalPromptActive()) {
+            const validIds = latestSnapshot.pendingPrompt.validTileIds || [];
+            if (!validIds.includes(hit.id)) {
+                PopupManager.showToast('빵주 현재 칸으로는 이동할 수 없습니다.', 1800);
+                return;
+            }
+            closeHandPopups();
+            isTerritoryOpen = false;
+            const terrPopup = document.getElementById('territory-popup');
+            if (terrPopup) terrPopup.style.display = 'none';
+            peekSavedDisplay.delete('territory-popup');
+            setBoardPeek(false);
+
+            selectedTerritoryId = hit.id;
+            selectedTerritorySource = 'portal_confirm';
+            renderTerritoryDetailPopup(latestSnapshot, latestViewTiles, latestMainHudPlayer);
+            syncBoardPeekUi(latestSnapshot);
+            return;
+        }
+
+        closeHandPopups();
+        isTerritoryOpen = false;
+        const terrPopup = document.getElementById('territory-popup');
+        if (terrPopup) terrPopup.style.display = 'none';
+        peekSavedDisplay.delete('territory-popup');
+        setBoardPeek(false);
+
+        selectedTerritoryId = hit.id;
+        selectedTerritorySource = 'board';
+        renderTerritoryDetailPopup(latestSnapshot, latestViewTiles, latestMainHudPlayer);
+        syncBoardPeekUi(latestSnapshot);
+    };
+
+    canvas.addEventListener('mousemove', onCanvasMouseMove);
+    canvas.addEventListener('click', onCanvasClick);
 
     const boardPeekBtn = container.querySelector('#btn-board-peek');
     if (boardPeekBtn) {
@@ -1286,6 +1576,8 @@ export function initMarble(container, sceneParams = null) {
         PopupManager.clearToasts?.();
         unsubscribeGame();
         document.removeEventListener('languageChanged', langHandler);
+        canvas.removeEventListener('mousemove', onCanvasMouseMove);
+        canvas.removeEventListener('click', onCanvasClick);
         RoomManager.stopLocalGameSession();
         setActiveRenderWorld(null);
     };

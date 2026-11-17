@@ -10,13 +10,24 @@ const WS_MAGIC_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 const MAX_FRAME_BYTES = 256 * 1024;
 const HEARTBEAT_MS = 25000;
 
+export const MAX_WS_CONNS_PER_IP = 10;
+export const MAX_WS_CONNS_PER_LOOPBACK_IP = 50;
+export const MAX_WS_MSG_PER_SEC = 25;
+export const WS_MSG_BURST_LIMIT = 40;
+export const MAX_WS_RATE_VIOLATIONS = 3;
+
+export const SECURITY_HEADERS = Object.freeze({
+    'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'; frame-ancestors 'none';",
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'no-referrer'
+});
+
 const MIME_TYPES = {
     '.html': 'text/html; charset=utf-8',
     '.js': 'application/javascript; charset=utf-8',
     '.mjs': 'application/javascript; charset=utf-8',
     '.css': 'text/css; charset=utf-8',
-    '.json': 'application/json; charset=utf-8',
-    '.md': 'text/markdown; charset=utf-8',
     '.png': 'image/png',
     '.jpg': 'image/jpeg',
     '.jpeg': 'image/jpeg',
@@ -27,10 +38,97 @@ const MIME_TYPES = {
     '.mp3': 'audio/mpeg',
     '.wav': 'audio/wav',
     '.ogg': 'audio/ogg',
+    '.otf': 'font/otf',
     '.ttf': 'font/ttf',
     '.woff': 'font/woff',
     '.woff2': 'font/woff2'
 };
+
+const ALLOWED_STATIC_EXTS = {
+    root: new Set(['.html', '.ico']),
+    clientCode: new Set(['.js', '.mjs', '.css']),
+    texture: new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.ico']),
+    audio: new Set(['.mp3', '.wav', '.ogg']),
+    font: new Set(['.otf', '.ttf', '.woff', '.woff2'])
+};
+
+export function normalizeIp(rawIp) {
+    const raw = String(rawIp || '').trim();
+    if (!raw) return 'unknown';
+    if (raw.startsWith('::ffff:')) {
+        return raw.slice(7);
+    }
+    return raw;
+}
+
+export function isLoopbackIp(rawIp) {
+    const ip = normalizeIp(rawIp);
+    return ip === '127.0.0.1' || ip === '::1';
+}
+
+export function getClientIp(req, { trustProxy = false } = {}) {
+    if (trustProxy) {
+        const forwarded = req.headers?.['x-forwarded-for'];
+        if (typeof forwarded === 'string' && forwarded.trim()) {
+            const firstIp = forwarded.split(',')[0].trim();
+            if (firstIp) return normalizeIp(firstIp);
+        }
+    }
+    return normalizeIp(req.socket?.remoteAddress);
+}
+
+export function isAllowedStaticRelPath(relPath) {
+    if (!relPath || relPath.includes('\\') || relPath.includes('\0')) return false;
+    const segments = relPath.split('/');
+    if (segments.some(seg => !seg || seg === '.' || seg === '..' || seg.startsWith('.'))) {
+        return false;
+    }
+
+    const ext = path.extname(relPath).toLowerCase();
+    if (relPath === 'index.html' || relPath === 'favicon.ico') {
+        return ALLOWED_STATIC_EXTS.root.has(ext);
+    }
+    if (relPath.startsWith('ProgramFiles/')) {
+        if (relPath.startsWith('ProgramFiles/System/Server/')) return false;
+        return ALLOWED_STATIC_EXTS.clientCode.has(ext);
+    }
+    if (relPath.startsWith('Resource/Texture/')) {
+        return ALLOWED_STATIC_EXTS.texture.has(ext);
+    }
+    if (relPath.startsWith('Resource/Audio/')) {
+        return ALLOWED_STATIC_EXTS.audio.has(ext);
+    }
+    if (relPath.startsWith('Resource/Font/')) {
+        return ALLOWED_STATIC_EXTS.font.has(ext);
+    }
+    return false;
+}
+
+function isOriginAllowed(req) {
+    const originHeader = req.headers?.origin;
+    if (originHeader === undefined) return true;
+    const rawOrigin = String(originHeader).trim();
+    if (!rawOrigin || rawOrigin.toLowerCase() === 'null') return false;
+
+    const hostHeader = String(req.headers?.host || '').trim().toLowerCase();
+    if (!hostHeader) return false;
+
+    try {
+        const parsedOrigin = new URL(rawOrigin);
+        return parsedOrigin.host.toLowerCase() === hostHeader;
+    } catch {
+        return false;
+    }
+}
+
+function writePlainResponse(res, statusCode, text, extraHeaders = {}) {
+    res.writeHead(statusCode, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        ...SECURITY_HEADERS,
+        ...extraHeaders
+    });
+    res.end(text);
+}
 
 function encodeWsFrame(opcode, payloadBuffer = Buffer.alloc(0)) {
     const len = payloadBuffer.length;
@@ -108,37 +206,55 @@ function tryParseWsFrame(buffer) {
     };
 }
 
-export function createRealtimeServer({ publicDir, onConnection, onHealthCheck, onHttpRequest = null }) {
+export function createRealtimeServer({
+    publicDir,
+    onConnection,
+    onHealthCheck,
+    onHttpRequest = null,
+    verifyOrigin = process.env.VERIFY_WS_ORIGIN !== 'false',
+    trustProxy = process.env.TRUST_PROXY === 'true',
+    maxConnsPerIp = MAX_WS_CONNS_PER_IP,
+    maxConnsPerLoopbackIp = MAX_WS_CONNS_PER_LOOPBACK_IP,
+    maxMsgPerSec = MAX_WS_MSG_PER_SEC,
+    msgBurstLimit = WS_MSG_BURST_LIMIT,
+    maxRateViolations = MAX_WS_RATE_VIOLATIONS
+}) {
     const publicRoot = path.resolve(publicDir);
     const clients = new Set();
+    const ipConnCounts = new Map();
     let connSeq = 0;
 
     const server = http.createServer(async (req, res) => {
         try {
             if (!req.url) {
-                res.writeHead(400);
-                res.end('Bad Request');
+                writePlainResponse(res, 400, 'Bad Request');
                 return;
             }
 
+            const clientIp = getClientIp(req, { trustProxy });
+            const isLoopback = isLoopbackIp(clientIp);
             const urlObj = new URL(req.url, 'http://localhost');
+
             if (urlObj.pathname === '/health') {
                 const payload = typeof onHealthCheck === 'function'
                     ? onHealthCheck({ clientCount: clients.size })
                     : { status: 'ok', clientCount: clients.size, uptimeSec: Math.round(process.uptime()) };
-                res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+                res.writeHead(200, {
+                    'Content-Type': 'application/json; charset=utf-8',
+                    'Cache-Control': 'no-store',
+                    ...SECURITY_HEADERS
+                });
                 res.end(JSON.stringify(payload));
                 return;
             }
 
             if (typeof onHttpRequest === 'function') {
-                const handled = await onHttpRequest(req, res, urlObj);
+                const handled = await onHttpRequest(req, res, urlObj, { clientIp, isLoopback });
                 if (handled) return;
             }
 
             if (req.method !== 'GET' && req.method !== 'HEAD') {
-                res.writeHead(405);
-                res.end('Method Not Allowed');
+                writePlainResponse(res, 405, 'Method Not Allowed');
                 return;
             }
 
@@ -146,30 +262,19 @@ export function createRealtimeServer({ publicDir, onConnection, onHealthCheck, o
             try {
                 decodedPath = decodeURIComponent(urlObj.pathname);
             } catch {
-                res.writeHead(400);
-                res.end('Invalid URL');
+                writePlainResponse(res, 400, 'Invalid URL');
                 return;
             }
 
             const relPath = decodedPath === '/' ? 'index.html' : decodedPath.replace(/^\/+/, '');
-            if (relPath.split('/').some(seg => seg.startsWith('.') || seg === '..')) {
-                res.writeHead(403);
-                res.end('Forbidden');
+            if (!isAllowedStaticRelPath(relPath)) {
+                writePlainResponse(res, 403, 'Forbidden');
                 return;
             }
 
             const targetPath = path.resolve(publicRoot, relPath);
             if (targetPath !== publicRoot && !targetPath.startsWith(publicRoot + path.sep)) {
-                res.writeHead(403);
-                res.end('Forbidden');
-                return;
-            }
-
-            // 서버 내부 전용 모듈은 브라우저에 직접 노출하지 않음 (클라이언트 코드는 정상 서빙)
-            const serverInternalPrefix = path.resolve(publicRoot, 'ProgramFiles', 'System', 'Server') + path.sep;
-            if (targetPath.startsWith(serverInternalPrefix)) {
-                res.writeHead(403);
-                res.end('Forbidden');
+                writePlainResponse(res, 403, 'Forbidden');
                 return;
             }
 
@@ -177,30 +282,35 @@ export function createRealtimeServer({ publicDir, onConnection, onHealthCheck, o
             try {
                 stat = await fs.stat(targetPath);
             } catch {
-                res.writeHead(404);
-                res.end('Not Found');
+                writePlainResponse(res, 404, 'Not Found');
                 return;
             }
 
-            const finalPath = stat.isDirectory() ? path.join(targetPath, 'index.html') : targetPath;
-            const ext = path.extname(finalPath).toLowerCase();
+            if (!stat.isFile()) {
+                writePlainResponse(res, 403, 'Forbidden');
+                return;
+            }
+
+            const ext = path.extname(targetPath).toLowerCase();
             const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-            const data = await fs.readFile(finalPath);
+            const data = await fs.readFile(targetPath);
 
             res.writeHead(200, {
                 'Content-Type': contentType,
-                'Cache-Control': 'no-cache'
+                'Cache-Control': 'no-cache',
+                ...SECURITY_HEADERS
             });
             if (req.method === 'HEAD') {
                 res.end();
             } else {
                 res.end(data);
             }
-        } catch (err) {
+        } catch {
             if (!res.headersSent) {
-                res.writeHead(500);
+                writePlainResponse(res, 500, 'Internal Server Error');
+            } else {
+                res.end();
             }
-            res.end('Internal Server Error');
         }
     });
 
@@ -209,7 +319,23 @@ export function createRealtimeServer({ publicDir, onConnection, onHealthCheck, o
         const wsKey = req.headers['sec-websocket-key'];
 
         if (upgradeHeader !== 'websocket' || !wsKey) {
-            socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+            socket.write('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
+            socket.destroy();
+            return;
+        }
+
+        if (verifyOrigin && !isOriginAllowed(req)) {
+            socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+            socket.destroy();
+            return;
+        }
+
+        const clientIp = getClientIp(req, { trustProxy });
+        const isLoopback = isLoopbackIp(clientIp);
+        const ipLimit = isLoopback ? maxConnsPerLoopbackIp : maxConnsPerIp;
+        const currentIpConns = ipConnCounts.get(clientIp) || 0;
+        if (currentIpConns >= ipLimit) {
+            socket.write('HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\n\r\n');
             socket.destroy();
             return;
         }
@@ -229,9 +355,12 @@ export function createRealtimeServer({ publicDir, onConnection, onHealthCheck, o
         ].join('\r\n'));
 
         socket.setNoDelay(true);
+        ipConnCounts.set(clientIp, currentIpConns + 1);
 
         const client = {
             connId: `ws_${++connSeq}`,
+            remoteIp: clientIp,
+            isLoopback,
             socket,
             isAlive: true,
             closed: false,
@@ -268,6 +397,9 @@ export function createRealtimeServer({ publicDir, onConnection, onHealthCheck, o
         let rxBuffer = Buffer.alloc(0);
         let fragChunks = [];
         let fragOpcode = null;
+        let rateTokens = msgBurstLimit;
+        let lastTokenRefillMs = Date.now();
+        let rateViolations = 0;
 
         let cleanedUp = false;
         const handlers = (typeof onConnection === 'function' ? onConnection(client, req) : null) || {};
@@ -277,9 +409,29 @@ export function createRealtimeServer({ publicDir, onConnection, onHealthCheck, o
             cleanedUp = true;
             client.closed = true;
             clients.delete(client);
+            const prevCount = ipConnCounts.get(clientIp) || 0;
+            if (prevCount <= 1) {
+                ipConnCounts.delete(clientIp);
+            } else {
+                ipConnCounts.set(clientIp, prevCount - 1);
+            }
             if (typeof handlers.onClose === 'function') {
                 handlers.onClose();
             }
+        };
+
+        const consumeMessageToken = () => {
+            const now = Date.now();
+            const elapsedSec = Math.max(0, (now - lastTokenRefillMs) / 1000);
+            lastTokenRefillMs = now;
+            rateTokens = Math.min(msgBurstLimit, rateTokens + elapsedSec * maxMsgPerSec);
+            if (rateTokens >= 1) {
+                rateTokens -= 1;
+                rateViolations = 0;
+                return true;
+            }
+            rateViolations += 1;
+            return false;
         };
 
         socket.on('data', (chunk) => {
@@ -341,18 +493,34 @@ export function createRealtimeServer({ publicDir, onConnection, onHealthCheck, o
                     fragChunks = [];
                     fragOpcode = null;
 
-                    if (finalOpcode === 0x1 && typeof handlers.onMessage === 'function') {
-                        try {
-                            const parsed = JSON.parse(fullPayload.toString('utf8'));
-                            handlers.onMessage(parsed);
-                        } catch {
-                            client.sendJson({ type: 'ERROR', error: 'INVALID_JSON' });
+                    if (finalOpcode === 0x1) {
+                        if (!consumeMessageToken()) {
+                            client.sendJson({ type: 'ERROR', error: 'RATE_LIMITED' });
+                            if (rateViolations >= maxRateViolations) {
+                                client.close(1008, 'Policy Violation');
+                                cleanupClient();
+                                socket.destroy();
+                                return;
+                            }
+                            continue;
+                        }
+                        if (typeof handlers.onMessage === 'function') {
+                            try {
+                                const parsed = JSON.parse(fullPayload.toString('utf8'));
+                                handlers.onMessage(parsed);
+                            } catch {
+                                client.sendJson({ type: 'ERROR', error: 'INVALID_JSON' });
+                            }
                         }
                     }
                 }
             }
         });
 
+        socket.on('end', () => {
+            if (!socket.destroyed) socket.end();
+            cleanupClient();
+        });
         socket.on('close', cleanupClient);
         socket.on('error', cleanupClient);
     });

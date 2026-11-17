@@ -12,6 +12,45 @@ const CODE_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
 const WAITING_DISCONNECT_GRACE_MS = 20000;
 const PLAYING_EMPTY_ROOM_GRACE_MS = 60000;
+const HOST_START_IDLE_MS = 10000;
+const HOST_IDLE_BAN_MS = 3600000;
+const HOST_IDLE_MAX_STRIKES = 3;
+
+export const MAX_ACTIVE_ROOMS = 200;
+export const ROOM_CREATE_COOLDOWN_MS = 3000;
+export const MAX_STORED_SESSIONS = 1000;
+export const ERROR_REPORT_WINDOW_MS = 60000;
+export const ERROR_REPORT_MAX_PER_WINDOW = 2;
+export const FEEDBACK_COOLDOWN_MS = 60000;
+export const FEEDBACK_HOUR_WINDOW_MS = 3600000;
+export const FEEDBACK_MAX_PER_HOUR = 5;
+
+export function consumeFeedbackQuota(timestampsList, now = Date.now()) {
+    const activeHour = (Array.isArray(timestampsList) ? timestampsList : [])
+        .filter(ts => (now - ts) < FEEDBACK_HOUR_WINDOW_MS);
+
+    if (activeHour.length > 0) {
+        const latest = activeHour[activeHour.length - 1];
+        if ((now - latest) < FEEDBACK_COOLDOWN_MS) {
+            return {
+                allowed: false,
+                timestamps: activeHour,
+                retryAfterMs: FEEDBACK_COOLDOWN_MS - (now - latest)
+            };
+        }
+    }
+    if (activeHour.length >= FEEDBACK_MAX_PER_HOUR) {
+        const oldest = activeHour[0];
+        return {
+            allowed: false,
+            timestamps: activeHour,
+            retryAfterMs: Math.max(1000, FEEDBACK_HOUR_WINDOW_MS - (now - oldest))
+        };
+    }
+
+    activeHour.push(now);
+    return { allowed: true, timestamps: activeHour, retryAfterMs: 0 };
+}
 
 function sanitizeText(str, maxLen = 24, fallback = '') {
     const cleaned = String(str ?? '')
@@ -42,6 +81,7 @@ function createEmptySlot(slotIndex) {
         isReady: false,
         isMockHuman: false,
         isConnected: true,
+        joinedSeq: null,
         aiType: null,
         aiDifficulty: null
     };
@@ -55,12 +95,32 @@ function getNextUnusedColor(room, fallbackIdx) {
 export class LobbyServer {
     constructor(options = {}) {
         this.logDir = options.logDir || null;
+        this.errorLogDir = options.errorLogDir || null;
+        this.feedbackLogDir = options.feedbackLogDir || null;
         this.disableDiskWrite = Boolean(options.disableDiskWrite);
+        this.skipWebhook = Boolean(options.skipWebhook);
+        this.statsCollector = options.statsCollector || null;
+        this.allowMultiTabTest = options.allowMultiTabTest !== undefined
+            ? Boolean(options.allowMultiTabTest)
+            : process.env.ALLOW_MULTI_TAB_TEST === 'true';
+        this.hostStartIdleMs = Number(options.hostStartIdleMs) || HOST_START_IDLE_MS;
+        this.hostIdleBanMs = Number(options.hostIdleBanMs) || HOST_IDLE_BAN_MS;
+        this.maxActiveRooms = options.maxActiveRooms !== undefined
+            ? Math.max(1, Number(options.maxActiveRooms))
+            : MAX_ACTIVE_ROOMS;
+        this.roomCreateCooldownMs = options.roomCreateCooldownMs !== undefined
+            ? Math.max(0, Number(options.roomCreateCooldownMs))
+            : ROOM_CREATE_COOLDOWN_MS;
+        this.maxStoredSessions = options.maxStoredSessions !== undefined
+            ? Math.max(1, Number(options.maxStoredSessions))
+            : MAX_STORED_SESSIONS;
         this.sessions = new Map(); // sessionToken -> sessionObj
         this.sessionsByPlayerId = new Map(); // playerId -> sessionObj
         this.rooms = new Map(); // roomId -> roomObj
         this.disconnectTimers = new Map(); // playerId -> timeoutId
         this.emptyRoomTimers = new Map(); // roomId -> timeoutId
+        this.hostStartTimers = new Map(); // roomId -> { timerId, hostId }
+        this.hostIdlePenalties = new Map(); // playerId -> { strikes, bannedUntil }
         this._nextRoomSeq = 1;
     }
 
@@ -180,10 +240,28 @@ export class LobbyServer {
                 isReady: s.isReady,
                 isMockHuman: Boolean(s.isMockHuman),
                 isConnected: s.isConnected !== false,
+                joinedSeq: s.joinedSeq ?? null,
                 aiType: s.aiType,
                 aiDifficulty: s.aiDifficulty || null
             }))
         };
+    }
+
+    _evictIdleSessionsIfNeeded() {
+        if (this.sessions.size < this.maxStoredSessions) return;
+        const candidates = [];
+        for (const sess of this.sessions.values()) {
+            const isIdle = !sess.currentRoomId && (!sess.client || sess.client.closed);
+            if (isIdle) {
+                candidates.push(sess);
+            }
+        }
+        candidates.sort((a, b) => (a.lastSeenAt || a.createdAt || 0) - (b.lastSeenAt || b.createdAt || 0));
+        for (const sess of candidates) {
+            if (this.sessions.size < this.maxStoredSessions) break;
+            this.sessions.delete(sess.sessionToken);
+            this.sessionsByPlayerId.delete(sess.playerId);
+        }
     }
 
     _handleHello(client, msg, prevBound) {
@@ -194,28 +272,43 @@ export class LobbyServer {
             session = prevBound;
         }
 
+        const now = Date.now();
         const reqNick = sanitizeText(msg.nickname, 16, '');
+        const reqClientId = sanitizeText(msg.clientId, 64, '');
 
         if (session) {
             if (session.client && session.client !== client && !session.client.closed) {
                 session.client.close(1000, 'Replaced by reconnecting session');
             }
             session.client = client;
+            session.lastSeenAt = now;
+            if (reqClientId) {
+                session.clientId = reqClientId;
+            }
             if (reqNick) {
                 session.nickname = reqNick;
             }
         } else {
+            this._evictIdleSessionsIfNeeded();
             const sessionToken = crypto.randomUUID();
             const playerId = `usr_${crypto.randomUUID().slice(0, 8)}`;
             session = {
                 sessionToken,
                 playerId,
+                clientId: reqClientId || null,
+                activeGameId: null,
                 nickname: reqNick || '교주',
                 currentRoomId: null,
+                createdAt: now,
+                lastSeenAt: now,
+                lastRoomCreateAt: 0,
+                errorReportTimestamps: [],
+                feedbackTimestamps: [],
                 client
             };
             this.sessions.set(sessionToken, session);
             this.sessionsByPlayerId.set(playerId, session);
+            this.statsCollector?.recordNewSession();
         }
 
         this._cancelDisconnectTimer(session.playerId);
@@ -232,10 +325,7 @@ export class LobbyServer {
                 mySlot.isConnected = true;
                 mySlot.name = session.nickname;
                 this._cancelEmptyRoomTimer(room.id);
-                this._broadcastToRoom(room, {
-                    type: 'ROOM_UPDATED',
-                    room: this._serializeRoom(room)
-                });
+                this._syncRoomState(room);
                 if (room.status === 'playing' && room.gameSession) {
                     room.gameSession.onPlayerReconnect(session.playerId);
                 }
@@ -250,6 +340,7 @@ export class LobbyServer {
             sessionToken: session.sessionToken,
             playerId: session.playerId,
             nickname: session.nickname,
+            activeGameId: session.activeGameId || null,
             room: this._serializeRoom(room),
             gameSnapshot
         };
@@ -268,6 +359,7 @@ export class LobbyServer {
     }
 
     _handleAuthedMessage(session, client, msg) {
+        session.lastSeenAt = Date.now();
         switch (msg.type) {
             case 'PING':
                 client.sendJson({ type: 'PONG', reqId: msg.reqId ?? null, serverTime: Date.now() });
@@ -306,6 +398,21 @@ export class LobbyServer {
                     this._sendReply(client, msg, false, null, 'GAME_NOT_AVAILABLE');
                     return;
                 }
+                const now = Date.now();
+                const activeBanUntil = this._getActiveRoomCreateBan(session.playerId);
+                if (activeBanUntil > now) {
+                    this._sendReply(client, msg, false, { bannedUntil: activeBanUntil }, 'ROOM_CREATE_BANNED');
+                    return;
+                }
+                if (this.roomCreateCooldownMs > 0 && session.lastRoomCreateAt && (now - session.lastRoomCreateAt) < this.roomCreateCooldownMs) {
+                    const retryAfterMs = this.roomCreateCooldownMs - (now - session.lastRoomCreateAt);
+                    this._sendReply(client, msg, false, { retryAfterMs }, 'ROOM_CREATE_RATE_LIMITED');
+                    return;
+                }
+                if (this.rooms.size >= this.maxActiveRooms) {
+                    this._sendReply(client, msg, false, null, 'SERVER_ROOM_LIMIT_REACHED');
+                    return;
+                }
                 if (session.currentRoomId) {
                     this._leaveRoomInternal(session);
                 }
@@ -329,9 +436,10 @@ export class LobbyServer {
                     name: session.nickname,
                     color: SLOT_COLORS[0],
                     isHost: true,
-                    isReady: true,
+                    isReady: false,
                     isMockHuman: false,
                     isConnected: true,
+                    joinedSeq: 1,
                     aiType: null
                 };
 
@@ -347,14 +455,17 @@ export class LobbyServer {
                     status: 'waiting',
                     countdownSec: 0,
                     countdownTimer: null,
+                    _nextJoinSeq: 2,
                     customOptions,
                     slots,
                     gameSession: null,
-                    createdAt: Date.now()
+                    createdAt: now
                 };
 
                 this.rooms.set(roomId, room);
                 session.currentRoomId = roomId;
+                session.lastRoomCreateAt = now;
+                this.statsCollector?.updatePeakRooms(this.rooms.size);
 
                 const serialized = this._serializeRoom(room);
                 this._broadcastLobbyUpdate(gameId);
@@ -424,7 +535,11 @@ export class LobbyServer {
                     return;
                 }
 
-                if (room.status !== 'waiting' && room.status !== 'countdown') {
+                if (room.status === 'countdown') {
+                    this._sendReply(client, msg, false, null, 'COUNTDOWN_LOCKED');
+                    return;
+                }
+                if (room.status !== 'waiting') {
                     this._sendReply(client, msg, false, null, 'INVALID_ROOM_STATUS');
                     return;
                 }
@@ -434,11 +549,7 @@ export class LobbyServer {
                     return;
                 }
                 slot.isReady = !slot.isReady;
-                if (room.status === 'countdown' && !slot.isReady) {
-                    this._cancelCountdown(room, '참가자 준비 해제로 시작이 취소되었습니다.');
-                } else {
-                    this._broadcastToRoom(room, { type: 'ROOM_UPDATED', room: this._serializeRoom(room) });
-                }
+                this._syncRoomState(room);
                 this._sendReply(client, msg, true, { room: this._serializeRoom(room) });
                 return;
             }
@@ -539,6 +650,29 @@ export class LobbyServer {
                 return;
             }
 
+            case 'TRANSFER_HOST': {
+                const room = this._requireWaitingHost(session, client, msg);
+                if (!room) return;
+                const slotIdx = Number(msg.slotIndex);
+                const target = room.slots[slotIdx];
+                if (!target || target.type !== 'human' || target.isMockHuman || target.isHost || target.isConnected === false) {
+                    this._sendReply(client, msg, false, null, 'CANNOT_TRANSFER_HOST');
+                    return;
+                }
+                this._cancelCountdownIfActive(room);
+                const oldHostSlot = room.slots.find(s => s.id === room.hostId);
+                if (oldHostSlot) {
+                    oldHostSlot.isHost = false;
+                    oldHostSlot.isReady = false;
+                }
+                target.isHost = true;
+                target.isReady = false;
+                room.hostId = target.id;
+                this._syncRoomState(room);
+                this._sendReply(client, msg, true, { room: this._serializeRoom(room) });
+                return;
+            }
+
             case 'UPDATE_OPTIONS': {
                 const room = this._requireWaitingHost(session, client, msg);
                 if (!room) return;
@@ -579,9 +713,203 @@ export class LobbyServer {
                 return;
             }
 
+            case 'REPORT_CLIENT_ERROR': {
+                this._handleClientErrorReport(session, client, msg);
+                return;
+            }
+
+            case 'SUBMIT_FEEDBACK': {
+                this._handleSubmitFeedback(session, client, msg);
+                return;
+            }
+
+            case 'REGISTER_GAME_TAB': {
+                this._handleRegisterGameTab(session, client, msg);
+                return;
+            }
+
+            case 'UNREGISTER_GAME_TAB': {
+                session.activeGameId = null;
+                this._sendReply(client, msg, true, { cleared: true });
+                return;
+            }
+
             default:
                 this._sendReply(client, msg, false, null, 'UNKNOWN_MESSAGE_TYPE');
         }
+    }
+
+    _handleSubmitFeedback(session, client, msg) {
+        let rawPayload = null;
+        if (msg.feedback && typeof msg.feedback === 'object' && !Array.isArray(msg.feedback)) {
+            rawPayload = msg.feedback;
+        } else if (msg.payload && typeof msg.payload === 'object' && !Array.isArray(msg.payload)) {
+            rawPayload = msg.payload;
+        } else {
+            const { type: _t, reqId: _r, ...rest } = msg;
+            rawPayload = rest;
+        }
+
+        const precheck = SystemLogManager.normalizeFeedbackPayload(rawPayload, {
+            playerId: session.playerId,
+            nickname: session.nickname,
+            channel: 'ws'
+        });
+        if (!precheck.ok) {
+            this._sendReply(client, msg, false, null, precheck.error || 'INVALID_FEEDBACK');
+            return;
+        }
+
+        const quota = consumeFeedbackQuota(session.feedbackTimestamps);
+        session.feedbackTimestamps = quota.timestamps;
+        if (!quota.allowed) {
+            this._sendReply(client, msg, false, { retryAfterMs: quota.retryAfterMs }, 'FEEDBACK_RATE_LIMITED');
+            return;
+        }
+
+        const overrideFeedbackDir = this.feedbackLogDir || this.logDir || null;
+        SystemLogManager.recordFeedback(rawPayload, {
+            feedbackLogDir: overrideFeedbackDir,
+            disableDiskWrite: this.disableDiskWrite,
+            skipWebhook: this.skipWebhook,
+            serverContext: {
+                playerId: session.playerId,
+                nickname: session.nickname,
+                channel: 'ws'
+            }
+        }).then((res) => {
+            if (res?.ok) {
+                this._sendReply(client, msg, true, {
+                    feedbackId: res.feedbackId,
+                    category: res.category,
+                    storedCount: res.storedCount ?? 0
+                });
+            } else {
+                this._sendReply(client, msg, false, null, res?.error || 'FEEDBACK_SAVE_FAILED');
+            }
+        }).catch((err) => {
+            console.error('[LobbyServer] Failed to record feedback:', err);
+            this._sendReply(client, msg, false, null, 'FEEDBACK_SAVE_FAILED');
+        });
+    }
+
+    _handleRegisterGameTab(session, client, msg) {
+        const gameId = sanitizeText(msg.gameId, 32, '');
+        if (!gameId) {
+            this._sendReply(client, msg, false, null, 'INVALID_GAME_ID');
+            return;
+        }
+        const reqClientId = sanitizeText(msg.clientId, 64, '');
+        if (reqClientId) {
+            session.clientId = reqClientId;
+        }
+
+        const strictTab = Boolean(msg.strictTab);
+        const isBypassed = !strictTab && (Boolean(client.isLoopback) || this.allowMultiTabTest);
+        if (isBypassed || !session.clientId) {
+            session.activeGameId = gameId;
+            this._sendReply(client, msg, true, {
+                gameId,
+                bypassed: isBypassed,
+                skipped: !isBypassed && !session.clientId
+            });
+            return;
+        }
+
+        const conflicts = [];
+        for (const other of this.sessions.values()) {
+            if (other === session) continue;
+            if (!other.client || other.client.closed) continue;
+            if (other.clientId === session.clientId && other.activeGameId === gameId) {
+                conflicts.push(other);
+            }
+        }
+
+        if (conflicts.length > 0 && !msg.force) {
+            this._sendReply(client, msg, false, { gameId, conflict: true }, 'DUPLICATE_GAME_TAB');
+            return;
+        }
+
+        if (conflicts.length > 0 && msg.force) {
+            for (const oldSess of conflicts) {
+                oldSess.activeGameId = null;
+                if (oldSess.currentRoomId) {
+                    this._leaveRoomInternal(oldSess);
+                }
+                if (oldSess.client && !oldSess.client.closed) {
+                    oldSess.client.sendJson({
+                        type: 'TAB_REPLACED',
+                        gameId,
+                        reason: 'REPLACED_BY_NEW_TAB'
+                    });
+                }
+            }
+        }
+
+        session.activeGameId = gameId;
+        this._sendReply(client, msg, true, {
+            gameId,
+            replacedPrevious: conflicts.length > 0
+        });
+    }
+
+    _handleClientErrorReport(session, client, msg) {
+        let rawPayload = null;
+        if (msg.report && typeof msg.report === 'object' && !Array.isArray(msg.report)) {
+            rawPayload = msg.report;
+        } else if (msg.payload && typeof msg.payload === 'object' && !Array.isArray(msg.payload)) {
+            rawPayload = msg.payload;
+        } else if (msg.errorCode || msg.summary || msg.errorDetail || msg.breadcrumbs) {
+            const { type: _t, reqId: _r, ...rest } = msg;
+            rawPayload = rest;
+        }
+        if (!rawPayload) {
+            this._sendReply(client, msg, false, null, 'INVALID_ERROR_REPORT');
+            return;
+        }
+
+        const precheck = SystemLogManager.normalizeErrorReport(rawPayload, {
+            playerId: session.playerId,
+            channel: 'ws'
+        });
+        if (!precheck.ok) {
+            this._sendReply(client, msg, false, null, precheck.error || 'INVALID_ERROR_REPORT');
+            return;
+        }
+
+        const now = Date.now();
+        const prevList = Array.isArray(session.errorReportTimestamps) ? session.errorReportTimestamps : [];
+        const activeWindow = prevList.filter(ts => (now - ts) < ERROR_REPORT_WINDOW_MS);
+        session.errorReportTimestamps = activeWindow;
+
+        if (activeWindow.length >= ERROR_REPORT_MAX_PER_WINDOW) {
+            this._sendReply(client, msg, false, null, 'ERROR_REPORT_RATE_LIMITED');
+            return;
+        }
+        activeWindow.push(now);
+
+        const overrideErrorDir = this.errorLogDir || this.logDir || null;
+        SystemLogManager.recordClientError(rawPayload, {
+            errorLogDir: overrideErrorDir,
+            disableDiskWrite: this.disableDiskWrite,
+            skipWebhook: this.skipWebhook,
+            serverContext: {
+                playerId: session.playerId,
+                channel: 'ws'
+            }
+        }).then((res) => {
+            if (res?.ok) {
+                this._sendReply(client, msg, true, {
+                    reportId: res.reportId,
+                    storedCount: res.storedCount ?? 0
+                });
+            } else {
+                this._sendReply(client, msg, false, null, res?.error || 'ERROR_REPORT_FAILED');
+            }
+        }).catch((err) => {
+            console.error('[LobbyServer] Failed to record client error:', err);
+            this._sendReply(client, msg, false, null, 'ERROR_REPORT_FAILED');
+        });
     }
 
     _requireWaitingHost(session, client, msg) {
@@ -643,6 +971,7 @@ export class LobbyServer {
     }
 
     _syncRoomState(room) {
+        this._syncHostIdleStartTimer(room);
         const serialized = this._serializeRoom(room);
         this._broadcastToRoom(room, { type: 'ROOM_UPDATED', room: serialized });
         this._broadcastLobbyUpdate(room.gameId);
@@ -665,6 +994,7 @@ export class LobbyServer {
             this._leaveRoomInternal(session);
         }
 
+        if (!room._nextJoinSeq) room._nextJoinSeq = 2;
         room.slots[emptyIdx] = {
             slotIndex: emptyIdx,
             type: 'human',
@@ -675,15 +1005,14 @@ export class LobbyServer {
             isReady: false,
             isMockHuman: false,
             isConnected: true,
+            joinedSeq: room._nextJoinSeq++,
             aiType: null
         };
         session.currentRoomId = room.id;
         this._cancelEmptyRoomTimer(room.id);
 
-        const serialized = this._serializeRoom(room);
-        this._broadcastToRoom(room, { type: 'ROOM_UPDATED', room: serialized });
-        this._broadcastLobbyUpdate(room.gameId);
-        return { ok: true, room: serialized };
+        this._syncRoomState(room);
+        return { ok: true, room: this._serializeRoom(room) };
     }
 
     _convertSlotToAi(room, slotIdx, aiType = 'aggressive') {
@@ -704,17 +1033,32 @@ export class LobbyServer {
         return room.slots[slotIdx];
     }
 
+    _selectNextRealHost(room) {
+        const realHumans = room.slots.filter(s => s.type === 'human' && !s.isMockHuman);
+        if (realHumans.length === 0) return null;
+        realHumans.sort((a, b) => {
+            const connDiff = (b.isConnected !== false ? 1 : 0) - (a.isConnected !== false ? 1 : 0);
+            if (connDiff !== 0) return connDiff;
+            return (a.joinedSeq ?? a.slotIndex) - (b.joinedSeq ?? b.slotIndex);
+        });
+        return realHumans[0];
+    }
+
     _finalizeHumanRemovalFromRoom(room, removedPlayerId) {
-        const remainingHumans = room.slots.filter(s => s.type === 'human');
-        if (remainingHumans.length === 0) {
+        const realHumans = room.slots.filter(s => s.type === 'human' && !s.isMockHuman);
+        if (realHumans.length === 0) {
             this._destroyRoom(room.id);
             return;
         }
 
         if (room.hostId === removedPlayerId) {
-            const nextHost = remainingHumans.find(s => s.isConnected) || remainingHumans[0];
+            const nextHost = this._selectNextRealHost(room);
+            if (!nextHost) {
+                this._destroyRoom(room.id);
+                return;
+            }
             nextHost.isHost = true;
-            if (room.status === 'waiting') nextHost.isReady = true;
+            nextHost.isReady = false;
             room.hostId = nextHost.id;
         }
 
@@ -773,6 +1117,7 @@ export class LobbyServer {
         const minP = meta ? meta.minPlayers : 2;
         const activeSlots = room.slots.filter(s => s.type !== 'empty');
         const humanSlots = activeSlots.filter(s => s.type === 'human');
+        const nonHostHumanSlots = humanSlots.filter(s => !s.isHost);
 
         if (activeSlots.length < minP) {
             return { canStart: false, reason: 'NOT_ENOUGH_PLAYERS' };
@@ -780,7 +1125,7 @@ export class LobbyServer {
         if (humanSlots.length < 1) {
             return { canStart: false, reason: 'NEED_HUMAN' };
         }
-        if (humanSlots.some(s => !s.isReady)) {
+        if (nonHostHumanSlots.some(s => !s.isReady)) {
             return { canStart: false, reason: 'NOT_ALL_READY' };
         }
         if (humanSlots.some(s => s.isConnected === false)) {
@@ -803,6 +1148,7 @@ export class LobbyServer {
         room.countdownSec = 0;
         if (room.status === 'countdown') {
             room.status = 'waiting';
+            this._syncHostIdleStartTimer(room);
             this._broadcastToRoom(room, {
                 type: 'COUNTDOWN',
                 roomId: room.id,
@@ -817,6 +1163,7 @@ export class LobbyServer {
 
     _startCountdown(room) {
         this._cancelCountdown(room);
+        this._cancelHostIdleStartTimer(room.id);
         room.status = 'countdown';
         room.countdownSec = 3;
 
@@ -856,6 +1203,7 @@ export class LobbyServer {
     }
 
     _beginGameSession(room) {
+        this._cancelHostIdleStartTimer(room.id);
         const meta = getGameMeta(room.gameId);
         room.status = 'playing';
         room.countdownSec = 0;
@@ -874,6 +1222,13 @@ export class LobbyServer {
             onGameFinished: (results, matchLogData = null) => {
                 if (this.rooms.has(room.id)) {
                     room.status = 'finished';
+                    this._resetConsecutiveIdleStrikesForRoom(room);
+                    const hasAi = Array.isArray(room.slots) && room.slots.some(s => s.type === 'ai');
+                    this.statsCollector?.recordOnlineMatchFinished({
+                        gameId: room.gameId || 'marble',
+                        gameMode: room.customOptions?.gameMode || 'default',
+                        hasAi
+                    });
                     if (matchLogData && (!this.disableDiskWrite || this.logDir)) {
                         const logGameId = room.gameId || 'marble';
                         SystemLogManager.recordGameResult(logGameId, matchLogData, {
@@ -936,25 +1291,30 @@ export class LobbyServer {
                     if (sess) sess.currentRoomId = null;
                     room.slots[idx] = createEmptySlot(idx);
                 } else {
-                    slot.isReady = slot.id === room.hostId;
+                    slot.isReady = false;
                     slot.isHost = slot.id === room.hostId;
                 }
             }
         });
 
-        const remainingHumans = room.slots.filter(s => s.type === 'human');
-        if (remainingHumans.length === 0) {
+        const realHumans = room.slots.filter(s => s.type === 'human' && !s.isMockHuman);
+        if (realHumans.length === 0) {
             this._destroyRoom(room.id);
             return;
         }
 
-        if (!remainingHumans.some(s => s.id === room.hostId)) {
-            const newHost = remainingHumans[0];
+        if (!realHumans.some(s => s.id === room.hostId)) {
+            const newHost = this._selectNextRealHost(room);
+            if (!newHost) {
+                this._destroyRoom(room.id);
+                return;
+            }
             room.hostId = newHost.id;
             newHost.isHost = true;
-            newHost.isReady = true;
+            newHost.isReady = false;
         }
 
+        this._syncHostIdleStartTimer(room);
         const serialized = this._serializeRoom(room);
         this._broadcastToRoom(room, {
             type: 'RETURNED_TO_ROOM',
@@ -975,7 +1335,7 @@ export class LobbyServer {
 
         if (room.status === 'waiting' || room.status === 'countdown') {
             this._cancelCountdownIfActive(room, '참가자 연결이 끊어져 시작이 취소되었습니다.');
-            this._broadcastToRoom(room, { type: 'ROOM_UPDATED', room: this._serializeRoom(room) });
+            this._syncRoomState(room);
             this._scheduleWaitingDisconnectCleanup(session.playerId, room.id);
             return;
         }
@@ -1042,8 +1402,108 @@ export class LobbyServer {
         }
     }
 
+    _getActiveRoomCreateBan(playerId) {
+        const rec = this.hostIdlePenalties.get(playerId);
+        if (!rec || !rec.bannedUntil) return 0;
+        if (rec.bannedUntil <= Date.now()) {
+            rec.bannedUntil = 0;
+            return 0;
+        }
+        return rec.bannedUntil;
+    }
+
+    _resetConsecutiveIdleStrikesForRoom(room) {
+        if (!room || !Array.isArray(room.slots)) return;
+        for (const slot of room.slots) {
+            if (slot.type === 'human' && !slot.isMockHuman && slot.id) {
+                const rec = this.hostIdlePenalties.get(slot.id);
+                if (rec) {
+                    rec.strikes = 0;
+                }
+            }
+        }
+    }
+
+    _isHostIdleConditionMet(room) {
+        if (!room || !this.rooms.has(room.id) || room.status !== 'waiting') return false;
+        const otherRealHumans = room.slots.filter(
+            s => s.type === 'human' && !s.isMockHuman && s.id !== room.hostId && s.isConnected !== false
+        );
+        if (otherRealHumans.length < 1) return false;
+        return this._canStart(room).canStart;
+    }
+
+    _syncHostIdleStartTimer(room) {
+        if (!room) return;
+        if (!this._isHostIdleConditionMet(room)) {
+            this._cancelHostIdleStartTimer(room.id);
+            return;
+        }
+        const existing = this.hostStartTimers.get(room.id);
+        if (existing && existing.hostId === room.hostId) {
+            return;
+        }
+        this._cancelHostIdleStartTimer(room.id);
+        const targetHostId = room.hostId;
+        const timerId = setTimeout(() => {
+            this.hostStartTimers.delete(room.id);
+            this._onHostIdleTimeout(room.id, targetHostId);
+        }, this.hostStartIdleMs);
+        this.hostStartTimers.set(room.id, { timerId, hostId: targetHostId });
+    }
+
+    _cancelHostIdleStartTimer(roomId) {
+        const prev = this.hostStartTimers.get(roomId);
+        if (prev) {
+            clearTimeout(prev.timerId);
+            this.hostStartTimers.delete(roomId);
+        }
+    }
+
+    _onHostIdleTimeout(roomId, expectedHostId) {
+        const room = this.rooms.get(roomId);
+        if (!room || room.hostId !== expectedHostId) return;
+        if (!this._isHostIdleConditionMet(room)) return;
+
+        const hostId = room.hostId;
+        const hostSlotIdx = room.slots.findIndex(s => s.type === 'human' && s.id === hostId);
+        if (hostSlotIdx === -1) return;
+
+        this._cancelDisconnectTimer(hostId);
+        const hostSess = this.sessionsByPlayerId.get(hostId);
+        if (hostSess && hostSess.currentRoomId === room.id) {
+            hostSess.currentRoomId = null;
+        }
+
+        room.slots[hostSlotIdx] = createEmptySlot(hostSlotIdx);
+
+        const prev = this.hostIdlePenalties.get(hostId) || { strikes: 0, bannedUntil: 0 };
+        const nextStrikes = prev.strikes + 1;
+        let reason = 'HOST_IDLE_KICKED';
+        let bannedUntil = 0;
+        if (nextStrikes >= HOST_IDLE_MAX_STRIKES) {
+            reason = 'HOST_IDLE_BANNED';
+            bannedUntil = Date.now() + this.hostIdleBanMs;
+            this.hostIdlePenalties.set(hostId, { strikes: 0, bannedUntil });
+        } else {
+            this.hostIdlePenalties.set(hostId, { strikes: nextStrikes, bannedUntil: prev.bannedUntil || 0 });
+        }
+
+        this._sendToPlayer(hostId, {
+            type: 'KICKED_FROM_ROOM',
+            roomId: room.id,
+            gameId: room.gameId,
+            reason,
+            strikeCount: nextStrikes,
+            bannedUntil
+        });
+
+        this._finalizeHumanRemovalFromRoom(room, hostId);
+    }
+
     _destroyRoom(roomId) {
         this._cancelEmptyRoomTimer(roomId);
+        this._cancelHostIdleStartTimer(roomId);
         const room = this.rooms.get(roomId);
         if (!room) return;
         const gameId = room.gameId;
@@ -1073,6 +1533,9 @@ export class LobbyServer {
         this.disconnectTimers.clear();
         for (const t of this.emptyRoomTimers.values()) clearTimeout(t);
         this.emptyRoomTimers.clear();
+        for (const entry of this.hostStartTimers.values()) clearTimeout(entry.timerId);
+        this.hostStartTimers.clear();
+        this.hostIdlePenalties.clear();
         for (const roomId of Array.from(this.rooms.keys())) {
             this._destroyRoom(roomId);
         }

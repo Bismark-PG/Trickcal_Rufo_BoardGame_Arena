@@ -11,7 +11,14 @@ import {
     getCardDeck
 } from './MarbleRuntime.js';
 import { applySpecialTileTollModifiers } from './MarbleLogic.js';
-import { drawDimensionCard, drawDimensionCards, executeCardEffect, removeCardFromInventory } from './MarbleCard.js';
+import {
+    drawDimensionCard,
+    drawDimensionCards,
+    executeCardEffect,
+    removeCardFromInventory,
+    formatCardDisplayTitle,
+    getCardGradeTheme
+} from './MarbleCard.js';
 import { openFurryBeachState } from './MarbleCardSpecial.js';
 import { getPlayerThinkTime } from './MarbleCardTreasure.js';
 import { applyLapPassBonus } from './MarbleCardNormal.js';
@@ -225,7 +232,7 @@ export const BoardGimmickHandlers = {
             scheduleGameTask(ctx.proceedEndTurn, 2000);
             return;
         }
-        ctx.turnTimer.start(Math.max(12, getPlayerThinkTime(ctx.player)));
+        ctx.turnTimer.start(GAME_CONSTANTS.ALERT_THINK_TIME || 5);
         RuntimePopup.showNormalPopup(text.VOLCANICA_TITLE, text.VOLCANICA_DESC, true, ctx.proceedEndTurn);
     },
 
@@ -323,7 +330,7 @@ export const BoardGimmickHandlers = {
             }
 
             if (ctx.player.money < earlyOpenFee) {
-                ctx.turnTimer.start(thinkTime);
+                ctx.turnTimer.start(GAME_CONSTANTS.ALERT_THINK_TIME || 5);
                 RuntimePopup.showNormalPopup(getTileName(ctx.tile), gText.BBANGJU_SPEED_LOCKED_NO_MONEY, true, ctx.proceedEndTurn);
                 return;
             }
@@ -336,7 +343,7 @@ export const BoardGimmickHandlers = {
                     action: () => {
                         ctx.turnTimer.stop();
                         RuntimePopup.closeAll();
-                        ctx.turnTimer.start(thinkTime);
+                        ctx.turnTimer.start(getPlayerThinkTime(ctx.player, GAME_CONSTANTS.PORTAL_THINK_TIME || 20));
                         RuntimePopup.showPortalPopup(ctx.tiles, (targetId) => {
                             if (ctx.player.money >= earlyOpenFee) {
                                 ctx.turnTimer.stop();
@@ -415,7 +422,7 @@ export const BoardGimmickHandlers = {
                 RuntimePopup.showToast(`[${ctx.player.name}] ${getTileName(ctx.tile)} - ${gText.BBANGJU_CLOSED}`, 3000);
                 scheduleGameTask(ctx.proceedEndTurn, 1800);
             } else {
-                ctx.turnTimer.start(thinkTime);
+                ctx.turnTimer.start(GAME_CONSTANTS.ALERT_THINK_TIME || 5);
                 RuntimePopup.showNormalPopup(getTileName(ctx.tile), gText.BBANGJU_CLOSED, true, ctx.proceedEndTurn);
             }
         } else {
@@ -466,7 +473,7 @@ export const BoardGimmickHandlers = {
                 if (hasResearcherBuff && !isFree) {
                     RuntimePopup.showToast(cText.BBANGJU_IMMUNE_APPLIED, 3000, ctx.player.id);
                 }
-                ctx.turnTimer.start(thinkTime);
+                ctx.turnTimer.start(getPlayerThinkTime(ctx.player, GAME_CONSTANTS.PORTAL_THINK_TIME || 20));
                 RuntimePopup.showPortalPopup(ctx.tiles, (targetId) => {
                     if (ctx.player.money >= reqMoney) {
                         ctx.turnTimer.stop();
@@ -830,6 +837,7 @@ export const BoardGimmickHandlers = {
                 if (targetPlayer !== ctx.player) wmVoid.voidPulledCount = (wmVoid.voidPulledCount || 0) + 1;
             }
             if (showPopup && !targetPlayer.isAi()) {
+                if (triggerEndTurn) ctx.turnTimer.start(GAME_CONSTANTS.ALERT_THINK_TIME || 5);
                 RuntimePopup.showNormalPopup(cText.SHAYDI_TITLE, customMsg || cText.SHAYDI_DESC, true, ctx.proceedEndTurn);
             } else {
                 RuntimePopup.showToast(`${targetPlayer.name} ${cText.SHAYDI_PULLED}`, 3200);
@@ -1087,7 +1095,8 @@ export const BoardGimmickHandlers = {
     handleCardTile: (ctx) => {
         const cText = getCardUIText();
         const gText = getGimmickText();
-        const thinkTime = getPlayerThinkTime(ctx.player);
+        const alertThinkTime = getPlayerThinkTime(ctx.player, GAME_CONSTANTS.ALERT_THINK_TIME || 5);
+        const libraryThinkTime = getPlayerThinkTime(ctx.player);
 
         // 제단 2회차+ 포탈로 이동한 도착인지 즉시 소비 (미소멸 방지)
         const isAltarGuaranteed = ctx.player._altarGuaranteedTreasure === true;
@@ -1105,6 +1114,9 @@ export const BoardGimmickHandlers = {
         const processSingleDraw = (onDrawDone, allowAltarGuarantee = false) => {
             if (ctx.player.tracker) ctx.player.tracker.cardDrawsTotal++;
 
+            const isLibraryOwner = ctx.tiles[BOARD_TILES.LIBRARY].owner === ctx.player;
+            const useLibraryAbility = isLibraryOwner || Boolean(ctx.player.hasLibraryBuff);
+
             // 제단에 의해 카드 칸으로 이동한 경우 미등장 보물 카드 확정 지급
             if (allowAltarGuarantee) {
                 const altarTreasure = OdysseyManager.drawGuaranteedAltarTreasure(ctx.player, getCardDeck());
@@ -1115,24 +1127,29 @@ export const BoardGimmickHandlers = {
                         executeCardEffect(ctx, altarTreasure, onDrawDone, altarOpt);
                         return;
                     }
-                    ctx.turnTimer.start(thinkTime, () => {
+                    let altarHandled = false;
+                    const finishAltarDraw = () => {
+                        if (altarHandled) return;
+                        altarHandled = true;
+                        ctx.turnTimer.stop();
                         RuntimePopup.closeAll();
                         executeCardEffect(ctx, altarTreasure, onDrawDone, altarOpt);
-                    });
-                    RuntimePopup.showChoicePopup(gText.ALTAR_PORTAL_TITLE, `[${altarTreasure.name}]\n\n${altarTreasure.desc}`, [
-                        { text: cText.BTN_CONFIRM, color: '#f1c40f', action: () => {
-                            ctx.turnTimer.stop();
-                            RuntimePopup.closeAll();
-                            executeCardEffect(ctx, altarTreasure, onDrawDone, altarOpt);
-                        }}
-                    ]);
+                    };
+                    ctx.turnTimer.start(useLibraryAbility ? libraryThinkTime : alertThinkTime, finishAltarDraw);
+                    RuntimePopup.showNormalPopup(
+                        gText.ALTAR_PORTAL_TITLE,
+                        `${formatCardDisplayTitle(altarTreasure)}\n\n${altarTreasure.desc}`,
+                        true,
+                        finishAltarDraw,
+                        {
+                            confirmText: cText.BTN_CONFIRM,
+                            titleColor: '#f1c40f'
+                        }
+                    );
                     return;
                 }
                 RuntimePopup.showToast(gText.ALTAR_PORTAL_TREASURE_EMPTY_TOAST, 2400, ctx.player.id);
             }
-
-            const isLibraryOwner = ctx.tiles[BOARD_TILES.LIBRARY].owner === ctx.player;
-            const useLibraryAbility = isLibraryOwner || ctx.player.hasLibraryBuff;
 
             if (useLibraryAbility && ctx.player.isAi()) {
                 if (!isLibraryOwner) ctx.player.hasLibraryBuff = false;
@@ -1146,13 +1163,14 @@ export const BoardGimmickHandlers = {
             if (useLibraryAbility && !ctx.player.isAi()) {
                 if (!isLibraryOwner) ctx.player.hasLibraryBuff = false;
                 const cards = drawDimensionCards(ctx, 3);
-                ctx.turnTimer.start(thinkTime, () => {
+                ctx.turnTimer.start(libraryThinkTime, () => {
                     RuntimePopup.closeAll();
                     executeCardEffect(ctx, cards[0], onDrawDone);
                 });
-                const btnConfigs = cards.map(c => ({
-                    text: `${c.id >= 500 ? `${gText.LIBRARY_TREASURE_TAG} ` : ''}[${c.name}]\n${c.desc}`,
-                    color: c.id >= 500 ? '#f39c12' : '#8e44ad',
+                const btnConfigs = cards.map((c, idx) => ({
+                    row: idx + 1,
+                    text: `${c.id >= 500 ? `${gText.LIBRARY_TREASURE_TAG} ` : ''}${formatCardDisplayTitle(c)}\n${c.desc}`,
+                    color: getCardGradeTheme(c).buttonBg,
                     action: () => {
                         ctx.turnTimer.stop();
                         RuntimePopup.closeAll();
@@ -1170,17 +1188,25 @@ export const BoardGimmickHandlers = {
                 return;
             }
 
-            ctx.turnTimer.start(thinkTime, () => {
+            let cardHandled = false;
+            const finishCardDraw = () => {
+                if (cardHandled) return;
+                cardHandled = true;
+                ctx.turnTimer.stop();
                 RuntimePopup.closeAll();
                 executeCardEffect(ctx, card, onDrawDone);
-            });
-            RuntimePopup.showChoicePopup(isDoubleDraw ? cText.CARD_DRAWN_DOUBLE : cText.CARD_DRAWN, `[${card.name}]\n\n${card.desc}`, [
-                { text: cText.BTN_CONFIRM, color: '#3498db', action: () => {
-                    ctx.turnTimer.stop();
-                    RuntimePopup.closeAll();
-                    executeCardEffect(ctx, card, onDrawDone);
-                }}
-            ]);
+            };
+            ctx.turnTimer.start(alertThinkTime, finishCardDraw);
+            RuntimePopup.showNormalPopup(
+                isDoubleDraw ? cText.CARD_DRAWN_DOUBLE : cText.CARD_DRAWN,
+                `${formatCardDisplayTitle(card)}\n\n${card.desc}`,
+                true,
+                finishCardDraw,
+                {
+                    confirmText: cText.BTN_CONFIRM,
+                    titleColor: '#f1c40f'
+                }
+            );
         };
 
         if (isDoubleDraw) {

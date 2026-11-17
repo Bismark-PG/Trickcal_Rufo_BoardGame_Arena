@@ -5,6 +5,7 @@ import { MenuLang } from '../System/Index/MainMenuIndex.js';
 import { getAllRegisteredGames } from '../System/GameRegistry.js';
 import { RoomManager } from '../Lobby/RoomManager.js';
 import { openQuickJoinModal } from '../Lobby/QuickJoinUI.js';
+import { openBugReportModal, openSuggestionModal } from '../Lobby/FeedbackUI.js';
 import { showLobbyToast, escapeHtml } from '../Lobby/LobbyUI.js';
 
 export function initMenu(container) {
@@ -66,9 +67,19 @@ export function initMenu(container) {
                     <button id="close-settings" style="font-family: inherit; width: 100%; padding: 15px; font-size: 24px; background: #e74c3c; color: white; border: none; border-radius: 10px; cursor: pointer;">${text.CLOSE}</button>
                 </div>
 
-                <div id="popup-info" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; padding: 50px; border-radius: 20px; z-index: 10; width: 400px; text-align: center; border: 5px solid #165b7a;">
-                    <h2 style="font-size: 40px;">${text.INFO}</h2>
-                    <button id="close-info" style="font-family: inherit; width: 100%; padding: 15px; font-size: 24px; background: #e74c3c; color: white; border: none; border-radius: 10px; cursor: pointer; margin-top: 30px;">${text.CLOSE}</button>
+                <div id="popup-info" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; padding: 44px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 10; width: 520px; text-align: center; border: 5px solid #165b7a;">
+                    <h2 style="margin-top: 0; font-size: 38px; color: #165b7a;">${escapeHtml(text.INFO)}</h2>
+
+                    <div style="background: #f0f7fb; border: 2px solid #cbd5e0; border-radius: 16px; padding: 22px 20px; margin-top: 20px; text-align: center;">
+                        <h3 style="margin: 0 0 8px 0; font-size: 22px; color: #165b7a;">${escapeHtml(text.INFO_FEEDBACK_SECTION || '버그 제보 및 건의하기')}</h3>
+                        <p style="margin: 0 0 18px 0; font-size: 15px; line-height: 1.5; color: #4a5568;">${escapeHtml(text.INFO_FEEDBACK_DESC || '이용 중 불편한 점이나 새로운 아이디어를 운영진에게 바로 전달할 수 있습니다.')}</p>
+                        <div style="display: flex; gap: 12px;">
+                            <button id="btn-info-bug-report" type="button" style="font-family: inherit; flex: 1; padding: 14px 12px; font-size: 20px; font-weight: bold; background: #e67e22; color: #fff; border: none; border-radius: 12px; cursor: pointer;">${escapeHtml(text.BTN_BUG_REPORT || '🐛 버그 제보')}</button>
+                            <button id="btn-info-suggestion" type="button" style="font-family: inherit; flex: 1; padding: 14px 12px; font-size: 20px; font-weight: bold; background: #27ae60; color: #fff; border: none; border-radius: 12px; cursor: pointer;">${escapeHtml(text.BTN_SUGGESTION || '💡 건의하기')}</button>
+                        </div>
+                    </div>
+
+                    <button id="close-info" style="font-family: inherit; width: 100%; padding: 15px; font-size: 24px; background: #e74c3c; color: white; border: none; border-radius: 10px; cursor: pointer; margin-top: 26px;">${escapeHtml(text.CLOSE)}</button>
                 </div>
             </div>
         `;
@@ -80,6 +91,23 @@ export function initMenu(container) {
         const quickJoinBtn = container.querySelector('#btn-quick-join');
         if (quickJoinBtn) {
             quickJoinBtn.onclick = () => openQuickJoinModal(container);
+        }
+
+        const infoPopupEl = container.querySelector('#popup-info');
+        const bugReportBtn = container.querySelector('#btn-info-bug-report');
+        if (bugReportBtn) {
+            bugReportBtn.onclick = () => {
+                if (infoPopupEl) infoPopupEl.style.display = 'none';
+                openBugReportModal(container, { defaultGameId: 'arena' });
+            };
+        }
+
+        const suggestionBtn = container.querySelector('#btn-info-suggestion');
+        if (suggestionBtn) {
+            suggestionBtn.onclick = () => {
+                if (infoPopupEl) infoPopupEl.style.display = 'none';
+                openSuggestionModal(container, { defaultGameId: 'arena' });
+            };
         }
 
         container.querySelectorAll('.game-select-btn').forEach(btn => {

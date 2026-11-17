@@ -1,6 +1,11 @@
+import { ErrorTracker } from './ErrorTracker.js';
+
 const hasAudio = typeof Audio !== 'undefined';
 const bgm = hasAudio ? new Audio() : { volume: 0.5, paused: true, src: '', loop: true, play: async () => {} };
 bgm.volume = 0.5;
+if (hasAudio) {
+    ErrorTracker.trackAudio(bgm, { label: 'BGM' });
+}
 
 export const AudioManager = {
     bgmPlayer: bgm,

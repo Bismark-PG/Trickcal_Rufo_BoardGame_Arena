@@ -121,3 +121,80 @@ export const TimeSlotConfig = {
     // 수인 숲 협곡, 림의 집, 마녀왕국 주변, 마녀왕국거리, UFC직영점, 불길과 물길의 터
     FIXED_NIGHT: [13, 27, 29, 31, 33, 34]
 };
+
+/**
+ * 확정 배치된 칸별 세부 배경(`Resource/Texture/Marble/BG/`) 변형 매니페스트.
+ * 신규 BG 에셋이 추가되면 해당 타일 ID의 지원 변형(`Day`/`Night`, `Common`, `Normal`/`Special`)을 등록한다.
+ */
+export const TILE_BG_VARIANTS = {
+    0: ['Common'],
+    1: ['Day', 'Night'],
+    3: ['Day'],
+    4: ['Day', 'Night'],
+    5: ['Common'],
+    6: ['Day', 'Night'],
+    8: ['Day'],
+    9: ['Day', 'Night'],
+    10: ['Common'],
+    11: ['Normal', 'Special'],
+    13: ['Night'],
+    14: ['Day', 'Night'],
+    19: ['Day'],
+    20: ['Common'],
+    21: ['Day'],
+    24: ['Day'],
+    25: ['Normal']
+};
+
+export function formatTileBgSlug(tileId) {
+    const rawEn = BoardNames[tileId]?.en || '';
+    return rawEn.replace(/'/g, '').trim().replace(/\s+/g, '_');
+}
+
+/**
+ * 아트 리소스 사용설명서 4절 규약에 따라 칸 ID · 시간대 · 제단 상태에 맞는 BG 텍스처 경로를 반환한다.
+ * 확정된 BG 파일이 없는 타일은 null을 반환한다.
+ */
+export function resolveTileBgPath(tileOrId, worldState = null, playerState = null, options = {}) {
+    const tile = (tileOrId && typeof tileOrId === 'object') ? tileOrId : null;
+    const tileId = tile ? tile.id : Number(tileOrId);
+    if (!Number.isInteger(tileId) || tileId < 0 || tileId >= BoardNames.length) return null;
+
+    const variants = TILE_BG_VARIANTS[tileId];
+    if (!Array.isArray(variants) || variants.length === 0) return null;
+
+    const col = Math.floor(tileId / 10) + 1;
+    const paddedId = String(tileId).padStart(2, '0');
+    const slug = formatTileBgSlug(tileId);
+    if (!slug) return null;
+
+    let tag = variants[0];
+    if (variants.includes('Common')) {
+        tag = 'Common';
+    } else if (variants.includes('Normal') || variants.includes('Special')) {
+        let isSpecial = false;
+        if (tileId === BOARD_TILES.LAKE) {
+            isSpecial = Boolean(worldState?.isFurryBeach);
+        } else {
+            const visits = Number(playerState?.altarVisitCount || 0);
+            isSpecial = options.isArrival
+                ? visits >= 2
+                : Boolean(playerState?.hasVisitedAltar || visits >= 1);
+        }
+        tag = (isSpecial && variants.includes('Special')) ? 'Special' : 'Normal';
+    } else {
+        const currentPhase = worldState?.timeSlot?.currentPhase;
+        const isNight = tile?.timeType === 'night' || currentPhase === 'night' && tile?.timeType !== 'day';
+        if (isNight && variants.includes('Night')) {
+            tag = 'Night';
+        } else if (variants.includes('Day')) {
+            tag = 'Day';
+        }
+    }
+
+    return `./Resource/Texture/Marble/BG/BG_${col}_${paddedId}_${tag}_${slug}.png`;
+}
+
+export function getTileIntroDesc(tileName) {
+    return `이 칸은 ${tileName}입니다.`;
+}

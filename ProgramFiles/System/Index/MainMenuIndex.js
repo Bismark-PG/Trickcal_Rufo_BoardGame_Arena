@@ -1,23 +1,50 @@
 export const MenuLang = {
     ko: {
         SETTINGS: "설정", INFO: "정보", QUICK_JOIN: "⚡ 빠른 참가", TITLE: "루포의 보드게임 아레나",
+        BTN_BUG_REPORT: "🐛 버그 제보", BTN_SUGGESTION: "💡 건의하기",
+        INFO_FEEDBACK_SECTION: "버그 제보 및 건의하기", INFO_FEEDBACK_DESC: "이용 중 불편한 점이나 새로운 아이디어를 운영진에게 바로 전달할 수 있습니다.",
         GAME_MARBLE: "엘리아스 마블", GAME_MARBLE_DESC: "2~4인 · 경제 전략 보드게임",
         GAME_UNOS: "우노스 (UNOS)", GAME_UNOS_DESC: "2인 전용 · 대기방 테스트 / 개발 중",
         PREPARING: "준비중", UNOS_PREPARING_MSG: "[우노스]는 현재 기획 및 개발 준비 중입니다!",
+        LOADING_SUBTITLE: "아레나 리소스를 불러오는 중입니다...",
+        LOADING_STAGE_ARENA: "아레나 기본 리소스 로딩중...",
+        LOADING_STAGE_GAME_SUFFIX: "리소스 로딩중...",
+        LOADING_COMPLETE: "리소스 로딩 완료! 아레나로 입장합니다...",
+        LOADING_PREPARING_ITEM: "리소스 확인 중",
+        LOADING_SLOW_HINT: "네트워크가 다소 느립니다. 지금 바로 입장할 수도 있습니다.",
+        LOADING_SKIP: "건너뛰고 바로 입장",
         BGM: "BGM 음량", SFX: "SFX 음량", FONT: "폰트 설정", FONT_GOTHIC: "고딕", FONT_GULIM: "굴림", LANG: "언어 설정", CLOSE: "닫기"
     },
     en: {
         SETTINGS: "Settings", INFO: "Info", QUICK_JOIN: "⚡ Quick Join", TITLE: "Rufo's Board Game Arena",
+        BTN_BUG_REPORT: "🐛 Bug Report", BTN_SUGGESTION: "💡 Suggestion",
+        INFO_FEEDBACK_SECTION: "Bug Report & Suggestions", INFO_FEEDBACK_DESC: "Report an issue or share new ideas directly with the team.",
         GAME_MARBLE: "Elias Marble", GAME_MARBLE_DESC: "2-4P · Economic Strategy",
         GAME_UNOS: "UNOS", GAME_UNOS_DESC: "2P Only · Lobby Open / In Dev",
         PREPARING: "Coming Soon", UNOS_PREPARING_MSG: "[UNOS] is currently in planning!",
+        LOADING_SUBTITLE: "Preloading arena resources...",
+        LOADING_STAGE_ARENA: "Loading Arena core assets...",
+        LOADING_STAGE_GAME_SUFFIX: "resources loading...",
+        LOADING_COMPLETE: "Loading complete! Entering arena...",
+        LOADING_PREPARING_ITEM: "Checking assets",
+        LOADING_SLOW_HINT: "Network seems slow. You can enter the arena right away.",
+        LOADING_SKIP: "Skip & Enter Now",
         BGM: "BGM Volume", SFX: "SFX Volume", FONT: "Font", FONT_GOTHIC: "Gothic", FONT_GULIM: "Gulim", LANG: "Language", CLOSE: "Close"
     },
     ja: {
         SETTINGS: "設定", INFO: "情報", QUICK_JOIN: "⚡ クイック参加", TITLE: "ルポのボードゲームアリーナ",
+        BTN_BUG_REPORT: "🐛 バグ報告", BTN_SUGGESTION: "💡 ご意見",
+        INFO_FEEDBACK_SECTION: "バグ報告・ご要望", INFO_FEEDBACK_DESC: "不具合のご報告や新しいアイデアを運営へ直接お送りいただけます。",
         GAME_MARBLE: "エリアスマーブル", GAME_MARBLE_DESC: "2~4人 · 経済戦略ボードゲーム",
         GAME_UNOS: "ウノス (UNOS)", GAME_UNOS_DESC: "2人専用 · ロビー開放 / 開発中",
         PREPARING: "準備中", UNOS_PREPARING_MSG: "[ウノス]は現在企画・開発準備中です！",
+        LOADING_SUBTITLE: "アリーナリソースを読み込んでいます...",
+        LOADING_STAGE_ARENA: "アリーナ共通リソース読み込み中...",
+        LOADING_STAGE_GAME_SUFFIX: "リソース読み込み中...",
+        LOADING_COMPLETE: "読み込み完了！アリーナへ移動します...",
+        LOADING_PREPARING_ITEM: "リソース確認中",
+        LOADING_SLOW_HINT: "通信がやや遅れています。このまま入場することもできます。",
+        LOADING_SKIP: "スキップしてすぐ入場",
         BGM: "BGM 音量", SFX: "SFX 音量", FONT: "フォント", FONT_GOTHIC: "ゴシック", FONT_GULIM: "グリム", LANG: "言語設定", CLOSE: "閉じる"
     }
 };

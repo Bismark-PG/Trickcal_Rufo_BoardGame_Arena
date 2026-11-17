@@ -165,3 +165,62 @@ export const CardUILang = {
     en: { /* 추후 로컬라이징 적용 */ },
     ja: { /* 추후 로컬라이징 적용 */ }
 };
+
+export function getCardGrade(cardOrId) {
+    const id = typeof cardOrId === 'object' ? Number(cardOrId?.id) : Number(cardOrId);
+    if (id >= 500) return 'treasure';
+    if (id >= 100) return 'special';
+    return 'normal';
+}
+
+export function getCardFormLabel(cardOrSubType) {
+    const subType = typeof cardOrSubType === 'object' ? cardOrSubType?.subType : cardOrSubType;
+    const id = typeof cardOrSubType === 'object' ? Number(cardOrSubType?.id) : NaN;
+    if (id >= 500 || subType === 'treasure') return '보물카드';
+    if (subType === 'use') return '사용형';
+    if (subType === 'hold') return '보유형';
+    return '발동형';
+}
+
+export function getCardGradeTheme(cardOrId) {
+    const grade = getCardGrade(cardOrId);
+    if (grade === 'treasure') {
+        return {
+            grade,
+            label: '보물',
+            accent: '#facc15',
+            buttonBg: '#ca8a04',
+            cardBg: 'rgba(202, 138, 4, 0.24)',
+            border: 'rgba(250, 204, 21, 0.65)',
+            badgeBg: 'rgba(250, 204, 21, 0.25)',
+            badgeText: '#fde047'
+        };
+    }
+    if (grade === 'special') {
+        return {
+            grade,
+            label: '특수',
+            accent: '#60a5fa',
+            buttonBg: '#1e3a8a',
+            cardBg: 'rgba(30, 58, 138, 0.36)',
+            border: 'rgba(96, 165, 250, 0.55)',
+            badgeBg: 'rgba(59, 130, 246, 0.28)',
+            badgeText: '#93c5fd'
+        };
+    }
+    return {
+        grade,
+        label: '일반',
+        accent: '#cbd5e1',
+        buttonBg: '#475569',
+        cardBg: 'rgba(100, 116, 139, 0.22)',
+        border: 'rgba(148, 163, 184, 0.45)',
+        badgeBg: 'rgba(148, 163, 184, 0.25)',
+        badgeText: '#e2e8f0'
+    };
+}
+
+export function formatCardDisplayTitle(card) {
+    if (!card) return '';
+    return `[${card.name || ''}/${getCardFormLabel(card)}]`;
+}

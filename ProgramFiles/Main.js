@@ -1,23 +1,90 @@
 import { initMenu } from './Scenes/MainMenu.js';
+import { initArenaLoading } from './Scenes/ArenaLoading.js';
 import { initMarbleMain } from './Scenes/GameMain/MarbleMain.js';
 import { initUnosMain } from './Scenes/GameMain/UnosMain.js';
 import { initRoom } from './Scenes/GameRoom.js';
 import { initMarble } from './Scenes/GameMarble.js';
 import { RoomManager } from './Lobby/RoomManager.js';
+import { renderTabBlockedScreen } from './Lobby/LobbyUI.js';
 import { AudioManager } from './System/System.js';
+import { NetworkClient } from './System/NetworkClient.js';
+import { getGameMeta } from './System/GameRegistry.js';
+import { hasCompletedArenaPreload } from './System/AssetPreloader.js';
+import { SystemLogManager } from './System/Log/SystemLogManager.js';
+import { ErrorTracker } from './System/ErrorTracker.js';
 
-const app = document.getElementById('app');
+const app = typeof document !== 'undefined' ? document.getElementById('app') : null;
+const VALID_SCENES = new Set(['loading', 'menu', 'marble_main', 'unos_main', 'room', 'marble', 'tab_blocked']);
+
+let currentSceneName = null;
+let currentGameId = 'arena';
 
 function resizeApp() {
+    if (!app) return;
     const scale = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
     app.style.transform = `translate(-50%, -50%) scale(${scale})`;
 }
-window.addEventListener('resize', resizeApp);
+if (typeof window !== 'undefined') {
+    window.addEventListener('resize', resizeApp);
+}
+
+function resolveSafeSceneForRecovery(report, detail) {
+    if (detail?.preferMenu) return 'menu';
+    const gid = detail?.gameId || report?.gameId || currentGameId;
+    if (gid && gid !== 'arena') {
+        const meta = getGameMeta(gid);
+        if (meta?.sceneMain) return meta.sceneMain;
+    }
+    return 'menu';
+}
 
 function main() {
-    resizeApp();
+    ErrorTracker.init({
+        getContainer: () => app,
+        getContext: () => {
+            const room = RoomManager.getCurrentRoom();
+            return {
+                scene: currentSceneName || 'boot',
+                gameId: room?.gameId || currentGameId || 'arena',
+                roomCode: room?.code || null,
+                isOnline: RoomManager.isOnline(),
+                playerId: NetworkClient.playerId || RoomManager.localPlayer?.id || null
+            };
+        },
+        recoverToSafeScene: (_errorCode, report, detail) => {
+            const safeScene = resolveSafeSceneForRecovery(report, detail);
+            RoomManager.clearGhostSession();
+            changeScene(safeScene);
+        },
+        sendReportWs: (report) => NetworkClient.reportClientError(report),
+        sendReportHttp: (report) => SystemLogManager.recordClientError(report)
+    });
 
-    changeScene('menu'); 
+    NetworkClient.subscribe('TAB_REPLACED', (msg) => {
+        RoomManager.clearGhostSession({ skipServerLeave: true });
+        NetworkClient.disconnect({ disableReconnect: true });
+        changeScene('tab_blocked', {
+            gameId: msg?.gameId || currentGameId || null,
+            reason: msg?.reason || 'REPLACED_BY_NEW_TAB'
+        });
+    });
+
+    NetworkClient.subscribe('HELLO_ACK', (msg) => {
+        queueMicrotask(() => {
+            if (currentSceneName !== 'menu') return;
+            if (msg?.room || RoomManager.getCurrentRoom()) {
+                RoomManager.leaveCurrentRoom();
+            }
+            if (msg?.activeGameId || NetworkClient.activeRegisteredGameId) {
+                NetworkClient.unregisterGameTab();
+            }
+        });
+    });
+
+    ErrorTracker.inspectAndSanitizeInitialUrl();
+
+    resizeApp();
+    changeScene(hasCompletedArenaPreload() ? 'menu' : 'loading');
 
     // 브라우저 자동 재생 정책에 대응하기 위해, 
     // 사용자의 첫 번째 클릭(화면 어디든) 발생 시 보류되었던 BGM을 강제 재생합니다.
@@ -29,29 +96,82 @@ function main() {
 }
 
 export function changeScene(sceneName, sceneParams = null) {
-    if (typeof app._cleanupScene === 'function') {
+    if (!VALID_SCENES.has(sceneName)) {
+        ErrorTracker.reportRouteTamper(sceneName, 'Unregistered scene name');
+        return;
+    }
+
+    if (sceneName === 'room' || sceneName === 'marble') {
+        const hasValidSession = Boolean(
+            RoomManager.getCurrentRoom() ||
+            sceneParams?.room ||
+            sceneParams?.initialSnapshot ||
+            RoomManager.getActiveSnapshot()
+        );
+        if (!hasValidSession) {
+            ErrorTracker.reportRouteTamper(sceneName, 'Missing active room or session');
+            return;
+        }
+    }
+
+    const prevScene = currentSceneName || 'boot';
+    ErrorTracker.addBreadcrumb('SCENE', `${prevScene} -> ${sceneName}`);
+    currentSceneName = sceneName;
+
+    if (sceneName === 'marble_main') {
+        currentGameId = 'marble';
+    } else if (sceneName === 'unos_main') {
+        currentGameId = 'unos';
+    } else if (sceneName === 'room' || sceneName === 'marble') {
+        currentGameId = RoomManager.getCurrentRoom()?.gameId || sceneParams?.room?.gameId || currentGameId || 'marble';
+    } else {
+        currentGameId = 'arena';
+    }
+
+    if (app && typeof app._cleanupScene === 'function') {
         app._cleanupScene();
         app._cleanupScene = null;
     }
-    app.innerHTML = '';
+    if (app) {
+        app.innerHTML = '';
+    }
 
-    if (sceneName === 'menu') {
+    if (sceneName === 'loading') {
+        ErrorTracker.clearTransitionWatchdog();
+        AudioManager.playBGM('./Resource/Audio/Main_Furry_Forest.mp3');
+        if (app) initArenaLoading(app, sceneParams);
+    } else if (sceneName === 'menu') {
+        ErrorTracker.clearTransitionWatchdog();
         if (RoomManager.getCurrentRoom()) RoomManager.leaveCurrentRoom();
+        NetworkClient.unregisterGameTab();
         AudioManager.playBGM('./Resource/Audio/Main_Furry_Forest.mp3');
-        initMenu(app, sceneParams);
+        if (app) initMenu(app, sceneParams);
     } else if (sceneName === 'marble_main') {
+        ErrorTracker.clearTransitionWatchdog();
         AudioManager.playBGM('./Resource/Audio/Main_Furry_Forest.mp3');
-        initMarbleMain(app, sceneParams);
+        if (app) initMarbleMain(app, sceneParams);
     } else if (sceneName === 'unos_main') {
+        ErrorTracker.clearTransitionWatchdog();
         AudioManager.playBGM('./Resource/Audio/Main_Furry_Forest.mp3');
-        initUnosMain(app, sceneParams);
+        if (app) initUnosMain(app, sceneParams);
     } else if (sceneName === 'room') {
+        ErrorTracker.startTransitionWatchdog('room', { timeoutMs: 9500, gameId: currentGameId });
         AudioManager.playBGM('./Resource/Audio/Main_Furry_Forest.mp3');
-        initRoom(app, sceneParams);
+        if (app) initRoom(app, sceneParams);
     } else if (sceneName === 'marble') {
+        ErrorTracker.startTransitionWatchdog('marble', { timeoutMs: 9500, gameId: currentGameId || 'marble' });
         AudioManager.playBGM('./Resource/Audio/Game_Let\'s_Go.mp3');
-        initMarble(app, sceneParams);
+        if (app) initMarble(app, sceneParams);
+    } else if (sceneName === 'tab_blocked') {
+        ErrorTracker.clearTransitionWatchdog();
+        if (app) renderTabBlockedScreen(app, sceneParams);
+    }
+
+    if (app && sceneName !== 'loading') {
+        ErrorTracker.flushPendingModal(app);
     }
 }
 
-main();
+if (typeof window !== 'undefined' && typeof document !== 'undefined' && app) {
+    main();
+}

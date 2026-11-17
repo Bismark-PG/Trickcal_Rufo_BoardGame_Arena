@@ -1,5 +1,7 @@
 import { changeScene } from '../Main.js';
 import { RoomManager } from './RoomManager.js';
+import { NetworkClient } from '../System/NetworkClient.js';
+import { ErrorTracker } from '../System/ErrorTracker.js';
 import { getGameMeta } from '../System/GameRegistry.js';
 import { LangState } from '../System/LanguageManager.js';
 import { LobbyLang } from '../System/Index/LobbyIndex.js';
@@ -36,6 +38,108 @@ export function showLobbyToast(container, msg, duration = 2400) {
     }, duration);
 }
 
+function openDuplicateTabModal(container) {
+    return new Promise((resolve) => {
+        if (!container || typeof document === 'undefined') {
+            resolve(false);
+            return;
+        }
+        const existing = container.querySelector('#modal-duplicate-tab');
+        if (existing) existing.remove();
+
+        const text = LobbyLang[LangState.current] || LobbyLang.ko;
+        const modal = document.createElement('div');
+        modal.id = 'modal-duplicate-tab';
+        modal.style.cssText = 'position: absolute; inset: 0; background: rgba(0,0,0,0.68); display: flex; align-items: center; justify-content: center; z-index: 11500; padding: 20px;';
+        modal.innerHTML = `
+            <div style="width: 560px; max-width: 92vw; background: #165b7a; border: 4px solid #f39c12; border-radius: 24px; padding: 36px 38px; color: #fff; box-shadow: 0 20px 48px rgba(0,0,0,0.5); text-align: center; font-family: inherit;">
+                <h2 style="margin: 0 0 16px 0; font-size: 30px; color: #f1c40f;">⚠️ ${escapeHtml(text.DUP_TAB_TITLE || '중복 접속 확인')}</h2>
+                <p style="margin: 0 0 28px 0; font-size: 20px; line-height: 1.65; color: #ecf0f1; white-space: pre-line;">${escapeHtml(text.DUP_TAB_DESC || '이미 다른 경로로 접속중입니다.\n현재 페이지로 재접속하시겠습니까?')}</p>
+                <div style="display: flex; justify-content: center; gap: 16px;">
+                    <button id="btn-dup-tab-no" type="button" style="font-family: inherit; min-width: 140px; padding: 13px 26px; font-size: 20px; font-weight: bold; background: #7f8c8d; color: #fff; border: none; border-radius: 12px; cursor: pointer;">${escapeHtml(text.DUP_TAB_NO || '아니요')}</button>
+                    <button id="btn-dup-tab-yes" type="button" style="font-family: inherit; min-width: 140px; padding: 13px 26px; font-size: 20px; font-weight: bold; background: #f39c12; color: #fff; border: none; border-radius: 12px; cursor: pointer;">${escapeHtml(text.DUP_TAB_YES || '예')}</button>
+                </div>
+            </div>
+        `;
+        container.appendChild(modal);
+
+        const cleanup = (answer) => {
+            if (modal.parentNode) modal.remove();
+            resolve(answer);
+        };
+        modal.querySelector('#btn-dup-tab-yes').onclick = () => cleanup(true);
+        modal.querySelector('#btn-dup-tab-no').onclick = () => cleanup(false);
+    });
+}
+
+export async function ensureGameTabAccess(container, gameId) {
+    if (!gameId || !NetworkClient.isOnline()) {
+        return { allowed: true, offline: true };
+    }
+    if (NetworkClient.activeRegisteredGameId === gameId) {
+        return { allowed: true, alreadyRegistered: true };
+    }
+
+    const res = await NetworkClient.registerGameTab(gameId);
+    if (res.ok) {
+        return { allowed: true };
+    }
+    if (res.error !== 'DUPLICATE_GAME_TAB') {
+        return { allowed: true };
+    }
+
+    ErrorTracker.addBreadcrumb('WARN', `Duplicate tab detected for ${gameId}`);
+    const wantsTakeover = await openDuplicateTabModal(container);
+    if (wantsTakeover) {
+        ErrorTracker.addBreadcrumb('UI_ACTION', `Duplicate tab takeover confirmed (${gameId})`);
+        const forceRes = await NetworkClient.registerGameTab(gameId, { force: true });
+        if (forceRes.ok) {
+            return { allowed: true, tookOver: true };
+        }
+    }
+
+    ErrorTracker.addBreadcrumb('UI_ACTION', `Duplicate tab declined (${gameId})`);
+    await RoomManager.leaveCurrentRoom();
+    NetworkClient.disconnect({ disableReconnect: true });
+    changeScene('tab_blocked', { gameId, reason: 'DECLINED' });
+    return { allowed: false, reason: 'DECLINED' };
+}
+
+export function renderTabBlockedScreen(container, sceneParams = null) {
+    if (!container) return;
+    const reason = sceneParams?.reason || 'REPLACED_BY_NEW_TAB';
+
+    const render = () => {
+        const text = LobbyLang[LangState.current] || LobbyLang.ko;
+        const title = text.TAB_BLOCKED_TITLE || '접속이 종료되었습니다';
+        const desc = reason === 'DECLINED'
+            ? (text.TAB_BLOCKED_DESC_DECLINED || '기존 경로의 접속을 유지하기 위해 현재 페이지의 접속을 중단했습니다.')
+            : (text.TAB_BLOCKED_DESC_REPLACED || '다른 탭 또는 경로에서 동일 게임으로 재접속하여 현재 탭의 연결이 종료되었습니다.');
+        const btnLabel = text.TAB_BLOCKED_BTN_MENU || '아레나 메인으로 이동';
+
+        container.innerHTML = `
+            <div style="width: 100%; height: 100%; background: linear-gradient(135deg, #103a4f, #1c5875); display: flex; align-items: center; justify-content: center; padding: 40px; box-sizing: border-box;">
+                <div style="width: 680px; max-width: 92vw; background: #165b7a; border: 4px solid #f39c12; border-radius: 28px; padding: 48px 44px; text-align: center; color: #fff; box-shadow: 0 24px 60px rgba(0,0,0,0.45);">
+                    <div style="font-size: 64px; margin-bottom: 16px;">🚫</div>
+                    <h1 style="margin: 0 0 18px 0; font-size: 36px; color: #f1c40f;">${escapeHtml(title)}</h1>
+                    <p style="margin: 0 0 36px 0; font-size: 22px; line-height: 1.65; color: #ecf0f1; white-space: pre-line;">${escapeHtml(desc)}</p>
+                    <button id="btn-tab-blocked-menu" type="button" style="font-family: inherit; padding: 16px 38px; font-size: 22px; font-weight: bold; background: #f39c12; color: #fff; border: none; border-radius: 14px; cursor: pointer; box-shadow: 0 6px 18px rgba(0,0,0,0.28);">${escapeHtml(btnLabel)}</button>
+                </div>
+            </div>
+        `;
+
+        const menuBtn = container.querySelector('#btn-tab-blocked-menu');
+        if (menuBtn) {
+            menuBtn.onclick = () => changeScene('menu');
+        }
+    };
+
+    const langHandler = () => render();
+    document.addEventListener('languageChanged', langHandler);
+    container._cleanupScene = () => document.removeEventListener('languageChanged', langHandler);
+    render();
+}
+
 export function renderGameMainPage(container, config) {
     const {
         gameId,
@@ -47,7 +151,12 @@ export function renderGameMainPage(container, config) {
     } = config;
 
     const meta = getGameMeta(gameId);
-    let showAfkPenalty = Boolean(sceneParams?.afkPenalty);
+    const kickReason = sceneParams?.kickNotice?.reason || (sceneParams?.afkPenalty ? 'AFK_KICKED' : null);
+    let showAfkPenalty = Boolean(
+        kickReason === 'AFK_KICKED' ||
+        kickReason === 'HOST_IDLE_KICKED' ||
+        kickReason === 'HOST_IDLE_BANNED'
+    );
     let afkPenaltyFaded = false;
 
     const render = () => {
@@ -240,15 +349,27 @@ export function renderGameMainPage(container, config) {
 
                     <button id="close-lobby-settings" type="button" style="font-family: inherit; width: 100%; padding: 15px; font-size: 24px; background: #e74c3c; color: white; border: none; border-radius: 10px; cursor: pointer;">${escapeHtml(menuText.CLOSE)}</button>
                 </div>
-                ${showAfkPenalty ? `
+                ${showAfkPenalty ? (() => {
+                    const penaltyTitle = kickReason === 'HOST_IDLE_BANNED'
+                        ? (text.HOST_IDLE_BAN_TITLE || text.AFK_PENALTY_TITLE)
+                        : (kickReason === 'HOST_IDLE_KICKED'
+                            ? (text.HOST_IDLE_KICK_TITLE || text.AFK_PENALTY_TITLE)
+                            : text.AFK_PENALTY_TITLE);
+                    const penaltyDesc = kickReason === 'HOST_IDLE_BANNED'
+                        ? (text.HOST_IDLE_BAN_DESC || text.AFK_PENALTY_DESC)
+                        : (kickReason === 'HOST_IDLE_KICKED'
+                            ? (text.HOST_IDLE_KICK_DESC || text.AFK_PENALTY_DESC)
+                            : text.AFK_PENALTY_DESC);
+                    return `
                 <div id="modal-afk-penalty" style="position: absolute; inset: 0; background: rgba(0,0,0,0.58); z-index: 9600; display: flex; align-items: center; justify-content: center; opacity: ${afkPenaltyFaded ? 1 : 0}; transition: opacity 0.35s ease;">
                     <div style="width: 580px; max-width: 90vw; background: #165b7a; border: 4px solid #e74c3c; border-radius: 24px; padding: 38px 40px; box-shadow: 0 20px 50px rgba(0,0,0,0.55); color: #fff; text-align: center;">
-                        <h2 style="margin: 0 0 18px 0; font-size: 32px; color: #ff7675;">⚠️ ${escapeHtml(text.AFK_PENALTY_TITLE)}</h2>
-                        <p style="margin: 0 0 28px 0; font-size: 20px; line-height: 1.65; color: #ecf0f1; white-space: pre-line;">${escapeHtml(text.AFK_PENALTY_DESC)}</p>
+                        <h2 style="margin: 0 0 18px 0; font-size: 32px; color: #ff7675;">⚠️ ${escapeHtml(penaltyTitle)}</h2>
+                        <p style="margin: 0 0 28px 0; font-size: 20px; line-height: 1.65; color: #ecf0f1; white-space: pre-line;">${escapeHtml(penaltyDesc)}</p>
                         <button id="btn-afk-penalty-confirm" type="button" style="font-family: inherit; padding: 14px 44px; font-size: 21px; font-weight: bold; background: #e74c3c; color: #fff; border: none; border-radius: 12px; cursor: pointer;">${escapeHtml(text.AFK_PENALTY_BTN)}</button>
                     </div>
                 </div>
-                ` : ''}
+                `;
+                })() : ''}
             </div>
         `;
 
@@ -340,6 +461,14 @@ export function renderGameMainPage(container, config) {
                 maxPlayers
             });
             if (!res.ok) {
+                if (res.errorCode === 'ERR_ROOM_CREATE_BANNED') {
+                    const remainMs = Math.max(60000, Number(res.errorData?.bannedUntil || 0) - Date.now());
+                    const remainMin = Math.max(1, Math.ceil(remainMs / 60000));
+                    const banMsg = (text.ERR_ROOM_CREATE_BANNED || '방 생성이 제한되었습니다. ({min}분)')
+                        .replace('{min}', String(remainMin));
+                    showLobbyToast(container, banMsg, 4000);
+                    return;
+                }
                 showLobbyToast(container, text[res.errorCode] || text.ERR_TITLE_EMPTY);
                 return;
             }
@@ -405,11 +534,28 @@ export function renderGameMainPage(container, config) {
     document.addEventListener('keydown', escHandler);
 
     let isCleanedUp = false;
+    let tabCheckInFlight = false;
+
+    const verifyTabThenLoad = async () => {
+        if (isCleanedUp || tabCheckInFlight) return true;
+        if (!RoomManager.isOnline()) return true;
+        tabCheckInFlight = true;
+        try {
+            const tabRes = await ensureGameTabAccess(container, gameId);
+            return Boolean(tabRes?.allowed);
+        } finally {
+            tabCheckInFlight = false;
+        }
+    };
+
     const unsubscribeRoom = RoomManager.subscribe((evtName, payload) => {
         if (isCleanedUp) return;
         if (evtName === 'NETWORK_STATUS' || evtName === 'HELLO_ACK') {
-            RoomManager.fetchRooms(gameId).then(() => {
-                if (!isCleanedUp) render();
+            verifyTabThenLoad().then((allowed) => {
+                if (!allowed || isCleanedUp) return;
+                RoomManager.fetchRooms(gameId).then(() => {
+                    if (!isCleanedUp) render();
+                });
             });
         } else if (evtName === 'LOBBY_ROOMS' && payload?.gameId === gameId) {
             render();
@@ -426,6 +572,9 @@ export function renderGameMainPage(container, config) {
     render();
     RoomManager.initNetwork().then(async (netRes) => {
         if (isCleanedUp) return;
+        const allowed = await verifyTabThenLoad();
+        if (!allowed || isCleanedUp) return;
+
         const activeRoom = netRes?.helloAck?.room;
         if (activeRoom && activeRoom.gameId === gameId) {
             if (activeRoom.status === 'playing' && netRes.helloAck.gameSnapshot) {

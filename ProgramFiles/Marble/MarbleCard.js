@@ -16,13 +16,18 @@ import { RequiemState } from './MarbleRequiem.js';
 import { executeNormalCard, useNormalActiveCard } from './MarbleCardNormal.js';
 import { executeSpecialCard, useSpecialActiveCard } from './MarbleCardSpecial.js';
 import { executeTreasureCard, useTreasureActiveCard, getPlayerThinkTime } from './MarbleCardTreasure.js';
-
-export function getCardGrade(cardOrId) {
-    const id = typeof cardOrId === 'object' ? Number(cardOrId?.id) : Number(cardOrId);
-    if (id >= 500) return 'treasure';
-    if (id >= 100) return 'special';
-    return 'normal';
-}
+import {
+    getCardGrade,
+    getCardFormLabel,
+    getCardGradeTheme,
+    formatCardDisplayTitle
+} from '../System/Index/Marble/MarbleCardUIIndex.js';
+export {
+    getCardGrade,
+    getCardFormLabel,
+    getCardGradeTheme,
+    formatCardDisplayTitle
+};
 
 export function getUsedCardIds() {
     return getActiveWorld().usedCardIds;

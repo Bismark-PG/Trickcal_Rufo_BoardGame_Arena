@@ -41,6 +41,9 @@ export const GAME_CONSTANTS = {
     LAP_COMBO_STEP_INCREMENT: 100000,
     THINK_TIME: 10,         // 기본 고민 시간 (굴리기 전 및 일반 선택 10초)
     BUY_THINK_TIME: 15,     // 영토 구매·건설·확장·인수 고민 시간 (15초, 굴림 10초와 합산 총 25초 사용 가능)
+    ALERT_THINK_TIME: 5,    // 도착/알림형 단일 확인 팝업 자동 넘김 시간 (5초)
+    PORTAL_THINK_TIME: 20,  // 빵주 포탈 보드판 직접 선택 제한 시간 (20초)
+    TURN_ORDER_ROLL_TIME: 5, // 시작 전 선후공 주사위 자동 굴림 제한 시간 (5초)
 
     // 월드 기믹 (시간대) 턴 설정
     TIME_DAY_START_TURN: 10,    // 낮 시간대 시작 글로벌 턴 (10턴)

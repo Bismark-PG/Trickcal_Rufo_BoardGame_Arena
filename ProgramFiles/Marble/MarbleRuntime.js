@@ -287,8 +287,8 @@ export const RuntimePopup = {
     showChoicePopup(title, desc, buttonsConfig) {
         getRuntimePort().showChoicePopup(title, desc, buttonsConfig);
     },
-    showNormalPopup(title, desc, showCloseBtn, onEndCallback) {
-        getRuntimePort().showNormalPopup(title, desc, showCloseBtn, onEndCallback);
+    showNormalPopup(title, desc, showCloseBtn, onEndCallback, options = null) {
+        getRuntimePort().showNormalPopup(title, desc, showCloseBtn, onEndCallback, options);
     },
     showBuyPopup(tile, costs, playerMoney, onBuyCallback, onCancelCallback, maxAllowedLvl = null) {
         getRuntimePort().showBuyPopup(tile, costs, playerMoney, onBuyCallback, onCancelCallback, maxAllowedLvl);

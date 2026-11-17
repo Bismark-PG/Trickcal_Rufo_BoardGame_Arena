@@ -3,8 +3,9 @@
 
 import { changeScene } from '../Main.js';
 import { RoomManager } from '../Lobby/RoomManager.js';
-import { escapeHtml, showLobbyToast } from '../Lobby/LobbyUI.js';
+import { escapeHtml, showLobbyToast, ensureGameTabAccess } from '../Lobby/LobbyUI.js';
 import { getGameMeta } from '../System/GameRegistry.js';
+import { ErrorTracker } from '../System/ErrorTracker.js';
 import { LangState } from '../System/LanguageManager.js';
 import { LobbyLang } from '../System/Index/LobbyIndex.js';
 import { MenuLang } from '../System/Index/MainMenuIndex.js';
@@ -36,13 +37,57 @@ function getAiLabel(slotOrDiff, text) {
 export function initRoom(container, sceneParams = null) {
     let localCountdownTimer = null;
     let localCountdownSec = null;
+    let localHostIdleTimer = null;
+
+    const clearLocalHostIdleTimer = () => {
+        if (localHostIdleTimer) {
+            clearTimeout(localHostIdleTimer);
+            localHostIdleTimer = null;
+        }
+    };
 
     const clearLocalCountdown = () => {
+        clearLocalHostIdleTimer();
         if (localCountdownTimer) {
             clearInterval(localCountdownTimer);
             localCountdownTimer = null;
         }
         localCountdownSec = null;
+        const room = RoomManager.getCurrentRoom();
+        if (!RoomManager.isOnline() && room && room.status === 'countdown') {
+            room.status = 'waiting';
+            room.countdownSec = 0;
+        }
+    };
+
+    const startLocalCountdown = () => {
+        if (RoomManager.isOnline()) return;
+        const room = RoomManager.getCurrentRoom();
+        if (!room || localCountdownTimer !== null) return;
+        const gameMeta = getGameMeta(room.gameId);
+        if (!RoomManager.canStart(room).canStart) return;
+
+        clearLocalHostIdleTimer();
+        room.status = 'countdown';
+        localCountdownSec = 3;
+        room.countdownSec = 3;
+        localCountdownTimer = setInterval(() => {
+            const liveRoom = RoomManager.getCurrentRoom();
+            if (!liveRoom || !RoomManager.canStart(liveRoom).canStart) {
+                clearLocalCountdown();
+                render();
+                return;
+            }
+            localCountdownSec -= 1;
+            liveRoom.countdownSec = localCountdownSec;
+            if (localCountdownSec <= 0) {
+                clearLocalCountdown();
+                const initialSnapshot = RoomManager.startLocalGameSession(liveRoom);
+                changeScene(gameMeta.sceneGame, { room: liveRoom, initialSnapshot });
+                return;
+            }
+            render();
+        }, 1000);
     };
 
     const syncLocalCountdownState = () => {
@@ -52,29 +97,24 @@ export function initRoom(container, sceneParams = null) {
             clearLocalCountdown();
             return;
         }
-        const gameMeta = getGameMeta(room.gameId);
         const { canStart } = RoomManager.canStart(room);
-
-        if (canStart && localCountdownTimer === null) {
-            localCountdownSec = 3;
-            localCountdownTimer = setInterval(() => {
-                if (!RoomManager.canStart(RoomManager.getCurrentRoom()).canStart) {
-                    clearLocalCountdown();
-                    render();
-                    return;
-                }
-                localCountdownSec -= 1;
-                if (localCountdownSec <= 0) {
-                    const liveRoom = RoomManager.getCurrentRoom();
-                    clearLocalCountdown();
-                    const initialSnapshot = RoomManager.startLocalGameSession(liveRoom);
-                    changeScene(gameMeta.sceneGame, { room: liveRoom, initialSnapshot });
-                    return;
-                }
-                render();
-            }, 1000);
-        } else if (!canStart && localCountdownTimer !== null) {
+        if (!canStart && localCountdownTimer !== null) {
             clearLocalCountdown();
+        }
+        if (localCountdownTimer === null && RoomManager.shouldRunOfflineHostIdleTimer(room)) {
+            if (!localHostIdleTimer) {
+                const gameMeta = getGameMeta(room.gameId);
+                localHostIdleTimer = setTimeout(() => {
+                    localHostIdleTimer = null;
+                    const kickNotice = RoomManager.handleOfflineHostIdleTimeout();
+                    if (kickNotice) {
+                        clearLocalCountdown();
+                        changeScene(gameMeta?.sceneMain || 'marble_main', { kickNotice });
+                    }
+                }, 10000);
+            }
+        } else {
+            clearLocalHostIdleTimer();
         }
     };
 
@@ -85,6 +125,7 @@ export function initRoom(container, sceneParams = null) {
             changeScene('menu');
             return;
         }
+        ErrorTracker.markTransitionComplete('room');
 
         const isOnline = RoomManager.isOnline();
         const text = LobbyLang[LangState.current] || LobbyLang.ko;
@@ -148,7 +189,7 @@ export function initRoom(container, sceneParams = null) {
 
         const slotsHtml = room.slots.map(slot => {
             if (slot.type === 'empty') {
-                const hostSlotControls = (!isOnline || isMyHost) ? `
+                const hostSlotControls = isMyHost ? `
                     <div style="display: flex; gap: 8px;">
                         <button class="btn-slot-add-ai" data-idx="${slot.slotIndex}" style="font-family: inherit; padding: 8px 14px; font-size: 16px; font-weight: bold; background: #8e44ad; color: #fff; border: none; border-radius: 8px; cursor: pointer;">${escapeHtml(text.BTN_ADD_AI)}</button>
                         ${!isOnline ? `<button class="btn-slot-add-mock" data-idx="${slot.slotIndex}" style="font-family: inherit; padding: 8px 14px; font-size: 16px; font-weight: bold; background: #3498db; color: #fff; border: none; border-radius: 8px; cursor: pointer;">${escapeHtml(text.BTN_ADD_TEST_USER)}</button>` : ''}
@@ -174,25 +215,25 @@ export function initRoom(container, sceneParams = null) {
                 ? `<span style="margin-left: 8px; padding: 2px 8px; font-size: 14px; border-radius: 6px; background: #c0392b; color: #fff;">${escapeHtml(text.TAG_OFFLINE || 'OFFLINE')}</span>`
                 : '';
 
-            const statusBadge = slot.isReady
-                ? `<span style="padding: 6px 14px; border-radius: 10px; background: #27ae60; color: #fff; font-size: 17px; font-weight: bold;">${escapeHtml(text.STATE_READY)}</span>`
-                : `<span style="padding: 6px 14px; border-radius: 10px; background: #7f8c8d; color: #fff; font-size: 17px; font-weight: bold;">${escapeHtml(text.STATE_WAITING)}</span>`;
+            const statusBadge = slot.isHost
+                ? `<span style="padding: 6px 14px; border-radius: 10px; background: #f39c12; color: #fff; font-size: 17px; font-weight: bold;">${escapeHtml(text.ROLE_HOST)}</span>`
+                : (slot.isReady
+                    ? `<span style="padding: 6px 14px; border-radius: 10px; background: #27ae60; color: #fff; font-size: 17px; font-weight: bold;">${escapeHtml(text.STATE_READY)}</span>`
+                    : `<span style="padding: 6px 14px; border-radius: 10px; background: #7f8c8d; color: #fff; font-size: 17px; font-weight: bold;">${escapeHtml(text.STATE_WAITING)}</span>`);
 
             let actionBtns = '';
-            if (slot.type === 'ai' && (!isOnline || isMyHost)) {
-                actionBtns = `
-                    <button class="btn-slot-ai-cycle" data-idx="${slot.slotIndex}" style="font-family: inherit; padding: 7px 12px; font-size: 15px; font-weight: bold; background: #9b59b6; color: #fff; border: none; border-radius: 8px; cursor: pointer;">${escapeHtml(text.BTN_AI_CYCLE)}</button>
-                    <button class="btn-slot-clear" data-idx="${slot.slotIndex}" style="font-family: inherit; padding: 7px 12px; font-size: 15px; font-weight: bold; background: #c0392b; color: #fff; border: none; border-radius: 8px; cursor: pointer;">${escapeHtml(text.BTN_CLEAR_SLOT)}</button>
-                `;
-            } else if (slot.isMockHuman && !isOnline) {
-                actionBtns = `
-                    <button class="btn-slot-mock-ready" data-idx="${slot.slotIndex}" style="font-family: inherit; padding: 7px 12px; font-size: 15px; font-weight: bold; background: #2980b9; color: #fff; border: none; border-radius: 8px; cursor: pointer;">${escapeHtml(text.BTN_TOGGLE_TEST_READY)}</button>
-                    <button class="btn-slot-clear" data-idx="${slot.slotIndex}" style="font-family: inherit; padding: 7px 12px; font-size: 15px; font-weight: bold; background: #c0392b; color: #fff; border: none; border-radius: 8px; cursor: pointer;">${escapeHtml(text.BTN_CLEAR_SLOT)}</button>
-                `;
-            } else if (slot.type === 'human' && !slot.isHost && isOnline && isMyHost) {
-                actionBtns = `
-                    <button class="btn-slot-clear" data-idx="${slot.slotIndex}" style="font-family: inherit; padding: 7px 12px; font-size: 15px; font-weight: bold; background: #c0392b; color: #fff; border: none; border-radius: 8px; cursor: pointer;">${escapeHtml(text.BTN_CLEAR_SLOT)}</button>
-                `;
+            if (isMyHost && room.status === 'waiting') {
+                if (slot.type === 'ai') {
+                    actionBtns = `
+                        <button class="btn-slot-ai-cycle" data-idx="${slot.slotIndex}" style="font-family: inherit; padding: 7px 12px; font-size: 15px; font-weight: bold; background: #9b59b6; color: #fff; border: none; border-radius: 8px; cursor: pointer;">${escapeHtml(text.BTN_AI_CYCLE)}</button>
+                        <button class="btn-slot-clear" data-idx="${slot.slotIndex}" style="font-family: inherit; padding: 7px 12px; font-size: 15px; font-weight: bold; background: #c0392b; color: #fff; border: none; border-radius: 8px; cursor: pointer;">${escapeHtml(text.BTN_CLEAR_SLOT)}</button>
+                    `;
+                } else if (slot.type === 'human' && !slot.isHost && (isOnline || slot.isMockHuman)) {
+                    actionBtns = `
+                        <button class="btn-slot-transfer-host" data-idx="${slot.slotIndex}" style="font-family: inherit; padding: 7px 12px; font-size: 15px; font-weight: bold; background: #f39c12; color: #fff; border: none; border-radius: 8px; cursor: pointer;">${escapeHtml(text.BTN_TRANSFER_HOST || '방장 위임')}</button>
+                        <button class="btn-slot-clear" data-idx="${slot.slotIndex}" style="font-family: inherit; padding: 7px 12px; font-size: 15px; font-weight: bold; background: #c0392b; color: #fff; border: none; border-radius: 8px; cursor: pointer;">${escapeHtml(text.BTN_CLEAR_SLOT)}</button>
+                    `;
+                }
             }
 
             return `
@@ -223,6 +264,12 @@ export function initRoom(container, sceneParams = null) {
                 .replace('{min}', gameMeta.minPlayers)
                 .replace('{cur}', summary.occupied);
             statusBannerHtml = `<div style="padding: 16px 24px; border-radius: 14px; background: rgba(231, 76, 60, 0.85); color: #fff; font-size: 20px; font-weight: bold; text-align: center;">${escapeHtml(msg)}</div>`;
+        } else if (summary.humanCount === 0) {
+            const msg = text.STATUS_SOLO_AI_READY || '🤖 최소 인원 충족! 방장이 게임 시작 버튼을 눌러주세요.';
+            statusBannerHtml = `<div style="padding: 16px 24px; border-radius: 14px; background: rgba(39, 174, 96, 0.38); color: #ffffff; font-size: 20px; font-weight: bold; text-align: center;">${escapeHtml(msg)}</div>`;
+        } else if (summary.allHumansReady) {
+            const msg = text.STATUS_HOST_READY_TO_START || '🎉 모든 참가자가 준비 완료! 방장이 게임 시작 버튼을 눌러주세요.';
+            statusBannerHtml = `<div style="padding: 16px 24px; border-radius: 14px; background: rgba(39, 174, 96, 0.38); color: #ffffff; font-size: 20px; font-weight: bold; text-align: center;">${escapeHtml(msg)}</div>`;
         } else {
             const msg = text.STATUS_WAIT_ALL_READY
                 .replace('{ready}', summary.readyHumanCount)
@@ -230,16 +277,15 @@ export function initRoom(container, sceneParams = null) {
             statusBannerHtml = `<div style="padding: 16px 24px; border-radius: 14px; background: rgba(0, 0, 0, 0.28); color: #dceefb; font-size: 20px; font-weight: bold; text-align: center;">${escapeHtml(msg)}</div>`;
         }
 
+        const isCountdown = activeCountdown !== null || room.status === 'countdown';
+        const isReadyBtnDisabled = !isMyHost && isCountdown;
         let readyBtnLabel = isMyReady ? text.BTN_READY_CANCEL : text.BTN_READY;
         let readyBtnBg = isMyReady ? '#e67e22' : '#2ecc71';
-        if (isMyHost && isOnline) {
-            readyBtnLabel = room.status === 'countdown'
+        if (isMyHost) {
+            readyBtnLabel = isCountdown
                 ? (text.BTN_CANCEL_START || '시작 취소')
                 : (text.BTN_START_GAME || '게임 시작');
-            readyBtnBg = room.status === 'countdown' ? '#e74c3c' : '#2ecc71';
-        } else if (isMyHost && !isOnline) {
-            readyBtnLabel = text.BTN_START_GAME || '게임 시작';
-            readyBtnBg = '#2ecc71';
+            readyBtnBg = isCountdown ? '#e74c3c' : '#2ecc71';
         }
 
         container.innerHTML = `
@@ -285,7 +331,7 @@ export function initRoom(container, sceneParams = null) {
                         <div>
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                                 <h2 style="margin: 0; font-size: 30px; color: #fff;">${escapeHtml(text.SLOT_LIST_TITLE)} (${summary.occupied} / ${room.maxPlayers})</h2>
-                                ${(!isOnline || isMyHost) ? `
+                                ${isMyHost ? `
                                 <div style="display: flex; gap: 10px;">
                                     <button id="btn-fill-all-ai" style="font-family: inherit; padding: 10px 18px; font-size: 18px; font-weight: bold; background: #8e44ad; color: #fff; border: none; border-radius: 10px; cursor: pointer;">${escapeHtml(text.BTN_FILL_ALL_AI)}</button>
                                     <button id="btn-clear-all-ai" style="font-family: inherit; padding: 10px 18px; font-size: 18px; font-weight: bold; background: #165b7a; color: #fff; border: 2px solid rgba(255,255,255,0.25); border-radius: 10px; cursor: pointer;">${escapeHtml(text.BTN_CLEAR_ALL_AI)}</button>
@@ -325,7 +371,7 @@ export function initRoom(container, sceneParams = null) {
                             `}
                         </div>
 
-                        <button id="btn-toggle-ready" style="font-family: inherit; width: 100%; padding: 26px; font-size: 32px; font-weight: bold; background: ${readyBtnBg}; color: #fff; border: none; border-radius: 18px; cursor: pointer; box-shadow: 0 10px 22px rgba(0,0,0,0.3);">
+                        <button id="btn-toggle-ready" ${isReadyBtnDisabled ? 'disabled' : ''} style="font-family: inherit; width: 100%; padding: 26px; font-size: 32px; font-weight: bold; background: ${readyBtnBg}; color: #fff; border: none; border-radius: 18px; cursor: ${isReadyBtnDisabled ? 'not-allowed' : 'pointer'}; opacity: ${isReadyBtnDisabled ? '0.48' : '1'}; pointer-events: ${isReadyBtnDisabled ? 'none' : 'auto'}; box-shadow: 0 10px 22px rgba(0,0,0,0.3);">
                             ${escapeHtml(readyBtnLabel)}
                         </button>
                     </div>
@@ -444,6 +490,16 @@ export function initRoom(container, sceneParams = null) {
         }
 
         container.querySelector('#btn-toggle-ready').onclick = async () => {
+            if (!isOnline && isMyHost && localCountdownTimer !== null) {
+                clearLocalCountdown();
+                render();
+                showLobbyToast(container, '방장이 게임 시작을 취소했습니다.');
+                return;
+            }
+            if (!isMyHost && isCountdown) {
+                showLobbyToast(container, text.ERR_COUNTDOWN_LOCKED || '카운트다운 중에는 방장만 시작을 취소할 수 있습니다.');
+                return;
+            }
             let toastMsg = null;
             if (room.gameId !== 'unos' && !isMyReady && !RoomManager.getReadinessSummary(room).hasMinPlayers) {
                 toastMsg = text.TOAST_NEED_MIN_PLAYERS;
@@ -451,6 +507,8 @@ export function initRoom(container, sceneParams = null) {
             const res = await RoomManager.toggleReady();
             if (res && res.ok === false && res.errorCode) {
                 toastMsg = text[res.errorCode] || text.TOAST_NEED_MIN_PLAYERS;
+            } else if (!isOnline && isMyHost && res?.startOfflineNow) {
+                startLocalCountdown();
             }
             syncLocalCountdownState();
             render();
@@ -483,9 +541,12 @@ export function initRoom(container, sceneParams = null) {
             };
         });
 
-        container.querySelectorAll('.btn-slot-mock-ready').forEach(btn => {
+        container.querySelectorAll('.btn-slot-transfer-host').forEach(btn => {
             btn.onclick = async () => {
-                await RoomManager.toggleReady(Number(btn.dataset.idx));
+                const res = await RoomManager.transferHost(Number(btn.dataset.idx));
+                if (res && res.ok === false && res.errorCode) {
+                    showLobbyToast(container, text[res.errorCode] || text.ERR_CANNOT_TRANSFER_HOST || '방장 위임 실패');
+                }
                 syncLocalCountdownState();
                 render();
             };
@@ -507,8 +568,19 @@ export function initRoom(container, sceneParams = null) {
         if (evtName === 'ROOM_UPDATED') {
             render();
         } else if (evtName === 'COUNTDOWN') {
-            if (payload?.cancelled && payload.message) {
-                showLobbyToast(container, payload.message, 3000);
+            if (payload?.cancelled) {
+                ErrorTracker.clearTransitionWatchdog();
+                if (payload.message) {
+                    showLobbyToast(container, payload.message, 3000);
+                }
+            } else if (typeof payload?.seconds === 'number' && payload.seconds <= 0) {
+                const curGameId = RoomManager.getCurrentRoom()?.gameId || 'marble';
+                const targetScene = getGameMeta(curGameId)?.sceneGame || 'marble';
+                ErrorTracker.startTransitionWatchdog(targetScene, {
+                    timeoutMs: 9500,
+                    gameId: curGameId,
+                    reason: 'Waiting for GAME_START after countdown'
+                });
             }
             render();
         } else if (evtName === 'GAME_START') {
@@ -520,8 +592,8 @@ export function initRoom(container, sceneParams = null) {
             });
         } else if (evtName === 'KICKED_FROM_ROOM') {
             clearLocalCountdown();
-            const meta = getGameMeta(RoomManager.getCurrentRoom()?.gameId || 'marble');
-            changeScene(meta?.sceneMain || 'marble_main');
+            const meta = getGameMeta(payload?.gameId || RoomManager.getCurrentRoom()?.gameId || 'marble');
+            changeScene(meta?.sceneMain || 'marble_main', { kickNotice: payload || null });
         }
     });
 
@@ -533,6 +605,11 @@ export function initRoom(container, sceneParams = null) {
 
     syncLocalCountdownState();
     render();
+
+    const initialRoom = RoomManager.getCurrentRoom();
+    if (RoomManager.isOnline() && initialRoom?.gameId) {
+        ensureGameTabAccess(container, initialRoom.gameId);
+    }
 
     if (sceneParams && sceneParams.toastMsg) {
         showLobbyToast(container, sceneParams.toastMsg, 3000);

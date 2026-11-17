@@ -43,6 +43,7 @@ export const GAME_REGISTRY = {
         status: 'active',
         lobbyEnabled: true,
         gameSupported: true,
+        preloadOnBoot: true, // 아레나 최초 접속 시 공용 로딩 대상 (싱글/아이들러 등은 false로 분리)
         sceneMain: 'marble_main',
         sceneGame: 'marble',
         bgm: "./Resource/Audio/Game_Let's_Go.mp3",
@@ -58,6 +59,7 @@ export const GAME_REGISTRY = {
         status: 'preparing',
         lobbyEnabled: true,
         gameSupported: false,
+        preloadOnBoot: true, // 향후 우노스 인게임 에셋 추가 시 부팅 공용 로딩 자동 합류
         sceneMain: 'unos_main',
         sceneGame: 'unos',
         bgm: './Resource/Audio/Main_Furry_Forest.mp3',
@@ -71,4 +73,20 @@ export function getGameMeta(gameId) {
 
 export function getAllRegisteredGames() {
     return Object.values(GAME_REGISTRY);
+}
+
+/**
+ * 아레나 메인 최초 접속 시 선로딩할 대상 게임 목록 반환 (싱글플레이 등 preloadOnBoot: false 제외)
+ */
+export function getBootPreloadGames() {
+    return Object.values(GAME_REGISTRY).filter(
+        (g) => g.preloadOnBoot !== false && (g.lobbyEnabled || g.status === 'active')
+    );
+}
+
+export function inferGameIdFromCode(rawCode) {
+    const normalized = String(rawCode || '').replace(/\s+/g, '').trim().toUpperCase();
+    if (!normalized) return null;
+    const match = Object.values(GAME_REGISTRY).find(g => g.codePrefix && normalized.startsWith(g.codePrefix.toUpperCase()));
+    return match ? match.id : null;
 }

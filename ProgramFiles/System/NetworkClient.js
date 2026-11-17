@@ -1,8 +1,12 @@
 // ProgramFiles/System/NetworkClient.js
-// 브라우저 전용 WebSocket 실시간 통신 클라이언트 (세션 토큰 재접속 / RPC 요청 / 푸시 이벤트 / 오프라인 폴백 지원)
+// 브라우저 전용 WebSocket 실시간 통신 클라이언트 (세션 토큰 재접속 / RPC 요청 / 푸시 이벤트 / 다중 탭 제어 / 오프라인 폴백 지원)
+
+import { ErrorTracker } from './ErrorTracker.js';
+import { SystemLogManager } from './Log/SystemLogManager.js';
 
 const STORAGE_TOKEN_KEY = 'rufo_session_token';
 const STORAGE_NICK_KEY = 'rufo_nickname';
+const STORAGE_CLIENT_ID_KEY = 'rufo_client_id';
 
 function safeSessionGet(key) {
     try {
@@ -22,18 +26,52 @@ function safeSessionSet(key, val) {
     }
 }
 
+function safeLocalGet(key) {
+    try {
+        return (typeof window !== 'undefined' && typeof localStorage !== 'undefined')
+            ? localStorage.getItem(key)
+            : null;
+    } catch {
+        return null;
+    }
+}
+
+function safeLocalSet(key, val) {
+    try {
+        if (typeof window !== 'undefined' && typeof localStorage !== 'undefined' && val !== undefined && val !== null) {
+            localStorage.setItem(key, String(val));
+        }
+    } catch {
+        // private browsing / unavailable storage ignored
+    }
+}
+
+function getOrCreateClientId() {
+    const existing = safeLocalGet(STORAGE_CLIENT_ID_KEY);
+    if (existing) return existing;
+    const generated = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+        ? `cli_${crypto.randomUUID()}`
+        : `cli_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+    safeLocalSet(STORAGE_CLIENT_ID_KEY, generated);
+    return generated;
+}
+
 class ArenaNetworkClient {
     constructor() {
         this.ws = null;
         this.status = 'offline'; // 'offline' | 'connecting' | 'online' | 'reconnecting'
         this.sessionToken = safeSessionGet(STORAGE_TOKEN_KEY) || '';
+        this.clientId = getOrCreateClientId();
         this.playerId = null;
         this.nickname = safeSessionGet(STORAGE_NICK_KEY) || '';
+        this.hasConnectedOnce = false;
+        this.activeRegisteredGameId = null;
         this._reqSeq = 1;
         this._pending = new Map();
         this._listeners = new Map();
         this._connectPromise = null;
         this._reconnectAttempts = 0;
+        this._desyncNotified = false;
         this._reconnectTimer = null;
         this._shouldAutoReconnect = false;
     }
@@ -151,10 +189,12 @@ class ArenaNetworkClient {
 
             ws.onopen = () => {
                 if (this.ws !== ws) return;
+                ErrorTracker.addBreadcrumb('WS_TX', 'HELLO');
                 ws.send(JSON.stringify({
                     type: 'HELLO',
                     reqId: 0,
                     sessionToken: this.sessionToken || undefined,
+                    clientId: this.clientId || undefined,
                     nickname: this.nickname || undefined
                 }));
             };
@@ -168,14 +208,24 @@ class ArenaNetworkClient {
                     return;
                 }
 
+                if (msg.type && msg.type !== 'GAME_TIMER' && msg.type !== 'PONG') {
+                    const extra = msg.type === 'RPC_RESULT'
+                        ? `RPC_RESULT(${msg.ok ? 'ok' : (msg.error || 'err')})`
+                        : (msg.error ? `${msg.type}:${msg.error}` : msg.type);
+                    ErrorTracker.addBreadcrumb('WS_RX', extra);
+                }
+
                 if (msg.type === 'HELLO_ACK') {
                     clearTimeout(timer);
                     this.sessionToken = msg.sessionToken || this.sessionToken;
                     this.playerId = msg.playerId || this.playerId;
                     this.nickname = msg.nickname || this.nickname;
+                    this.activeRegisteredGameId = msg.activeGameId || null;
+                    this.hasConnectedOnce = true;
                     safeSessionSet(STORAGE_TOKEN_KEY, this.sessionToken);
                     if (this.nickname) safeSessionSet(STORAGE_NICK_KEY, this.nickname);
                     this._reconnectAttempts = 0;
+                    this._desyncNotified = false;
                     this._shouldAutoReconnect = true;
                     this._setStatus('online');
                     this._emit('HELLO_ACK', msg);
@@ -195,6 +245,10 @@ class ArenaNetworkClient {
                         });
                     }
                     return;
+                }
+
+                if (msg.type === 'TAB_REPLACED') {
+                    this.activeRegisteredGameId = null;
                 }
 
                 this._emit(msg.type, msg);
@@ -239,6 +293,10 @@ class ArenaNetworkClient {
     _scheduleReconnect() {
         if (!this._shouldAutoReconnect || this._reconnectTimer) return;
         this._setStatus('reconnecting');
+        if (this.hasConnectedOnce && this._reconnectAttempts >= 3 && !this._desyncNotified) {
+            this._desyncNotified = true;
+            this._emit('NETWORK_RECONNECT_EXHAUSTED', { attempts: this._reconnectAttempts });
+        }
         const delay = Math.min(8000, 1000 * Math.pow(2, Math.min(this._reconnectAttempts, 3)));
         this._reconnectAttempts += 1;
         this._reconnectTimer = setTimeout(() => {
@@ -247,9 +305,88 @@ class ArenaNetworkClient {
         }, delay);
     }
 
+    disconnect({ disableReconnect = true } = {}) {
+        if (disableReconnect) {
+            this._shouldAutoReconnect = false;
+        }
+        if (this._reconnectTimer) {
+            clearTimeout(this._reconnectTimer);
+            this._reconnectTimer = null;
+        }
+        this._connectPromise = null;
+        this.activeRegisteredGameId = null;
+        const oldWs = this.ws;
+        this.ws = null;
+        if (oldWs) {
+            try { oldWs.close(1000, 'Client disconnect'); } catch { /* ignore */ }
+        }
+        this._flushPendingOnDisconnect();
+        this._setStatus('offline');
+    }
+
+    async registerGameTab(gameId, { force = false, strictTab = false } = {}) {
+        if (!gameId) return { ok: false, error: 'INVALID_GAME_ID' };
+        if (!this.isOnline()) {
+            return { ok: true, offline: true, gameId };
+        }
+        const res = await this.request('REGISTER_GAME_TAB', {
+            gameId,
+            clientId: this.clientId,
+            force: Boolean(force),
+            strictTab: Boolean(strictTab || ErrorTracker.isStrictTabMode())
+        });
+        if (res.ok) {
+            this.activeRegisteredGameId = gameId;
+        }
+        return res;
+    }
+
+    async unregisterGameTab() {
+        this.activeRegisteredGameId = null;
+        if (!this.isOnline()) {
+            return { ok: true, offline: true };
+        }
+        return this.request('UNREGISTER_GAME_TAB', {});
+    }
+
+    async reportClientError(report) {
+        if (!this.isOnline()) {
+            return { ok: false, handled: false, error: 'NOT_CONNECTED' };
+        }
+        const res = await this.request('REPORT_CLIENT_ERROR', { report });
+        return { ...res, handled: true };
+    }
+
+    async submitFeedback(rawPayload) {
+        if (this.isOnline()) {
+            const res = await this.request('SUBMIT_FEEDBACK', { feedback: rawPayload });
+            if (res.ok) {
+                return {
+                    ok: true,
+                    mode: 'ws',
+                    feedbackId: res.data?.feedbackId || null,
+                    category: res.data?.category || rawPayload?.category || null,
+                    storedCount: res.data?.storedCount ?? 0
+                };
+            }
+            if (res.error && res.error !== 'NETWORK_DISCONNECTED' && res.error !== 'NOT_CONNECTED') {
+                return {
+                    ok: false,
+                    mode: 'ws',
+                    error: res.error,
+                    retryAfterMs: res.data?.retryAfterMs ?? null
+                };
+            }
+        }
+        return SystemLogManager.recordFeedback(rawPayload);
+    }
+
     send(type, payload = {}) {
         if (!this.isOnline()) return false;
         try {
+            if (type !== 'PING' && type !== 'PONG') {
+                ErrorTracker.addBreadcrumb('WS_TX', type);
+            }
             this.ws.send(JSON.stringify({ type, ...payload }));
             return true;
         } catch {
@@ -262,6 +399,9 @@ class ArenaNetworkClient {
             return Promise.resolve({ ok: false, data: null, error: 'NOT_CONNECTED' });
         }
         const reqId = ++this._reqSeq;
+        if (type !== 'PING' && type !== 'PONG') {
+            ErrorTracker.addBreadcrumb('WS_TX', type);
+        }
         return new Promise((resolve) => {
             const timer = setTimeout(() => {
                 if (this._pending.has(reqId)) {
