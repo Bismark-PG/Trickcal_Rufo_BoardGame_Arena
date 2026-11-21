@@ -45,6 +45,16 @@ export const GAME_CONSTANTS = {
     PORTAL_THINK_TIME: 20,  // 빵주 포탈 보드판 직접 선택 제한 시간 (20초)
     TURN_ORDER_ROLL_TIME: 5, // 시작 전 선후공 주사위 자동 굴림 제한 시간 (5초)
 
+    // 게이지 주사위(Soft-Weighted 2d6) 규격 상수
+    DICE_GAUGE_HOLD_THRESHOLD_MS: 150, // 짧은 클릭/홀드 구분 기준 (ms)
+    DICE_GAUGE_CYCLE_MS: 1200,         // 0~100~0 왕복 1주기 (ms)
+    DICE_GAUGE_DEFAULT_POWER: 50,      // 탭/타임아웃/AI/특수탈출 기본 파워
+    DICE_GAUGE_NEUTRAL_MIN: 45,        // 순수 균등 2d6 유지 하한
+    DICE_GAUGE_NEUTRAL_MAX: 55,        // 순수 균등 2d6 유지 상한
+    DICE_GAUGE_WEIGHT_CLOSE: 1.6,      // |s - T| <= 2 가중치
+    DICE_GAUGE_WEIGHT_MID: 1.25,       // 2 < |s - T| <= 3 가중치
+    DICE_GAUGE_WEIGHT_FAR: 0.85,       // |s - T| > 3 가중치
+
     // 월드 기믹 (시간대) 턴 설정
     TIME_DAY_START_TURN: 10,    // 낮 시간대 시작 글로벌 턴 (10턴)
     TIME_SLOT_DURATION: 5,      // 각 시간대(낮/밤) 지속 글로벌 턴 수 (5턴씩)
@@ -93,7 +103,8 @@ export const GAME_CONSTANTS = {
     ALTAR_REWARD: 1000000,  // 망가진 제단 보물 카드 개당 교환 보상금 (100만)
 
     // 정산 관련 보너스 상수
-    SETTLE_SPECIAL_TILE_UNIT: 100000, // 극장/모나티엄25/정령호수/도서관/태초의엘리프 정산 단위 (10만)
+    SETTLE_SPECIAL_TILE_UNIT: 100000, // 극장/모나티엄25/정령호수/태초의엘리프 정산 단위 (10만)
+    SETTLE_LIBRARY_UNIT: 50000,       // 마녀 도서관 정산 단위 (5만)
     SETTLE_FURRY_BEACH_UNIT: 150000,  // 퍼리비이치 상태일 때 호수 정산 단위 (15만)
     SETTLE_LAP_LEADER_UNIT: 150000,   // 정산 최다 순회자 보너스 단위 (순회 횟수 * 15만)
     SETTLE_BBANGJU_BASE: 1500000,     // 빵주 정비반장 기본 고정 정산 수당 (150만)
@@ -199,6 +210,49 @@ export const MARBLE_MODES = {
     ember: {
         id: 'ember',
         modeIndex: 3,
+        maxTurn: 15,
+        estimatedMinutes: '20~25',
+        gridUnits: 13,
+        boardTexture: './Resource/Texture/Marble/Board_Mode_Ember.png',
+        excludedTileIds: [],
+        activeTileCount: 40,
+        initialMoney: 5000000,
+        initialMoneyByOrder: [5000000, 5250000, 5500000, 5750000],
+        firstLapBonusByOrder: [500000, 600000, 700000, 800000],
+        startBonus: 750000,        // 2회차 순회 보상 (75만)
+        lapBonus3: 850000,         // 3회차 순회 보상 (85만)
+        lapBonus4: 1000000,        // 4회차 순회 보상 (100만)
+        lapBonus5PlusStep: 100000, // 5회차+: 100만 + (횟수 - 4) * 10만
+        loanSettlementRate: 0.025, // 미상환 정산 이율: 경과 턴당 2.5%
+        timeDayStartTurn: 5,       // 5~9턴 낮(5턴), 10~14턴 밤(5턴), 15턴 통상
+        timeSlotDuration: 5,
+        worldGimmickEndTurn: 15,
+        enableBbangjuChief: true,  // 정비반장 기믹 활성화 (지원금 회당 50만, 즉시 구매 200만)
+        bbangjuOpenTurn: 4,
+        bbangjuEarlyOpenFee: 0,
+        bbangjuSupportInstallment: 500000,
+        bbangjuDirectPurchase: 2000000,
+        settleBbangjuBase: 1500000, // 불씨 모드 빵주 정산 보너스: 150만 + 20만 * 전체 이용 횟수
+        settleBbangjuUnit: 200000,
+        enableTreasureAndRequiem: true,  // 보물 카드 및 그을음/빛무리/윤회 전체 등장
+        startWithTreasureUnlocked: true, // 불씨(15턴): 제단 방문 없이 1턴부터 보물 즉시 활성화
+        treasureProbTable: [
+            [75.0, 15.0, 10.0], // 0장: 일반 75% / 특수 15% / 보물 10%
+            [70.0, 10.0, 20.0], // 1장: 일반 70% / 특수 10% / 보물 20%
+            [55.0, 5.0,  40.0], // 2장: 일반 55% / 특수 5% / 보물 40%
+            [37.5, 2.5,  60.0], // 3장: 일반 37.5% / 특수 2.5% / 보물 60%
+            [19.0, 1.0,  80.0], // 4장: 일반 19% / 특수 1% / 보물 80%
+            [0.0,  0.0,  100.0] // 5장: 보물 100%
+        ],
+        cardNormalProb: 75,        // 불씨 0장 기준 기본 확률 참조치
+        cardSpecialProb: 15,
+        firstVisitMaxLevel: 2,     // 첫 방문 시 마을(Lv.2)까지 건설 허용
+        turn1Order12MaxLevel: 2,
+        altarWarpToRandomCardTile: false // 망가진 제단: 2회차+ 확정 보물 포탈 (1턴부터 보물 상시 활성)
+    },
+    feast: {
+        id: 'feast',
+        modeIndex: 4,
         maxTurn: 20,
         estimatedMinutes: '25~30',
         gridUnits: 13,
@@ -221,9 +275,10 @@ export const MARBLE_MODES = {
         bbangjuEarlyOpenFee: 0,
         bbangjuSupportInstallment: 500000,
         bbangjuDirectPurchase: 2000000,
-        settleBbangjuBase: 1500000, // 불씨 모드 빵주 정산 보너스: 150만 + 20만 * 전체 이용 횟수
+        settleBbangjuBase: 1500000, // 특식(20턴) 모드 빵주 정산 보너스: 150만 + 20만 * 전체 이용 횟수
         settleBbangjuUnit: 200000,
         enableTreasureAndRequiem: true, // 보물 카드 및 그을음/빛무리/윤회 전체 등장
+        startWithTreasureUnlocked: false, // 특식(20턴): 제단 첫 방문 시 보물 해금
         cardNormalProb: 85,        // 차원 열쇠 카드 확률: 보물 미개방 시 85/15, 개방 시 70/10/20
         cardSpecialProb: 10,
         firstVisitMaxLevel: 2,     // 첫 방문 시 마을(Lv.2)까지 건설 허용
@@ -237,12 +292,25 @@ export function normalizeMarbleMode(mode) {
     const raw = String(mode).trim().toLowerCase();
     if (raw === 'speed' || raw === 'casual' || raw === '1' || raw === 'mode1') return 'speed';
     if (raw === 'basic' || raw === '2' || raw === 'mode2') return 'basic';
+    if (raw === 'feast' || raw === '4' || raw === 'mode4' || raw === 'full') return 'feast';
     return 'ember';
 }
 
 export function getModeConfig(mode = 'ember') {
     const key = normalizeMarbleMode(mode);
     return MARBLE_MODES[key] || MARBLE_MODES.ember;
+}
+
+/**
+ * 해당 플레이어에게 보물 카드 및 오디세이아(#111) 등장 조건이 개방되었는지 판정한다.
+ * - 불씨(ember): 제단 미방문 상태여도 1턴부터 즉시 해금
+ * - 특식(feast): 망가진 제단 1회 이상 방문 시 해금
+ * - 간식(speed)/정식(basic): 보물 미등장(false)
+ */
+export function isPlayerTreasureUnlocked(player, gameMode = 'ember') {
+    const cfg = getModeConfig(gameMode);
+    if (!cfg.enableTreasureAndRequiem) return false;
+    return Boolean(cfg.startWithTreasureUnlocked || player?.hasVisitedAltar);
 }
 
 export function isTileExcludedInMode(tileId, mode = 'ember') {
@@ -361,8 +429,8 @@ export const MULTIPLIERS = {
     TIME_MATCH: 0.2,
 
     // 회생 매각 반환 배율
-    SELL_RETURN: 0.5,
+    SELL_RETURN: 0.8,
 
     // 정산시 환급 배율 [ 영토, 오두막, 마을, 왕국, 엘리프 조각상 ]
-    SETTLEMENT: [0.5, 1.0, 1.5, 1.75, 2.0]
+    SETTLEMENT: [1.0, 1.0, 1.5, 1.75, 2.0]
 };

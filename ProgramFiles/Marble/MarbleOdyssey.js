@@ -8,16 +8,60 @@ import { RequiemState, checkAndTriggerClimax } from './MarbleRequiem.js';
 import { CARD_IDS } from '../System/Index/Marble/MarbleCardIndex.js';
 import { BOARD_TILES } from '../System/Index/Marble/MarbleBoardIndex.js';
 import { WorldGimmickManager } from './MarbleWorldGimmick.js';
-import { GAME_CONSTANTS, getModeConfig } from '../System/Index/Marble/MarblePriceIndex.js';
+import { GAME_CONSTANTS, getModeConfig, isPlayerTreasureUnlocked } from '../System/Index/Marble/MarblePriceIndex.js';
+import { getTileSellValue } from './MarbleLogic.js';
 
-// 보물 카드 확률 테이블 [일반%, 특수%, 보물%] - 인덱스 = 가진 보물 개수 (기획서 38p)
-const PROB_TABLE = [
+/**
+ * [28: 교단의 비상금] 대출·영토 상태에 따른 명함류(#38/#51) 그룹 내 등장 비중을 산출한다.
+ * - 대출 미보유 / 대출 1회+영토 1+ / 대출 2회+매각가>대출50%: 0 (미등장)
+ * - 대출 1회+영토 0: 0.25 / 대출 2회+영토 1+&매각가<=대출50%: 0.50 / 대출 2회+영토 0: 0.75
+ */
+export function getCultFundDrawShare(player, tiles = []) {
+    if (!player) return 0;
+    const currentDebt = typeof player.getTotalLoanDebt === 'function'
+        ? player.getTotalLoanDebt()
+        : ((Number(player.loanPrincipal) || 0) + (Number(player.loanInterestPrincipal) || 0) + (Number(player.loanInterest) || 0));
+    if (currentDebt <= 0) return 0;
+
+    const loanCount = Math.max(
+        Number(player.loanCount) || 0,
+        Array.isArray(player.loanRecords) ? player.loanRecords.length : 0
+    );
+    if (loanCount <= 0) return 0;
+
+    const sellableTiles = (Array.isArray(tiles) ? tiles : []).filter(
+        t => t && t.owner === player && t.type === 'normal' && t.level >= 0
+    );
+    const ownedTerritoryCount = sellableTiles.length;
+
+    if (ownedTerritoryCount === 0) {
+        return loanCount >= 2 ? 0.75 : 0.25;
+    }
+    if (loanCount === 1) {
+        return 0;
+    }
+    const totalSellValue = sellableTiles.reduce((sum, t) => sum + getTileSellValue(t), 0);
+    return totalSellValue <= (currentDebt * 0.5) ? 0.50 : 0;
+}
+
+// 보물 카드 확률 테이블 [일반%, 특수%, 보물%] - 인덱스 = 가진 보물 개수 (특식 20턴 기본)
+export const PROB_TABLE = [
     [90.25, 4.75, 5.0],  // 0장 소유 시 (보물 5%)
     [85.50, 4.50, 10.0], // 1장 소유 시 (보물 10%)
     [76.00, 4.00, 20.0], // 2장 소유 시 (보물 20%)
     [57.00, 3.00, 40.0], // 3장 소유 시 (보물 40%)
     [19.00, 1.00, 80.0], // 4장 소유 시 (보물 80%)
     [0.0,   0.0,  100.0] // 5장 소유 시 (5장 보유시 다음 카드는 무조건 보물카드)
+];
+
+// 불씨(ember, 15턴) 전용 고보물 확률 테이블 (제단 미방문 상태여도 1턴부터 적용)
+export const PROB_TABLE_EMBER = [
+    [75.0, 15.0, 10.0], // 0장 소유 시 (보물 10%)
+    [70.0, 10.0, 20.0], // 1장 소유 시 (보물 20%)
+    [55.0, 5.0,  40.0], // 2장 소유 시 (보물 40%)
+    [37.5, 2.5,  60.0], // 3장 소유 시 (보물 60%)
+    [19.0, 1.0,  80.0], // 4장 소유 시 (보물 80%)
+    [0.0,  0.0,  100.0] // 5장 소유 시 (보물 100%)
 ];
 
 export function getDrawnTreasures() {
@@ -161,7 +205,7 @@ export function getConditionalCardCandidates(targetType, player, pool, ctx = nul
         if (modeCfg.enableTreasureAndRequiem) {
             const drawnTreasures = getDrawnTreasures();
             const treasuresAvail = drawnTreasures.size < 6 && !RequiemState.isSootState && !RequiemState.hasSootEverTriggered;
-            if (player.hasVisitedAltar && treasuresAvail) {
+            if (isPlayerTreasureUnlocked(player, modeCfg.id) && treasuresAvail) {
                 addIfInPool(CARD_IDS.SPEC_ODYSSEY, 10);
             }
 
@@ -259,18 +303,19 @@ export const OdysseyManager = {
         }
 
         // [2단계] 카드 등급 결정
-        // - 스피드(일반 85% / 특수 15%, 보물 0%) 및 기본(일반 90% / 특수 10%, 보물 0%) 모드: 모드별 고정 비율 적용
-        // - 불씨 모드: 보물 잠금 시 일반 95% / 특수 5%, 해금 시 PROB_TABLE 적용
+        // - 간식(일반 85% / 특수 15%) 및 정식(일반 90% / 특수 10%) 모드: 보물 0% 고정 비율 적용
+        // - 불씨(ember 15턴): 제단 방문 없이 1턴부터 PROB_TABLE_EMBER 적용 / 특식(feast 20턴): 제단 방문 후 PROB_TABLE 적용
         let targetType = "normal";
         const modeCfg = getModeConfig(world?.gameMode);
         if (!modeCfg.enableTreasureAndRequiem) {
             const normalProb = Number(modeCfg.cardNormalProb) || 90;
             targetType = Math.random() * 100 < normalProb ? "normal" : "special";
         } else {
+            const treasureUnlocked = isPlayerTreasureUnlocked(player, modeCfg.id);
             const forceNoTreasure =
                 RequiemState.hasSootEverTriggered ||
                 RequiemState.isSootState ||
-                !player.hasVisitedAltar ||
+                !treasureUnlocked ||
                 effectiveTreasureCount >= 6 ||
                 availableTreasures.length === 0;
 
@@ -278,7 +323,8 @@ export const OdysseyManager = {
                 targetType = Math.random() * 100 < 95 ? "normal" : "special";
             } else {
                 const tCount = Math.min(effectiveTreasureCount, 5);
-                const probs = PROB_TABLE[tCount];
+                const probTable = modeCfg.treasureProbTable || (modeCfg.id === 'ember' ? PROB_TABLE_EMBER : PROB_TABLE);
+                const probs = probTable[tCount];
                 if (world?.metrics) {
                     world.metrics.postAltarEligibleDraws++;
                     world.metrics.stepTreasureExpectationSum += (probs[2] / 100);
@@ -363,21 +409,35 @@ export const OdysseyManager = {
         if (pool.length === 0) return null;
 
         if (effectiveType === "normal") {
-            // [일반 카드] 대출 보유자 한정: 50% 확률로 골디의 부동산명함 / 피라의 대부업명함 2종 중 1장 우선 등장
-            // 대출 미보유 시: 발동형 골디의 부동산명함(#28)은 풀에서 제외하고 보유형 피라의 대부업명함(#38)만 노출
+            // [일반 카드] 대출 보유자 한정: 50% 확률로 명함류(#38, #51) + [28: 교단의 비상금] 조건부 그룹 선판정
             const hasDebt = player && (
                 (typeof player.getTotalLoanDebt === 'function' && player.getTotalLoanDebt() > 0) ||
                 ((player.loanPrincipal || 0) + (player.loanInterestPrincipal || 0) + (player.loanInterest || 0)) > 0
             );
+            const cultShare = hasDebt ? getCultFundDrawShare(player, ctx?.tiles || []) : 0;
             if (!hasDebt) {
-                const filteredPool = pool.filter(c => c.id !== CARD_IDS.GOLDIE_REALTY);
+                const filteredPool = pool.filter(c => c.id !== CARD_IDS.GOLDIE_REALTY && c.id !== CARD_IDS.CULT_EMERGENCY_FUND);
                 if (filteredPool.length > 0) pool = filteredPool;
             } else {
-                const loanCardPool = pool.filter(
+                if (cultShare <= 0) {
+                    const filteredPool = pool.filter(c => c.id !== CARD_IDS.CULT_EMERGENCY_FUND);
+                    if (filteredPool.length > 0) pool = filteredPool;
+                }
+                const bizCards = pool.filter(
                     c => c.id === CARD_IDS.GOLDIE_REALTY || c.id === CARD_IDS.PIRA_LOAN
                 );
-                if (loanCardPool.length > 0 && Math.random() < 0.50) {
-                    return loanCardPool[Math.floor(Math.random() * loanCardPool.length)];
+                const cultCard = cultShare > 0
+                    ? (pool.find(c => c.id === CARD_IDS.CULT_EMERGENCY_FUND) || null)
+                    : null;
+                if ((bizCards.length > 0 || cultCard) && Math.random() < 0.50) {
+                    if (cultCard && cultShare > 0) {
+                        if (Math.random() < cultShare) return cultCard;
+                        if (bizCards.length > 0) {
+                            return bizCards[Math.floor(Math.random() * bizCards.length)];
+                        }
+                    } else if (bizCards.length > 0) {
+                        return bizCards[Math.floor(Math.random() * bizCards.length)];
+                    }
                 }
             }
         }

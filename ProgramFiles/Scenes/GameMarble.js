@@ -10,6 +10,7 @@ import {
     createNpcUIList,
     createTurnIndicator,
     createDiceButton,
+    computeDiceGaugePower,
     createDiceOverlay,
     createTurnOrderOverlay,
     createPopupOverlay,
@@ -108,6 +109,94 @@ export function initMarble(container, sceneParams = null) {
     let latestViewTiles = [];
     let latestCanActNow = false;
     let announcedTurnKey = null;
+
+    let isHoldingDice = false;
+    let diceHoldActive = false;
+    let diceHoldStartTs = 0;
+    let diceGaugeValue = GAME_CONSTANTS.DICE_GAUGE_DEFAULT_POWER ?? 50;
+    let diceHoldThresholdTimer = null;
+    let diceGaugeRafId = null;
+    let lastPointerRollAt = 0;
+
+    const detachDiceHoldWindowListeners = () => {
+        if (typeof window === 'undefined') return;
+        window.removeEventListener('pointerup', onDiceWindowPointerUp);
+        window.removeEventListener('pointercancel', onDiceWindowCancel);
+        window.removeEventListener('blur', onDiceWindowCancel);
+    };
+
+    const updateDiceGaugeDom = (power, active) => {
+        const idleEl = document.getElementById('dice-gauge-idle');
+        const wrapEl = document.getElementById('dice-gauge-wrap');
+        const fillEl = document.getElementById('dice-gauge-fill');
+        const pctEl = document.getElementById('dice-gauge-pct');
+        if (idleEl) idleEl.style.display = active ? 'none' : (latestCanActNow ? 'flex' : 'none');
+        if (wrapEl) wrapEl.style.display = active ? 'block' : 'none';
+        if (fillEl) fillEl.style.width = `${power}%`;
+        if (pctEl) pctEl.textContent = `${power}%`;
+    };
+
+    const cancelDiceHold = () => {
+        isHoldingDice = false;
+        diceHoldActive = false;
+        if (diceHoldThresholdTimer) {
+            clearTimeout(diceHoldThresholdTimer);
+            diceHoldThresholdTimer = null;
+        }
+        if (diceGaugeRafId) {
+            cancelAnimationFrame(diceGaugeRafId);
+            diceGaugeRafId = null;
+        }
+        detachDiceHoldWindowListeners();
+        updateDiceGaugeDom(0, false);
+    };
+
+    const tickDiceGauge = () => {
+        if (!isHoldingDice || !diceHoldActive || !latestCanActNow || isCleanedUp) {
+            cancelDiceHold();
+            return;
+        }
+        const elapsed = performance.now() - diceHoldStartTs;
+        diceGaugeValue = computeDiceGaugePower(elapsed, GAME_CONSTANTS.DICE_GAUGE_CYCLE_MS || 1200);
+        updateDiceGaugeDom(diceGaugeValue, true);
+        diceGaugeRafId = requestAnimationFrame(tickDiceGauge);
+    };
+
+    const commitDiceRoll = async (power) => {
+        lastPointerRollAt = Date.now();
+        const defPower = GAME_CONSTANTS.DICE_GAUGE_DEFAULT_POWER ?? 50;
+        const parsedPower = (power === null || power === undefined || (typeof power === 'string' && power.trim() === ''))
+            ? NaN
+            : Number(power);
+        const finalPower = Number.isFinite(parsedPower)
+            ? Math.max(0, Math.min(100, Math.round(parsedPower)))
+            : defPower;
+        cancelDiceHold();
+        const rollBtn = document.getElementById('btn-roll');
+        if (rollBtn) rollBtn.disabled = true;
+        ErrorTracker.addBreadcrumb('GAME', `Marble roll dice (T${latestSnapshot?.world?.currentTurn || 1}, P${finalPower})`);
+        closeHandPopups();
+        closeTerritoryPopups();
+        setBoardPeek(false);
+        syncBoardPeekUi(latestSnapshot);
+        const res = await RoomManager.sendGameAction({ type: 'ROLL_DICE', power: finalPower });
+        if (!res?.ok && !isCleanedUp && latestSnapshot) {
+            renderSnapshot(latestSnapshot);
+        }
+    };
+
+    function onDiceWindowPointerUp() {
+        if (!isHoldingDice) return;
+        const powerToSend = diceHoldActive
+            ? diceGaugeValue
+            : (GAME_CONSTANTS.DICE_GAUGE_DEFAULT_POWER ?? 50);
+        commitDiceRoll(powerToSend);
+    }
+
+    function onDiceWindowCancel() {
+        if (!isHoldingDice) return;
+        cancelDiceHold();
+    }
 
     const PEEK_TARGET_IDS = [
         'event-popup',
@@ -1319,25 +1408,48 @@ export function initMarble(container, sceneParams = null) {
             };
         }
 
-        document.getElementById('dice-btn-container').innerHTML = createDiceButton(
-            mainHudPlayer,
-            canActNow,
-            Boolean(snapshot.hasUsableCards)
-        );
+        if (!canActNow && isHoldingDice) {
+            cancelDiceHold();
+        }
+
+        if (!(isHoldingDice && canActNow)) {
+            document.getElementById('dice-btn-container').innerHTML = createDiceButton(
+                mainHudPlayer,
+                canActNow,
+                Boolean(snapshot.hasUsableCards)
+            );
+        }
 
         const rollBtn = document.getElementById('btn-roll');
-        if (rollBtn && canActNow) {
-            rollBtn.onclick = async () => {
-                rollBtn.disabled = true;
-                ErrorTracker.addBreadcrumb('GAME', `Marble roll dice (T${snapshot.world?.currentTurn || 1})`);
-                closeHandPopups();
-                closeTerritoryPopups();
-                setBoardPeek(false);
-                syncBoardPeekUi(latestSnapshot);
-                const res = await RoomManager.sendGameAction({ type: 'ROLL_DICE' });
-                if (!res?.ok && !isCleanedUp) {
-                    renderSnapshot(latestSnapshot);
+        if (rollBtn && canActNow && !rollBtn.dataset.gaugeBound) {
+            rollBtn.dataset.gaugeBound = '1';
+            rollBtn.onpointerdown = (e) => {
+                if (!latestCanActNow || isHoldingDice || rollBtn.disabled) return;
+                if (e.pointerType === 'mouse' && e.button !== 0) return;
+                e.preventDefault();
+                isHoldingDice = true;
+                diceHoldActive = false;
+                diceGaugeValue = GAME_CONSTANTS.DICE_GAUGE_DEFAULT_POWER ?? 50;
+                if (typeof window !== 'undefined') {
+                    window.addEventListener('pointerup', onDiceWindowPointerUp);
+                    window.addEventListener('pointercancel', onDiceWindowCancel);
+                    window.addEventListener('blur', onDiceWindowCancel);
                 }
+                const holdThresholdMs = GAME_CONSTANTS.DICE_GAUGE_HOLD_THRESHOLD_MS ?? 150;
+                diceHoldThresholdTimer = setTimeout(() => {
+                    diceHoldThresholdTimer = null;
+                    if (!isHoldingDice || !latestCanActNow || isCleanedUp) return;
+                    diceHoldActive = true;
+                    diceHoldStartTs = performance.now();
+                    diceGaugeValue = 0;
+                    updateDiceGaugeDom(0, true);
+                    diceGaugeRafId = requestAnimationFrame(tickDiceGauge);
+                }, holdThresholdMs);
+            };
+            rollBtn.onclick = () => {
+                if (!latestCanActNow || isHoldingDice || rollBtn.disabled) return;
+                if (Date.now() - lastPointerRollAt <= 250) return;
+                commitDiceRoll(GAME_CONSTANTS.DICE_GAUGE_DEFAULT_POWER ?? 50);
             };
         }
 
@@ -1571,6 +1683,7 @@ export function initMarble(container, sceneParams = null) {
     container._cleanupScene = () => {
         isCleanedUp = true;
         if (exitConfirmTimer) clearTimeout(exitConfirmTimer);
+        cancelDiceHold();
         stopDiceAnimation();
         stopTurnOrderSpin();
         PopupManager.clearToasts?.();

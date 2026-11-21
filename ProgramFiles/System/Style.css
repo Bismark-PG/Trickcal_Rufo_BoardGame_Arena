@@ -1,3 +1,9 @@
+@font-face {
+    font-family: 'HungeulCustom';
+    src: url('../../Resource/Font/Hungeul.otf') format('opentype');
+    font-display: swap;
+}
+
 body {
     margin: 0; padding: 0; width: 100vw; height: 100vh;
     background-color: #F5F5DC; color: #000;
@@ -17,3 +23,1412 @@ body.gulim-font {
 }
 
 ::-webkit-scrollbar { width: 0px; background: transparent; }
+
+/* =========================================================
+   트릭다이스 테마 UI (.arena-stage 스코프 — 로딩/메인/로비/대기실 전용)
+   ========================================================= */
+.arena-stage {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: radial-gradient(circle at 50% 35%, #FCECC9 0%, #EBC888 100%);
+    color: #3D2010;
+    font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', 'HungeulCustom', sans-serif;
+}
+
+body.gulim-font .arena-stage {
+    font-family: 'Gulim', 'Dotum', sans-serif !important;
+}
+
+.arena-stage * {
+    box-sizing: border-box;
+    user-select: none;
+}
+
+.arena-stage input,
+.arena-stage textarea,
+.arena-stage select {
+    user-select: text;
+}
+
+.arena-stage button:disabled {
+    opacity: 0.48;
+    cursor: not-allowed;
+}
+
+.arena-stage .wood-panel {
+    background: linear-gradient(180deg, #8F542B 0%, #6E3D1E 100%);
+    border: 5px solid #4E2812;
+    border-radius: 28px;
+    box-shadow: 0 18px 40px rgba(74, 38, 18, 0.28);
+    color: #FFF8EE;
+}
+
+.arena-stage .wood-panel-deep {
+    background: linear-gradient(180deg, #7A4423 0%, #5E3217 100%);
+    border: 5px solid #46230F;
+    border-radius: 28px;
+    box-shadow: 0 18px 40px rgba(74, 38, 18, 0.28);
+    color: #FFF8EE;
+}
+
+.arena-stage .parchment-card {
+    background: linear-gradient(180deg, #FFF9EB 0%, #F7E7C4 100%);
+    border: 3px solid #C9965B;
+    border-radius: 22px;
+    color: #3D2010;
+    box-shadow: inset 0 2px 8px rgba(105, 57, 29, 0.12), 0 6px 16px rgba(45, 22, 9, 0.16);
+}
+
+.arena-stage .btn-green {
+    font-family: inherit;
+    background: linear-gradient(135deg, #77C242, #4E8F26);
+    color: #ffffff;
+    border: 2px solid #DFF5BE;
+    border-radius: 14px;
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: 0 6px 14px rgba(45, 95, 16, 0.26);
+    transition: transform 0.15s ease, filter 0.15s ease;
+}
+
+.arena-stage .btn-green:hover:not(:disabled) {
+    transform: scale(1.045);
+    filter: brightness(1.06);
+}
+
+.arena-stage .btn-orange {
+    font-family: inherit;
+    background: linear-gradient(135deg, #F38221, #D95318);
+    color: #ffffff;
+    border: 2px solid #FFE4AC;
+    border-radius: 14px;
+    font-weight: 900;
+    cursor: pointer;
+    box-shadow: 0 6px 14px rgba(145, 52, 12, 0.3);
+    transition: transform 0.15s ease, filter 0.15s ease;
+}
+
+.arena-stage .btn-orange:hover:not(:disabled) {
+    transform: scale(1.045);
+    filter: brightness(1.06);
+}
+
+.arena-stage .btn-blue {
+    font-family: inherit;
+    background: linear-gradient(135deg, #5E72E4, #4959C9);
+    color: #ffffff;
+    border: 2px solid #C7D0FF;
+    border-radius: 14px;
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: 0 6px 14px rgba(43, 56, 145, 0.28);
+    transition: transform 0.15s ease, filter 0.15s ease;
+}
+
+.arena-stage .btn-blue:hover:not(:disabled) {
+    transform: scale(1.045);
+    filter: brightness(1.06);
+}
+
+.arena-stage .btn-wood {
+    font-family: inherit;
+    background: #522B14;
+    color: #FFF4DC;
+    border: 2px solid rgba(247, 199, 68, 0.52);
+    border-radius: 14px;
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: 0 6px 14px rgba(42, 20, 8, 0.24);
+    transition: transform 0.15s ease, filter 0.15s ease;
+}
+
+.arena-stage .btn-wood:hover:not(:disabled) {
+    transform: scale(1.045);
+    filter: brightness(1.08);
+}
+
+.arena-stage .btn-danger {
+    font-family: inherit;
+    background: linear-gradient(135deg, #D9483B, #B02E24);
+    color: #ffffff;
+    border: 2px solid #FFC4BE;
+    border-radius: 14px;
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: 0 6px 14px rgba(120, 26, 20, 0.28);
+    transition: transform 0.15s ease, filter 0.15s ease;
+}
+
+.arena-stage .btn-danger:hover:not(:disabled) {
+    transform: scale(1.045);
+    filter: brightness(1.06);
+}
+
+.arena-stage .pill-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 32px;
+    padding: 0 13px;
+    border-radius: 999px;
+    font-size: 14px;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+/* --- PAGE 1: 로딩 · 주민 증명서 --- */
+.arena-stage .loading-page {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 46px 60px;
+}
+
+.arena-stage .loading-board {
+    width: 1200px;
+    padding: 36px 56px 38px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 20px;
+}
+
+.arena-stage .loading-hero-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+}
+
+.arena-stage .loading-rufo-avatar {
+    height: 142px;
+    object-fit: contain;
+    filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.35));
+    cursor: pointer;
+    transition: transform 0.18s ease;
+}
+
+.arena-stage .loading-rufo-avatar:hover {
+    transform: scale(1.06) rotate(-2deg);
+}
+
+.arena-stage .loading-headings {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    text-align: left;
+    gap: 8px;
+}
+
+.arena-stage .loading-logo-mini {
+    height: 54px;
+    object-fit: contain;
+    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.25));
+}
+
+.arena-stage .loading-headings h1 {
+    margin: 0;
+    font-size: 35px;
+    font-weight: 900;
+    color: #FFE68B;
+    text-shadow: 0 3px 10px rgba(42, 20, 8, 0.55);
+}
+
+.arena-stage .loading-headings p {
+    margin: 0;
+    font-size: 21px;
+    font-weight: bold;
+    color: #FFF4DC;
+}
+
+.arena-stage .cert-card {
+    width: 100%;
+    padding: 24px 28px;
+    position: relative;
+}
+
+.arena-stage .cert-inner-dashed {
+    border: 2px dashed rgba(138, 86, 44, 0.35);
+    border-radius: 16px;
+    padding: 20px 24px;
+}
+
+.arena-stage .cert-header {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+    min-height: 38px;
+}
+
+.arena-stage .cert-header-title {
+    font-size: 20px;
+    font-weight: 900;
+    color: #4A2612;
+}
+
+.arena-stage .cert-limit-pill {
+    position: absolute;
+    left: calc(50% - 33px);
+    transform: translateX(-50%);
+    background: rgba(110, 61, 30, 0.12);
+    border: 1px solid rgba(110, 61, 30, 0.3);
+    color: #6E3D1E;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 14px;
+    font-weight: bold;
+    white-space: nowrap;
+}
+
+.arena-stage .cert-controls-row {
+    display: grid;
+    grid-template-columns: 140px 1fr 206px;
+    align-items: stretch;
+    gap: 14px;
+}
+
+.arena-stage .cert-input {
+    font-family: inherit;
+    width: 100%;
+    min-width: 0;
+    height: 56px;
+    margin: 0;
+    padding: 0 18px;
+    font-size: 24px;
+    font-weight: 800;
+    color: #3D2010;
+    background: #FFFFFF;
+    border: 3px solid #B57E45;
+    border-radius: 14px;
+    text-align: center;
+    outline: none;
+}
+
+.arena-stage .cert-input:focus {
+    border-color: #F38221;
+    box-shadow: 0 0 0 3px rgba(243, 130, 33, 0.2);
+}
+
+.arena-stage .cert-card .cert-scale-btn {
+    margin: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transform: scale(1);
+    transition: transform 0.15s ease, filter 0.15s ease;
+    white-space: nowrap;
+}
+
+.arena-stage .cert-card .cert-scale-btn:hover:not(:disabled) {
+    transform: scale(1.05);
+    filter: brightness(1.06);
+}
+
+.arena-stage .tip-banner {
+    width: fit-content;
+    max-width: 100%;
+    min-height: 48px;
+    padding: 12px 32px;
+    border-radius: 16px;
+    background: rgba(54, 27, 11, 0.72);
+    border: 2px solid #F7C744;
+    color: #FFF4C8;
+    font-size: 20px;
+    font-weight: bold;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    line-height: 1.4;
+    word-break: keep-all;
+    text-align: center;
+    transition: transform 0.15s ease;
+}
+
+.arena-stage .tip-banner:hover {
+    transform: scale(1.035);
+}
+
+.arena-stage .progress-area {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.arena-stage .progress-track {
+    width: 100%;
+    height: 30px;
+    background: #3B1E0D;
+    border: 3px solid #D9A96C;
+    border-radius: 999px;
+    overflow: hidden;
+    padding: 3px;
+}
+
+.arena-stage .progress-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #77C242, #F7C744);
+    transition: width 0.2s ease;
+}
+
+.arena-stage .progress-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 18px;
+    font-weight: bold;
+    color: #FDEAC8;
+}
+
+/* --- PAGE 2: 메인 메뉴 (확정 후보안) --- */
+.arena-stage .arena-header {
+    position: relative;
+    z-index: 10;
+    height: 112px;
+    padding: 26px 52px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.arena-stage .header-left {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.arena-stage .brand-pill {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: linear-gradient(160deg, #744021, #572D14);
+    color: #fff;
+    padding: 12px 24px;
+    border-radius: 20px;
+    border: 3px solid #F7C744;
+    box-shadow: 0 8px 20px rgba(74, 38, 18, 0.25);
+}
+
+.arena-stage .brand-logo-icon {
+    font-size: 32px;
+    line-height: 1;
+}
+
+.arena-stage .brand-title {
+    margin: 0;
+    font-size: 30px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+}
+
+.arena-stage .nick-badge {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: #FFFBF0;
+    color: #4A2612;
+    padding: 10px 20px;
+    border-radius: 16px;
+    border: 3px solid #6E3D1E;
+    box-shadow: 0 6px 14px rgba(74, 38, 18, 0.16);
+    font-size: 20px;
+    font-weight: bold;
+}
+
+.arena-stage .nick-badge .nick-tag {
+    background: #DCF3C6;
+    color: #2B6213;
+    padding: 3px 10px;
+    border-radius: 10px;
+    font-size: 15px;
+    border: 1px solid #74BE41;
+}
+
+.arena-stage .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.arena-stage .header-btn {
+    font-family: inherit;
+    font-size: 22px;
+    font-weight: bold;
+    padding: 14px 26px;
+    border-radius: 14px;
+    border: 2px solid rgba(255, 255, 255, 0.25);
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
+}
+
+.arena-stage .header-btn:hover {
+    transform: scale(1.045);
+    filter: brightness(1.07);
+}
+
+.arena-stage .header-btn.quick-join {
+    background: linear-gradient(135deg, #F27F21, #D85016);
+    color: #fff;
+    border-color: #FFE4AC;
+}
+
+.arena-stage .header-btn.teal-btn {
+    background: linear-gradient(135deg, #77C242, #4E8F26);
+    color: #fff;
+    border-color: #DFF5BE;
+}
+
+.arena-stage .stage-body {
+    position: relative;
+    z-index: 10;
+    height: calc(1080px - 112px);
+    padding: 14px 52px 36px;
+}
+
+.arena-stage .final-hybrid-layout {
+    display: flex;
+    gap: 24px;
+    width: 100%;
+    height: 100%;
+    color: #ffffff;
+}
+
+.arena-stage .shelf-mascot-col {
+    position: relative;
+    width: 340px;
+    height: 100%;
+    background: linear-gradient(180deg, #FFF7E2 0%, #F4DFB2 100%);
+    border: 5px solid #69391D;
+    border-radius: 28px;
+    padding: 26px 22px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 0 16px 36px rgba(74, 38, 18, 0.22);
+    cursor: pointer;
+}
+
+.arena-stage .shelf-bubble {
+    position: relative;
+    z-index: 3;
+    width: 100%;
+    background: #FFFFFF;
+    color: #3E2110;
+    border: 4px solid #8C542B;
+    border-radius: 22px;
+    padding: 20px 22px;
+    font-size: 20px;
+    font-weight: bold;
+    line-height: 1.5;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.16);
+}
+
+.arena-stage .final-mascot-col .shelf-rufo-stage {
+    flex: 1;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    padding-top: 8px;
+    padding-bottom: 0;
+    gap: 8px;
+}
+
+.arena-stage .final-rufo-img-wrap {
+    position: absolute;
+    left: 22px;
+    right: 22px;
+    bottom: 180px;
+    height: 455px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding-bottom: 0;
+    pointer-events: none;
+    z-index: 2;
+}
+
+.arena-stage .final-rufo-img-wrap img {
+    max-height: 455px;
+    max-width: 300px;
+    object-fit: contain;
+    transform-origin: center bottom;
+    filter: drop-shadow(0 12px 24px rgba(0, 0, 0, 0.38));
+    transition: transform 0.2s ease;
+}
+
+.arena-stage .final-mascot-col:hover .final-rufo-img-wrap img {
+    transform: scale(1.05);
+}
+
+.arena-stage .shelf-click-tip {
+    font-size: 14px;
+    color: #FFF5DC;
+    background: #69391D;
+    border: 2px solid #C8935B;
+    padding: 6px 14px;
+    border-radius: 999px;
+}
+
+.arena-stage .final-mascot-col .shelf-click-tip {
+    position: absolute;
+    left: 50%;
+    bottom: 26px;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    z-index: 3;
+}
+
+.arena-stage .final-rack-col {
+    width: 470px;
+    height: 100%;
+    background: linear-gradient(180deg, #8F542B 0%, #6E3D1E 100%);
+    border: 5px solid #4E2812;
+    border-radius: 28px;
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-shadow: 0 16px 36px rgba(74, 38, 18, 0.28);
+}
+
+.arena-stage .category-tabs {
+    display: flex;
+    gap: 10px;
+    background: rgba(62, 31, 13, 0.58);
+    padding: 8px;
+    border-radius: 16px;
+}
+
+.arena-stage .cat-tab {
+    flex: 1;
+    font-family: inherit;
+    font-size: 16px;
+    font-weight: bold;
+    padding: 10px 6px;
+    border: none;
+    border-radius: 12px;
+    background: transparent;
+    color: #FDE8C4;
+    cursor: pointer;
+    transition: all 0.18s ease;
+}
+
+.arena-stage .cat-tab:hover:not(.active) {
+    transform: scale(1.04);
+    color: #ffffff;
+}
+
+.arena-stage .cat-tab.active {
+    background: linear-gradient(135deg, #7CC744, #59A12B);
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(45, 95, 16, 0.35);
+}
+
+.arena-stage .final-dock-list {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow-y: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    padding: 10px 14px;
+}
+
+.arena-stage .final-dock-list::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+}
+
+.arena-stage .final-dock-btn {
+    font-family: inherit;
+    position: relative;
+    width: 100%;
+    height: 173px;
+    flex-shrink: 0;
+    border-radius: 20px;
+    overflow: hidden;
+    border: 3px solid rgba(255, 229, 184, 0.32);
+    background: #4A2612;
+    color: #fff;
+    cursor: pointer;
+    text-align: left;
+    padding: 15px 18px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.arena-stage .final-dock-btn:hover {
+    transform: scale(1.025);
+    border-color: #FFD15C;
+}
+
+.arena-stage .final-dock-btn.selected {
+    transform: scale(1.035);
+    z-index: 2;
+    border-color: #FFCA52;
+    box-shadow:
+        0 0 0 2px rgba(255, 214, 102, 0.35),
+        0 0 14px rgba(255, 196, 68, 0.38),
+        0 4px 12px rgba(34, 16, 6, 0.35),
+        inset 5px 0 0 #FFCA52;
+}
+
+.arena-stage .dock-card-bg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0.38;
+}
+
+.arena-stage .final-dock-btn.selected .dock-card-bg {
+    opacity: 0.58;
+}
+
+.arena-stage .dock-card-bg.logo-bg {
+    object-fit: contain;
+    padding: 14px 120px 14px 16px;
+    opacity: 0.45;
+}
+
+.arena-stage .dock-card-scrim {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(95deg, rgba(64, 32, 14, 0.90), rgba(64, 32, 14, 0.38));
+}
+
+.arena-stage .dock-card-text {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    max-width: 68%;
+    gap: 6px;
+}
+
+.arena-stage .dock-card-title {
+    font-size: 21px;
+    font-weight: 900;
+}
+
+.arena-stage .dock-card-sub {
+    font-size: 15px;
+    color: #FCE8C3;
+}
+
+.arena-stage .dock-card-thumb {
+    position: relative;
+    z-index: 2;
+    height: 140px;
+    width: 124px;
+    object-fit: contain;
+    filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.45));
+}
+
+.arena-stage .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: 0.3px;
+}
+
+.arena-stage .status-badge.active {
+    background: #76C140;
+    color: #16330A;
+    border: 2px solid #D6F5B3;
+}
+
+.arena-stage .status-badge.dev {
+    background: #5E72E4;
+    color: #ffffff;
+    border: 2px solid #C5CEFF;
+}
+
+.arena-stage .status-badge.soon {
+    background: rgba(110, 74, 48, 0.88);
+    color: #FBEAD0;
+    border: 2px solid rgba(245, 214, 167, 0.55);
+}
+
+.arena-stage .final-dock-btn .status-badge {
+    align-self: flex-start;
+    min-width: 74px;
+    padding: 4px 10px;
+    font-size: 13px;
+    justify-content: center;
+    text-align: center;
+}
+
+.arena-stage .custom-scroll-hint {
+    font-size: 14px;
+    font-weight: bold;
+    color: #FDEAC8;
+    text-align: center;
+    background: rgba(62, 31, 13, 0.62);
+    border: 1px solid rgba(255, 224, 173, 0.26);
+    border-radius: 12px;
+    padding: 7px 12px;
+}
+
+.arena-stage .custom-showcase-col {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    background: linear-gradient(180deg, #7A4423, #5E3217);
+    border: 5px solid #46230F;
+    border-radius: 28px;
+    padding: 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    box-shadow: 0 16px 36px rgba(74, 38, 18, 0.28);
+    color: #ffffff;
+}
+
+.arena-stage .showcase-banner {
+    position: relative;
+    height: 490px;
+    border-radius: 24px;
+    overflow: hidden;
+    border: 3px solid #D9A96C;
+    background-color: #46230F;
+    box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.35);
+}
+
+.arena-stage .showcase-bg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.5s ease;
+}
+
+.arena-stage .showcase-bg.logo-bg {
+    object-fit: contain;
+    padding: 36px 260px 36px 40px;
+    background: radial-gradient(circle at 38% 50%, #FCECC9, #E5BC7D);
+}
+
+.arena-stage .showcase-banner:hover .showcase-bg {
+    transform: scale(1.03);
+}
+
+.arena-stage .showcase-scrim {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg,
+        rgba(56, 28, 12, 0.88) 0%,
+        rgba(56, 28, 12, 0.46) 52%,
+        rgba(56, 28, 12, 0.10) 100%),
+        linear-gradient(180deg, transparent 55%, rgba(56, 28, 12, 0.85) 100%);
+}
+
+.arena-stage .showcase-hero-char {
+    position: absolute;
+    right: 24px;
+    bottom: 20px;
+    height: 405px;
+    max-width: 520px;
+    object-fit: contain;
+    object-position: bottom right;
+    filter: drop-shadow(0 12px 26px rgba(0, 0, 0, 0.55));
+    z-index: 2;
+    animation: arenaFloatHero 3.6s ease-in-out infinite;
+}
+
+@keyframes arenaFloatHero {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-8px); }
+}
+
+.arena-stage .showcase-banner-content {
+    position: relative;
+    z-index: 3;
+    height: 100%;
+    padding: 28px 32px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    max-width: 74%;
+}
+
+.arena-stage .tag-row {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 8px;
+    overflow: hidden;
+}
+
+.arena-stage .tag-row .status-badge,
+.arena-stage .tag-row .info-pill {
+    height: 36px;
+    padding: 0 15px;
+    font-size: 15px;
+    font-weight: 800;
+    line-height: 1;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.arena-stage .info-pill {
+    background: rgba(58, 29, 13, 0.84);
+    color: #FFF5DC;
+    border: 2px solid rgba(247, 199, 68, 0.72);
+    backdrop-filter: blur(4px);
+}
+
+.arena-stage .showcase-banner-title-area .subtitle-kicker {
+    font-size: 20px;
+    font-weight: bold;
+    color: #F7C744;
+    margin-bottom: 8px;
+}
+
+.arena-stage .showcase-banner-title-area h2 {
+    margin: 0;
+    font-size: 46px;
+    font-weight: 900;
+    text-shadow: 0 4px 16px rgba(0, 0, 0, 0.55);
+}
+
+.arena-stage .showcase-details {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: stretch;
+    gap: 14px;
+    padding: 20px 28px;
+    background: linear-gradient(180deg, #FFF9EB 0%, #F7E7C4 100%);
+    border: 3px solid #C9965B;
+    border-radius: 22px;
+    box-shadow: inset 0 2px 8px rgba(105, 57, 29, 0.12);
+}
+
+.arena-stage .final-desc-wrap {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 16px;
+}
+
+.arena-stage .details-desc {
+    white-space: pre-line;
+    text-align: center;
+    font-size: 20px;
+    line-height: 1.62;
+    margin: 0;
+    color: #3D2010;
+    font-weight: 700;
+}
+
+.arena-stage .final-details-bottom {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding-top: 10px;
+    border-top: 2px dashed rgba(138, 86, 44, 0.28);
+}
+
+.arena-stage .final-details-bottom .feature-chip-row {
+    flex: 1;
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+}
+
+.arena-stage .final-details-bottom .feature-chip {
+    white-space: nowrap;
+    font-size: 16px;
+    font-weight: 800;
+    padding: 10px 16px;
+    border-radius: 14px;
+    background: #FFFDF7;
+    border: 2px solid #C48A4D;
+    color: #542B12;
+    box-shadow: 0 3px 8px rgba(84, 43, 18, 0.1);
+}
+
+.arena-stage .cta-btn {
+    font-family: inherit;
+    height: 68px;
+    min-width: 235px;
+    padding: 0 32px;
+    border-radius: 20px;
+    border: 3px solid #FFE5AD;
+    background: linear-gradient(135deg, #F38221, #D95318);
+    color: #ffffff;
+    font-size: 23px;
+    font-weight: 900;
+    cursor: pointer;
+    box-shadow: 0 12px 26px rgba(0, 0, 0, 0.32);
+    transition: transform 0.15s ease, filter 0.15s ease;
+    flex-shrink: 0;
+}
+
+.arena-stage .cta-btn:hover {
+    transform: scale(1.045);
+    filter: brightness(1.08);
+}
+
+.arena-stage .cta-btn.locked-style {
+    background: linear-gradient(135deg, #5E72E4, #4959C9);
+    border-color: #C7D0FF;
+}
+
+.arena-stage .cta-btn.soon-style {
+    background: linear-gradient(135deg, #8B7363, #6F5A4C);
+    border-color: #E2D4C8;
+}
+
+/* --- PAGE 3 & 4 공용 헤더 (로비 & 대기실) --- */
+.arena-stage .page-shell {
+    width: 100%;
+    height: 100%;
+    padding: 40px 54px 36px;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+}
+
+.arena-stage .top-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+}
+
+.arena-stage .top-bar-left {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    min-width: 0;
+    flex: 1;
+}
+
+.arena-stage .top-bar-titles h1 {
+    margin: 4px 0 4px;
+    font-size: 38px;
+    font-weight: 900;
+    color: #3D2010;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.arena-stage .top-bar-titles p {
+    margin: 0;
+    font-size: 19px;
+    font-weight: bold;
+    color: #6E3D1E;
+}
+
+.arena-stage .top-bar-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+}
+
+/* --- PAGE 3: 게임별 룸 목록 (로비) --- */
+.arena-stage .lobby-grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 460px;
+    gap: 26px;
+    min-height: 0;
+}
+
+.arena-stage .lobby-list-panel {
+    padding: 28px 30px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.arena-stage .lobby-list-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 18px;
+    gap: 12px;
+}
+
+.arena-stage .lobby-list-toolbar h2 {
+    margin: 0;
+    font-size: 30px;
+    font-weight: 900;
+    color: #FFE68B;
+}
+
+.arena-stage .lobby-table-head {
+    display: grid;
+    grid-template-columns: 1fr 170px 110px 125px 140px;
+    padding: 0 22px 10px;
+    color: #FDEAC8;
+    font-size: 17px;
+    font-weight: 800;
+}
+
+.arena-stage .lobby-rows-scroll {
+    flex: 1;
+    overflow-y: auto;
+    scrollbar-width: none;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 6px 12px;
+}
+
+.arena-stage .lobby-rows-scroll::-webkit-scrollbar {
+    display: none;
+}
+
+.arena-stage .room-row-card {
+    display: grid;
+    grid-template-columns: 1fr 170px 110px 125px 140px;
+    align-items: center;
+    padding: 16px 22px;
+    background: linear-gradient(180deg, #FFF9EB 0%, #F6E6C2 100%);
+    border: 3px solid #C9965B;
+    border-radius: 18px;
+    color: #3D2010;
+    box-shadow: 0 4px 12px rgba(42, 20, 8, 0.16);
+    transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.arena-stage .room-row-card:hover {
+    transform: scale(1.015);
+    border-color: #F7C744;
+}
+
+.arena-stage .lobby-rule-panel {
+    padding: 24px 26px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    min-height: 0;
+}
+
+.arena-stage .lobby-rule-banner {
+    position: relative;
+    height: 220px;
+    border-radius: 20px;
+    overflow: hidden;
+    border: 3px solid #D9A96C;
+    background: #46230F;
+    flex-shrink: 0;
+}
+
+.arena-stage .lobby-rule-banner img.rule-bg {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.arena-stage .lobby-rule-banner .rule-scrim {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(95deg, rgba(46, 22, 9, 0.88) 0%, rgba(46, 22, 9, 0.25) 100%);
+}
+
+.arena-stage .lobby-rule-banner img.rule-char {
+    position: absolute;
+    right: 12px;
+    bottom: 0;
+    height: 210px;
+    object-fit: contain;
+    filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.5));
+}
+
+.arena-stage .lobby-rule-banner-text {
+    position: relative;
+    z-index: 2;
+    padding: 20px 22px;
+    max-width: 62%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.arena-stage .lobby-rule-card {
+    flex: 1;
+    padding: 22px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    overflow-y: auto;
+}
+
+.arena-stage .lobby-rule-card h2 {
+    margin: 0;
+    font-size: 26px;
+    font-weight: 900;
+    color: #4E2812;
+    padding-bottom: 10px;
+    border-bottom: 2px dashed rgba(138, 86, 44, 0.32);
+}
+
+.arena-stage .lobby-rule-card .rule-line {
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1.55;
+    color: #3D2010;
+}
+
+/* --- PAGE 4: 룸 내부 (대기실) --- */
+.arena-stage .room-code-box {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 14px 8px 18px;
+    background: linear-gradient(160deg, #744021, #572D14);
+    border: 3px solid #D9A96C;
+    border-radius: 16px;
+    color: #FFF4DC;
+    box-shadow: 0 6px 14px rgba(58, 30, 14, 0.22);
+}
+
+.arena-stage .room-grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 500px;
+    gap: 26px;
+    min-height: 0;
+}
+
+.arena-stage .room-slots-panel {
+    padding: 26px 28px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 16px;
+    min-height: 0;
+}
+
+.arena-stage .room-slots-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.arena-stage .slot-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 15px 22px;
+    border-radius: 18px;
+    background: linear-gradient(180deg, #FFF9EB 0%, #F6E6C2 100%);
+    border: 3px solid #C9965B;
+    color: #3D2010;
+    box-shadow: 0 4px 12px rgba(42, 20, 8, 0.16);
+}
+
+.arena-stage .slot-card.is-me {
+    border: 4px solid #F38221;
+    box-shadow: 0 6px 18px rgba(243, 130, 33, 0.25);
+}
+
+.arena-stage .slot-empty {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 22px;
+    border-radius: 18px;
+    border: 3px dashed rgba(255, 224, 173, 0.35);
+    background: rgba(54, 27, 11, 0.36);
+    color: #FDEAC8;
+}
+
+.arena-stage .room-status-banner {
+    padding: 16px 24px;
+    border-radius: 16px;
+    font-size: 21px;
+    font-weight: 900;
+    text-align: center;
+}
+
+.arena-stage .room-settings-panel {
+    padding: 24px 26px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 14px;
+    min-height: 0;
+}
+
+.arena-stage .mode-btn-row {
+    display: flex;
+    gap: 8px;
+}
+
+.arena-stage .mode-btn {
+    font-family: inherit;
+    flex: 1;
+    min-width: 0;
+    padding: 12px 6px;
+    border-radius: 14px;
+    border: 2px solid rgba(255, 224, 173, 0.28);
+    background: rgba(54, 27, 11, 0.55);
+    color: #FDEAC8;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    transition: all 0.15s ease;
+}
+
+.arena-stage .mode-btn:hover:not(:disabled) {
+    transform: scale(1.045);
+    border-color: #F7C744;
+}
+
+.arena-stage .mode-btn.active {
+    background: linear-gradient(135deg, #F38221, #D95318);
+    border: 3px solid #FFE4AC;
+    color: #ffffff;
+    box-shadow: 0 6px 16px rgba(42, 20, 8, 0.32);
+}
+
+.arena-stage .mode-btn.active:disabled {
+    opacity: 1;
+    cursor: default;
+}
+
+.arena-stage .mode-btn:not(.active):disabled {
+    opacity: 0.38;
+    cursor: default;
+}
+
+.arena-stage .mode-detail-parchment {
+    flex: 1;
+    padding: 15px 18px;
+    overflow-y: auto;
+    scrollbar-width: none;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    font-size: 14.5px;
+    line-height: 1.44;
+}
+
+.arena-stage .mode-detail-parchment::-webkit-scrollbar {
+    display: none;
+}
+
+/* --- 공용 트릭다이스 양피지 모달 & 설정 컨트롤 --- */
+.arena-stage .arena-modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(30, 15, 6, 0.72);
+    z-index: 12000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.arena-stage .arena-modal-backdrop.open {
+    display: flex;
+}
+
+.arena-stage .arena-modal-box {
+    width: 580px;
+    max-width: 92vw;
+    background: linear-gradient(180deg, #FFF9EB 0%, #F7E7C4 100%);
+    border: 5px solid #6E3D1E;
+    border-radius: 26px;
+    padding: 34px 36px;
+    color: #3D2010;
+    box-shadow: 0 22px 54px rgba(0, 0, 0, 0.55);
+}
+
+.arena-stage .modal-input {
+    font-family: inherit;
+    width: 100%;
+    padding: 12px 16px;
+    font-size: 20px;
+    font-weight: bold;
+    color: #3D2010;
+    background: #FFFFFF;
+    border: 3px solid #C9965B;
+    border-radius: 12px;
+    outline: none;
+}
+
+.arena-stage .modal-input:focus {
+    border-color: #F38221;
+}
+
+.arena-stage .arena-settings-box {
+    width: 580px;
+    max-width: 92vw;
+    background: linear-gradient(180deg, #FFF9EB 0%, #F7E7C4 100%);
+    border: 5px solid #6E3D1E;
+    border-radius: 26px;
+    padding: 32px 36px;
+    color: #3D2010;
+    box-shadow: 0 22px 54px rgba(0, 0, 0, 0.55);
+}
+
+.arena-stage .arena-choice-btn {
+    font-family: inherit;
+    padding: 10px 18px;
+    font-size: 18px;
+    font-weight: 800;
+    border-radius: 12px;
+    border: 2px solid #C9965B;
+    background: #FFFDF7;
+    color: #4E2812;
+    cursor: pointer;
+    transition: transform 0.15s ease, filter 0.15s ease;
+}
+
+.arena-stage .arena-choice-btn:hover {
+    transform: scale(1.045);
+    border-color: #F38221;
+}
+
+.arena-stage .arena-choice-btn.active {
+    background: linear-gradient(135deg, #F38221, #D95318);
+    border-color: #FFE4AC;
+    color: #ffffff;
+}

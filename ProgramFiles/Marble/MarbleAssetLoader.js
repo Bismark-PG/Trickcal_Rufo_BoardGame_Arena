@@ -3,7 +3,7 @@
 
 import { ErrorTracker } from '../System/ErrorTracker.js';
 import { MARBLE_MODES } from '../System/Index/Marble/MarblePriceIndex.js';
-import { TILE_BG_VARIANTS, formatTileBgSlug } from '../System/Index/Marble/MarbleBoardIndex.js';
+import { TILE_BG_VARIANTS, formatTileBgPath } from '../System/Index/Marble/MarbleBoardIndex.js';
 
 const DICE_NORMAL_PREFIX = './Resource/Texture/Marble/Dice/Dice_N_';
 const DICE_ERPIN_PREFIX = './Resource/Texture/Marble/Dice/Dice_E_';
@@ -56,13 +56,9 @@ export function getMarblePreloadManifest() {
     Object.entries(TILE_BG_VARIANTS).forEach(([rawId, variants]) => {
         const tileId = Number(rawId);
         if (!Number.isInteger(tileId) || !Array.isArray(variants)) return;
-        const col = Math.floor(tileId / 10) + 1;
-        const paddedId = String(tileId).padStart(2, '0');
-        const slug = formatTileBgSlug(tileId);
-        if (!slug) return;
         variants.forEach((tag) => {
-            if (!tag) return;
-            pushUnique(backgrounds, `./Resource/Texture/Marble/BG/BG_${col}_${paddedId}_${tag}_${slug}.png`);
+            if (tag === undefined || tag === null) return;
+            pushUnique(backgrounds, formatTileBgPath(tileId, tag));
         });
     });
 

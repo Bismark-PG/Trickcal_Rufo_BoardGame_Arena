@@ -5,8 +5,30 @@ import { getAllRegisteredGames } from '../System/GameRegistry.js';
 import { LangState } from '../System/LanguageManager.js';
 import { MenuLang } from '../System/Index/MainMenuIndex.js';
 import { LobbyLang } from '../System/Index/LobbyIndex.js';
+import { ONBOARDING_LIMITS } from '../System/Index/ArenaOnboardingIndex.js';
+import { RoomManager } from './RoomManager.js';
 import { NetworkClient } from '../System/NetworkClient.js';
 import { ErrorTracker } from '../System/ErrorTracker.js';
+
+function resolveCurrentAuthorNickname() {
+    const direct = (
+        RoomManager.localPlayer?.name ||
+        NetworkClient.getNickname?.() ||
+        ''
+    ).trim();
+    if (direct) return direct;
+    try {
+        if (typeof window !== 'undefined') {
+            const sNick = (window.sessionStorage?.getItem(ONBOARDING_LIMITS.SESSION_NICK_STORAGE_KEY) || '').trim();
+            if (sNick) return sNick;
+            const lNick = (window.localStorage?.getItem(ONBOARDING_LIMITS.REMEMBERED_NICK_STORAGE_KEY) || '').trim();
+            if (lNick) return lNick;
+        }
+    } catch {
+        // private browsing ignored
+    }
+    return ONBOARDING_LIMITS.EASTER_EGG_NICK || '교주';
+}
 
 function escapeHtmlSafe(str) {
     return String(str ?? '')
@@ -17,22 +39,23 @@ function escapeHtmlSafe(str) {
         .replace(/'/g, '&#39;');
 }
 
-function showFeedbackToast(container, msg, accentColor = '#f39c12', duration = 3000) {
+function showFeedbackToast(container, msg, accentColor = '#F7C744', duration = 3000) {
     if (!container || typeof document === 'undefined') return;
-    const existing = container.querySelector('#lobby-toast');
+    const mountTarget = container.querySelector('.arena-stage') || container;
+    const existing = mountTarget.querySelector('#lobby-toast');
     if (existing) existing.remove();
 
     const toast = document.createElement('div');
     toast.id = 'lobby-toast';
     toast.style.cssText = `
-        position: absolute; bottom: 45px; left: 50%; transform: translateX(-50%);
-        background: rgba(15, 25, 35, 0.94); color: #fff; padding: 16px 34px;
-        border-radius: 14px; font-size: 22px; font-weight: bold; z-index: 9999;
-        border: 3px solid ${accentColor}; box-shadow: 0 10px 28px rgba(0,0,0,0.45);
-        pointer-events: none; text-align: center;
+        position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%);
+        background: rgba(68, 35, 16, 0.96); color: #FFF7DF; padding: 14px 30px;
+        border-radius: 16px; font-size: 20px; font-weight: bold; z-index: 13000;
+        border: 3px solid ${accentColor}; box-shadow: 0 12px 30px rgba(0,0,0,0.45);
+        pointer-events: none; text-align: center; font-family: inherit; white-space: nowrap;
     `;
     toast.innerText = msg;
-    container.appendChild(toast);
+    mountTarget.appendChild(toast);
 
     setTimeout(() => {
         if (toast.parentNode) toast.remove();
@@ -47,6 +70,7 @@ function showFeedbackToast(container, msg, accentColor = '#f39c12', duration = 3
 function openFeedbackModal(container, { category, defaultGameId = 'arena' } = {}) {
     if (!container || typeof document === 'undefined') return;
     const isBug = category === 'bug';
+    const mountTarget = container.querySelector('.arena-stage') || container;
 
     const existing = container.querySelector('#modal-arena-feedback');
     if (existing) existing.remove();
@@ -56,7 +80,8 @@ function openFeedbackModal(container, { category, defaultGameId = 'arena' } = {}
     const menuText = MenuLang[lang] || MenuLang.ko;
     const games = getAllRegisteredGames();
 
-    const accentColor = isBug ? '#e67e22' : '#2ecc71';
+    const accentColor = isBug ? '#D95318' : '#4E8F26';
+    const submitBtnClass = isBug ? 'btn-orange' : 'btn-green';
     const modalTitle = isBug
         ? (text.BUG_MODAL_TITLE || '🐛 버그 제보')
         : (text.SUGGEST_MODAL_TITLE || '💡 유저 건의');
@@ -76,6 +101,7 @@ function openFeedbackModal(container, { category, defaultGameId = 'arena' } = {}
     const selectedGameId = (defaultGameId && games.some(g => g.id === defaultGameId))
         ? defaultGameId
         : 'arena';
+    const authorNickname = resolveCurrentAuthorNickname();
 
     const gameOptionsHtml = [
         `<option value="arena" ${selectedGameId === 'arena' ? 'selected' : ''}>${escapeHtmlSafe(text.FB_GAME_ARENA || '아레나 전체 (공통)')}</option>`,
@@ -86,54 +112,61 @@ function openFeedbackModal(container, { category, defaultGameId = 'arena' } = {}
     ].join('');
 
     const breadcrumbBoxHtml = isBug ? `
-        <label style="display: flex; align-items: center; gap: 10px; font-size: 16px; color: #f9e79f; cursor: pointer; background: rgba(0,0,0,0.22); padding: 11px 14px; border-radius: 10px;">
-            <input id="fb-attach-breadcrumbs" type="checkbox" checked style="width: 18px; height: 18px; cursor: pointer;">
+        <label style="display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: bold; color: #6E3D1E; cursor: pointer; background: rgba(110, 61, 30, 0.08); border: 2px dashed rgba(138, 86, 44, 0.35); padding: 11px 14px; border-radius: 12px;">
+            <input id="fb-attach-breadcrumbs" type="checkbox" checked style="width: 18px; height: 18px; cursor: pointer; accent-color: #D95318;">
             <span>${escapeHtmlSafe(text.BUG_ATTACH_BREADCRUMBS || '최근 동작 기록(블랙박스 15줄) 함께 첨부하기')}</span>
         </label>
     ` : '';
 
     const modal = document.createElement('div');
     modal.id = 'modal-arena-feedback';
+    modal.className = 'arena-modal-backdrop open';
     modal.dataset.category = category;
-    modal.style.cssText = 'position: absolute; inset: 0; background: rgba(0, 0, 0, 0.65); display: flex; align-items: center; justify-content: center; z-index: 11200; padding: 20px;';
+    modal.style.zIndex = '11200';
     modal.innerHTML = `
-        <div style="width: 620px; max-width: 92vw; background: #165b7a; border: 4px solid ${accentColor}; border-radius: 24px; padding: 34px 38px; color: #fff; box-shadow: 0 22px 52px rgba(0,0,0,0.5); font-family: inherit;">
-            <h2 style="margin: 0 0 8px 0; font-size: 30px; color: ${accentColor};">${escapeHtmlSafe(modalTitle)}</h2>
-            <p style="margin: 0 0 20px 0; font-size: 16px; line-height: 1.5; color: #d6eaf8;">${escapeHtmlSafe(modalDesc)}</p>
+        <div class="arena-modal-box" style="width: 620px; border-color: ${accentColor};">
+            <h2 style="margin: 0 0 8px 0; font-size: 30px; font-weight: 900; color: ${accentColor};">${escapeHtmlSafe(modalTitle)}</h2>
+            <p style="margin: 0 0 20px 0; font-size: 16px; font-weight: bold; line-height: 1.5; color: #724929;">${escapeHtmlSafe(modalDesc)}</p>
 
             <div style="display: flex; flex-direction: column; gap: 14px;">
                 <div>
-                    <label for="fb-target-game" style="display: block; margin-bottom: 6px; font-size: 16px; font-weight: bold; color: #dceefb;">${escapeHtmlSafe(text.FB_TARGET_GAME_LABEL || '대상 게임')}</label>
-                    <select id="fb-target-game" style="font-family: inherit; width: 100%; padding: 11px 14px; font-size: 17px; border-radius: 10px; border: 2px solid #2e86c1; background: #fff; color: #1b2631;">
+                    <label for="fb-author-input" style="display: block; margin-bottom: 6px; font-size: 16px; font-weight: 800; color: #4E2812;">${escapeHtmlSafe(text.FB_AUTHOR_LABEL || '작성자 (현재 닉네임)')}</label>
+                    <input id="fb-author-input" class="modal-input" type="text" value="${escapeHtmlSafe(authorNickname)}" readonly disabled
+                        style="padding: 10px 14px; font-size: 17px; background: rgba(255, 255, 255, 0.65); color: #724929; cursor: not-allowed;" />
+                </div>
+
+                <div>
+                    <label for="fb-target-game" style="display: block; margin-bottom: 6px; font-size: 16px; font-weight: 800; color: #4E2812;">${escapeHtmlSafe(text.FB_TARGET_GAME_LABEL || '대상 게임')}</label>
+                    <select id="fb-target-game" class="modal-input" style="padding: 10px 14px; font-size: 17px;">
                         ${gameOptionsHtml}
                     </select>
                 </div>
 
                 <div>
-                    <label for="fb-title-input" style="display: block; margin-bottom: 6px; font-size: 16px; font-weight: bold; color: #dceefb;">${escapeHtmlSafe(text.FB_TITLE_LABEL || '제목 (2~80자)')}</label>
-                    <input id="fb-title-input" type="text" maxlength="80" placeholder="${escapeHtmlSafe(titlePlaceholder)}"
-                        style="font-family: inherit; width: 100%; box-sizing: border-box; padding: 11px 14px; font-size: 17px; border-radius: 10px; border: 2px solid #2e86c1; background: #fff; color: #1b2631;" />
+                    <label for="fb-title-input" style="display: block; margin-bottom: 6px; font-size: 16px; font-weight: 800; color: #4E2812;">${escapeHtmlSafe(text.FB_TITLE_LABEL || '제목 (2~80자)')}</label>
+                    <input id="fb-title-input" class="modal-input" type="text" maxlength="80" placeholder="${escapeHtmlSafe(titlePlaceholder)}"
+                        style="padding: 10px 14px; font-size: 17px;" />
                 </div>
 
                 <div>
-                    <label for="fb-content-input" style="display: block; margin-bottom: 6px; font-size: 16px; font-weight: bold; color: #dceefb;">${escapeHtmlSafe(contentLabel)}</label>
-                    <textarea id="fb-content-input" maxlength="1000" rows="5" placeholder="${escapeHtmlSafe(contentPlaceholder)}"
-                        style="font-family: inherit; width: 100%; box-sizing: border-box; padding: 11px 14px; font-size: 16px; line-height: 1.5; border-radius: 10px; border: 2px solid #2e86c1; background: #fff; color: #1b2631; resize: vertical;"></textarea>
+                    <label for="fb-content-input" style="display: block; margin-bottom: 6px; font-size: 16px; font-weight: 800; color: #4E2812;">${escapeHtmlSafe(contentLabel)}</label>
+                    <textarea id="fb-content-input" class="modal-input" maxlength="1000" rows="5" placeholder="${escapeHtmlSafe(contentPlaceholder)}"
+                        style="padding: 10px 14px; font-size: 16px; line-height: 1.5; resize: vertical;"></textarea>
                 </div>
 
                 ${breadcrumbBoxHtml}
             </div>
 
-            <div id="fb-status-msg" style="min-height: 22px; margin-top: 14px; font-size: 15px; font-weight: bold; color: #ff7675; text-align: center;"></div>
+            <div id="fb-status-msg" style="min-height: 22px; margin-top: 14px; font-size: 15px; font-weight: bold; color: #B02E24; text-align: center;"></div>
 
             <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 16px;">
-                <button id="btn-fb-cancel" type="button" style="font-family: inherit; padding: 12px 24px; font-size: 18px; font-weight: bold; background: #7f8c8d; color: #fff; border: none; border-radius: 12px; cursor: pointer;">${escapeHtmlSafe(text.BTN_CANCEL || '취소')}</button>
-                <button id="btn-fb-submit" type="button" style="font-family: inherit; padding: 12px 28px; font-size: 18px; font-weight: bold; background: ${accentColor}; color: #fff; border: none; border-radius: 12px; cursor: pointer;">${escapeHtmlSafe(text.FB_SUBMIT_BTN || '전송하기')}</button>
+                <button id="btn-fb-cancel" type="button" class="btn-wood" style="padding: 12px 24px; font-size: 18px;">${escapeHtmlSafe(text.BTN_CANCEL || '취소')}</button>
+                <button id="btn-fb-submit" type="button" class="${submitBtnClass}" style="padding: 12px 28px; font-size: 18px;">${escapeHtmlSafe(text.FB_SUBMIT_BTN || '전송하기')}</button>
             </div>
         </div>
     `;
 
-    container.appendChild(modal);
+    mountTarget.appendChild(modal);
 
     const gameSelect = modal.querySelector('#fb-target-game');
     const titleInput = modal.querySelector('#fb-title-input');
@@ -187,7 +220,7 @@ function openFeedbackModal(container, { category, defaultGameId = 'arena' } = {}
             submitBtn.style.opacity = '0.65';
         }
         if (statusEl) {
-            statusEl.style.color = '#f9e79f';
+            statusEl.style.color = '#9E4412';
             statusEl.innerText = text.FB_SENDING || '전송하는 중...';
         }
 
@@ -196,6 +229,7 @@ function openFeedbackModal(container, { category, defaultGameId = 'arena' } = {}
         const payload = {
             category,
             gameId,
+            nickname: authorNickname,
             title,
             content,
             attachBreadcrumbs,
@@ -216,10 +250,10 @@ function openFeedbackModal(container, { category, defaultGameId = 'arena' } = {}
             }
 
             if (statusEl) {
-                statusEl.style.color = '#ff7675';
+                statusEl.style.color = '#B02E24';
                 if (res?.error === 'FEEDBACK_RATE_LIMITED') {
                     const sec = Math.max(1, Math.ceil((Number(res.retryAfterMs) || 60000) / 1000));
-                    statusEl.style.color = '#f39c12';
+                    statusEl.style.color = '#9E4412';
                     statusEl.innerText = (text.FB_ERR_RATE_LIMITED || '⏳ 잠시 후 다시 시도해 주세요. ({sec}초 후 재전송 가능)')
                         .replace('{sec}', String(sec));
                 } else if (res?.error === 'INVALID_FEEDBACK_TITLE') {

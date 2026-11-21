@@ -100,11 +100,14 @@ export const BoardGimmickHandlers = {
 
         const isSecondOrMoreVisit = player.altarVisitCount >= 2;
 
-        // 1. 최초 방문 시 보물 확률 개방 트리거
+        // 1. 최초 방문 시 보물 확률 개방(특식) 또는 확정 포탈 예열(불씨)
         if (!player.hasVisitedAltar) {
             player.hasVisitedAltar = true;
             if (worldMetrics) worldMetrics.altarFirstVisits++;
-            RuntimePopup.showToast(`[${player.name}] ${gText.ALTAR_VISIT}`, 3400);
+            RuntimePopup.showToast(
+                `[${player.name}] ${modeCfg.startWithTreasureUnlocked ? (gText.ALTAR_VISIT_PREUNLOCKED || gText.ALTAR_VISIT) : gText.ALTAR_VISIT}`,
+                3400
+            );
         }
 
         // 2회차 이상 방문 시 차원 열쇠 카드 칸 중 한 곳으로 이동하며 시계방향 알현실 통과 시 순회 보상 지급 (도착 시 보물 카드 확정 획득)
@@ -441,7 +444,7 @@ export const BoardGimmickHandlers = {
             const isFree = ctx.player.isBbangjuChief;
             if (targetChiefs.length === 4) targetChiefs = [];
 
-            // [31: 빵주 연구원] 보유 시 기본 이용료(10만) 면제, 단 정비반장 추가 요금(20만)은 지불 (기획서 33p)
+            // [33: 빵주 연구원] 보유 시 기본 이용료(10만) 면제, 단 정비반장 추가 요금(20만)은 지불 (기획서 33p)
             const hasResearcherBuff = (ctx.player.buffs['hold_bbangju'] && ctx.player.buffs['hold_bbangju'].length > 0) ||
                                       (ctx.player.buffs['todo_hold_bbangju'] && ctx.player.buffs['todo_hold_bbangju'].length > 0);
             const baseFee = (isFree || hasResearcherBuff) ? 0 : GAME_CONSTANTS.BBANGJU_BASE_FEE;
@@ -962,7 +965,7 @@ export const BoardGimmickHandlers = {
                 return;
             }
 
-            // [38: 셰럼의 일일조교] 보유 시 통행료 지불 없이 도서관 능력 획득 선택 가능
+            // [41: 셰럼의 일일조교] 보유 시 통행료 지불 없이 도서관 능력 획득 선택 가능
             const hasAssistCard = ctx.player.inventory.some(c => c.id === CARD_IDS.LIBRARY_ASSIST);
             if (hasAssistCard) {
                 ctx.turnTimer.start(thinkTime);

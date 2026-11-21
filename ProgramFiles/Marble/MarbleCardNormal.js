@@ -88,7 +88,7 @@ export function applyLapPassBonus(player, options = {}) {
     return 0;
 }
 
-// 다야의 궁전 소유자가 되었을 때 '서열 2위의 특권(32)' 자동 파괴 체크
+// 다야의 궁전 소유자가 되었을 때 '서열 2위의 특권(34)' 자동 파괴 체크
 export function checkAndDestroyRank2Privilege(player, tiles) {
     if (tiles[BOARD_TILES.DAYA].owner !== player) return;
     if (player.buffs['hold_immune']) {
@@ -277,14 +277,49 @@ export function executeNormalCard(ctx, card, onComplete = null) {
             break;
         }
 
-        // [28 ~ 37] 보유형 카드 (통행료 면제, 빵주 연구원, 림의 기역, 셰이디의 빅 이벤트, 이면세계, 피라의 대부업명함)
+        // [28] 교단의 비상금 (보유 대출 전액 즉시 청산 + 1~3위 보유 현금 평균(10만 미만 버림, 최소 2위 보유 현금 보장) 지급)
+        case "instant_cult_fund": {
+            const { clearedTotal } = typeof p.clearAllLoans === 'function'
+                ? p.clearAllLoans()
+                : { clearedTotal: 0 };
+            if (typeof p.clearAllLoans !== 'function') {
+                p.loanRecords = [];
+                p.loanPrincipal = 0;
+                p.loanInterest = 0;
+                p.loanInterestPrincipal = 0;
+            }
+
+            const livingCash = (ctx.allPlayers || [])
+                .filter(pl => pl && !pl.isBankrupt)
+                .map(pl => Math.max(0, Math.round(Number(pl.money) || 0)))
+                .sort((a, b) => b - a);
+
+            const top3 = livingCash.slice(0, 3);
+            const avgTop3 = top3.length > 0 ? (top3.reduce((s, v) => s + v, 0) / top3.length) : 0;
+            const truncatedAvg = Math.floor(avgTop3 / 100000) * 100000;
+            const secondPlaceCash = livingCash.length >= 2 ? livingCash[1] : (livingCash[0] || 0);
+            const fundGrant = Math.max(truncatedAvg, secondPlaceCash);
+
+            if (fundGrant > 0) {
+                p.money += fundGrant;
+            }
+            RuntimePopup.showToast(
+                `[${p.name}] ${uiText.CULT_EMERGENCY_FUND_APPLIED} (청산 ${formatMoney(clearedTotal)} / 지원 +${formatMoney(fundGrant)})`,
+                3800
+            );
+            ctx.refreshUI();
+            scheduleGameTask(finish, 1800);
+            break;
+        }
+
+        // [29 ~ 38] 보유형 카드 (통행료 면제, 빵주 연구원, 림의 기역, 셰이디의 빅 이벤트, 이면세계, 피라의 대부업명함)
         case "hold_immune":
         case "hold_bbangju":
         case "hold_shaydi":
         case "hold_event":
         case "hold_reverse":
         case "hold_pira_loan": {
-            // 서열 2위의 특권(33): 이미 다야의 궁전 소유자라면 획득 즉시 파괴
+            // 서열 2위의 특권(34): 이미 다야의 궁전 소유자라면 획득 즉시 파괴
             if (card.id === CARD_IDS.RANK_2_PRIVILEGE && ctx.tiles[BOARD_TILES.DAYA].owner === p) {
                 RuntimePopup.showToast(`[${p.name}] ${uiText.CARD_DESTROYED_RANK2}`, 3200);
                 scheduleGameTask(finish, 1600);
@@ -295,7 +330,7 @@ export function executeNormalCard(ctx, card, onComplete = null) {
             const holdEntry = { ...card, _acquiredSeq: p.nextCardAcquireSeq ? p.nextCardAcquireSeq() : 0 };
             p.buffs[card.actionType].push(holdEntry);
 
-            // 피라의 대부업명함(37): 앞으로 모든 대출 원금 0.5배 + 고정 이율 20% + 정산 미상환 이율 2배 (기존 활성 대출에도 즉시 적용)
+            // 피라의 대부업명함(38): 앞으로 모든 대출 원금 0.5배 + 고정 이율 20% + 정산 미상환 이율 2배 (기존 활성 대출에도 즉시 적용)
             if (card.id === CARD_IDS.PIRA_LOAN) {
                 p.hasPiraCard = true;
                 const piraMult = GAME_CONSTANTS.LOAN_PIRA_AMOUNT_MULT || 0.5;
@@ -312,7 +347,7 @@ export function executeNormalCard(ctx, card, onComplete = null) {
                     p.loanInterest = Math.round(p.loanPrincipal * piraFixedRate);
                 }
                 RuntimePopup.showToast(`[${p.name}] ${uiText.PIRA_LOAN_APPLIED}`, 3400);
-            // 이면세계(36): 현재 소지한 모든 영토의 시간대(낮/밤) 즉시 역전
+            // 이면세계(37): 현재 소지한 모든 영토의 시간대(낮/밤) 즉시 역전
             } else if (card.id === CARD_IDS.OTHERWORLD) {
                 ctx.tiles.filter(t => t.owner === p && (t.timeType === 'day' || t.timeType === 'night')).forEach(t => {
                     t.timeType = t.timeType === 'day' ? 'night' : 'day';
@@ -327,7 +362,7 @@ export function executeNormalCard(ctx, card, onComplete = null) {
             break;
         }
 
-        // [38 ~ 50] 사용형 카드 (인벤토리 보관)
+        // [39 ~ 51] 사용형 카드 (인벤토리 보관)
         default: {
             if (card.id === CARD_IDS.SIST_DEAL) {
                 p.payMoney(GAME_CONSTANTS.SIST_DEAL_COST, null);
@@ -344,7 +379,7 @@ export function executeNormalCard(ctx, card, onComplete = null) {
 }
 
 // ==========================================
-// 2. 일반 사용형 카드 실행기 (ID: 39 ~ 50)
+// 2. 일반 사용형 카드 실행기 (ID: 39 ~ 51)
 // ==========================================
 export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
     const p = ctx.player;
@@ -361,7 +396,7 @@ export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
     };
 
     switch (card.id) {
-        // [36] VIP카드 (통행료 1회 면제 버프 활성화)
+        // [39] VIP카드 (통행료 1회 면제 버프 활성화)
         case CARD_IDS.VIP_CARD: {
             p.hasVipShield = true;
             RuntimePopup.closeAll();
@@ -370,7 +405,7 @@ export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
             break;
         }
 
-        // [37] 네르의 소환장 (볼케니카 즉시 탈출)
+        // [40] 네르의 소환장 (볼케니카 즉시 탈출)
         case CARD_IDS.NER_ESCAPE: {
             if (p.islandTurns <= 0) {
                 RuntimePopup.showToast(cText.CANT_USE_NOW, 2800, p.id);
@@ -384,7 +419,7 @@ export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
             break;
         }
 
-        // [38] 셰럼의 일일조교 (마녀 도서관 능력 1회 무료 획득 또는 면제권 활성화)
+        // [41] 셰럼의 일일조교 (마녀 도서관 능력 1회 무료 획득 또는 면제권 활성화)
         case CARD_IDS.LIBRARY_ASSIST: {
             if (p.hasLibraryBuff) {
                 RuntimePopup.showToast(cText.CANT_USE_NOW, 2800, p.id);
@@ -398,7 +433,7 @@ export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
             break;
         }
 
-        // [40] 건축계약서 (자신의 영토가 있을 경우, 마을 미만인 내 영토 1곳에 무료로 마을(2단계)까지 하이패스 건설, 마을 이상은 UI 비활성화)
+        // [42] 건축계약서 (자신의 영토가 있을 경우, 마을 미만인 내 영토 1곳에 무료로 마을(2단계)까지 하이패스 건설, 마을 이상은 UI 비활성화)
         case CARD_IDS.BUILD_CONTRACT: {
             const myLands = ctx.tiles.filter(t => t.owner === p && t.type === 'normal');
             const buildableLands = myLands.filter(t => t.level < 2);
@@ -439,7 +474,7 @@ export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
             break;
         }
 
-        // [41] 증축계약서 (자신의 영토가 있을 경우, 건물이 있는 내 영토(오두막·마을) 1곳의 건설 단계를 무료 +1, 건물 없음 및 왕국 이상은 UI 비활성화)
+        // [43] 증축계약서 (자신의 영토가 있을 경우, 건물이 있는 내 영토(오두막·마을) 1곳의 건설 단계를 무료 +1, 건물 없음 및 왕국 이상은 UI 비활성화)
         case CARD_IDS.UPGRADE_CONTRACT: {
             const myLands = ctx.tiles.filter(t => t.owner === p && t.type === 'normal');
             const myUpgradable = myLands.filter(t => t.level === 1 || t.level === 2);
@@ -480,7 +515,7 @@ export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
             break;
         }
 
-        // [42] 엘드르유산등록서 (왕국(3단계) 하나를 무료로 엘리프 조각상(4단계)으로 증축, 왕국이 아닌 영토는 UI 비활성화)
+        // [44] 엘드르유산등록서 (왕국(3단계) 하나를 무료로 엘리프 조각상(4단계)으로 증축, 왕국이 아닌 영토는 UI 비활성화)
         case CARD_IDS.LANDMARK_CONTRACT: {
             const myLands = ctx.tiles.filter(t => t.owner === p && t.type === 'normal');
             const myKingdoms = myLands.filter(t => t.level === 3);
@@ -521,7 +556,7 @@ export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
             break;
         }
 
-        // [42] 시스트의 거래 (다음 매입/건설/증축 비용 0.5배 할인 버프 활성화)
+        // [45] 시스트의 거래 (다음 매입/건설/증축 비용 0.5배 할인 버프 활성화)
         case CARD_IDS.SIST_DEAL: {
             p.hasSistDiscountBuff = true;
             RuntimePopup.closeAll();
@@ -530,7 +565,7 @@ export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
             break;
         }
 
-        // [44] 골디의 제안 (보유한 일반 영토 중 하나를 (매입가+건설비 합)의 1.5배 가격으로 매각)
+        // [46] 골디의 제안 (보유한 일반 영토 중 하나를 (매입가+건설비 합)의 1.5배 가격으로 매각)
         case CARD_IDS.GOLDIE_PROPOSAL: {
             const myNormalLands = ctx.tiles.filter(t => t.owner === p && t.type === 'normal');
             if (myNormalLands.length === 0) {
@@ -568,7 +603,7 @@ export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
             break;
         }
 
-        // [45] 마요의 암거래 (상대를 한 명 고른 후, 상대의 영토 중 하나를 토지 매입가 + 통행료의 1.5배에 인수 - 엘리프 조각상 제외)
+        // [47] 마요의 암거래 (상대를 한 명 고른 후, 상대의 영토 중 하나를 토지 매입가 + 통행료의 1.5배에 인수 - 엘리프 조각상 제외)
         case CARD_IDS.MAYO_DEAL: {
             const validEnemies = ctx.allPlayers.filter(enemy =>
                 enemy !== p && !enemy.isBankrupt &&
@@ -629,7 +664,7 @@ export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
             break;
         }
 
-        // [46] 마리의 스위치 (상대를 한 명 고른 후, 상대의 건물 하나를 랜덤 철거하여 건설 단계 2단계 하락 - 엘리프 조각상 포함, 2단계 이하는 토지만 소유)
+        // [48] 마리의 스위치 (상대를 한 명 고른 후, 상대의 건물 하나를 랜덤 철거하여 건설 단계 2단계 하락 - 엘리프 조각상 포함, 2단계 이하는 토지만 소유)
         case CARD_IDS.MARI_SWITCH: {
             const enemiesWithBuildings = ctx.allPlayers.filter(enemy =>
                 enemy !== p && !enemy.isBankrupt &&
@@ -669,7 +704,7 @@ export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
             break;
         }
 
-        // [46] 주야역전 (소지한 영토 중 하나를 골라 시간대를 역전시킴)
+        // [49] 주야역전 (소지한 영토 중 하나를 골라 시간대를 역전시킴)
         case CARD_IDS.REVERSE_TIME: {
             const myTimeLands = ctx.tiles.filter(t => t.owner === p && (t.timeType === 'day' || t.timeType === 'night'));
             if (myTimeLands.length === 0) {
@@ -705,7 +740,7 @@ export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
             break;
         }
 
-        // [49] 루포의 주사위 (1회에 한해 주사위 3개, 1개는 6 고정)
+        // [50] 루포의 주사위 (1회에 한해 주사위 3개, 1개는 6 고정)
         case CARD_IDS.RUFO_DICE: {
             p.hasRufoDiceBuff = true;
             RuntimePopup.closeAll();
@@ -714,7 +749,7 @@ export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
             break;
         }
 
-        // [50] 골디의 부동산명함 (사용 시점 남은 대출금 원금+이자 0.5배 감소, 대신 보유 영토 중 최고 건설 단계 영토 1곳 -2단계)
+        // [51] 골디의 부동산명함 (사용 시점 남은 대출금 원금+이자 0.5배 감소, 대신 보유 영토 중 최고 건설 단계 영토 1곳 -2단계)
         case CARD_IDS.GOLDIE_REALTY: {
             const totalDebt = p.getTotalLoanDebt
                 ? p.getTotalLoanDebt()

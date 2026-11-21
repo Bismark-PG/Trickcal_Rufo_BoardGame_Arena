@@ -1,9 +1,17 @@
 // ProgramFiles/Lobby/RoomManager.js
 // 온라인 WebSocket 서버 연동 + 오프라인 로컬 엔진 폴백을 통합 제공하는 방/매치 매니저
 
-import { getGameMeta, pickRandomBotName, AI_DIFFICULTIES, normalizeAiDifficulty } from '../System/GameRegistry.js';
+import {
+    getGameMeta,
+    pickRandomBotName,
+    AI_DIFFICULTIES,
+    normalizeAiDifficulty,
+    getGameAiDifficulties,
+    normalizeGameAiDifficulty
+} from '../System/GameRegistry.js';
 import { LangState } from '../System/LanguageManager.js';
 import { LobbyLang } from '../System/Index/LobbyIndex.js';
+import { ONBOARDING_LIMITS, getNicknameMaxLength } from '../System/Index/ArenaOnboardingIndex.js';
 import { GAME_CONSTANTS, getModeConfig, normalizeMarbleMode } from '../System/Index/Marble/MarblePriceIndex.js';
 import { NetworkClient } from '../System/NetworkClient.js';
 import { SystemLogManager } from '../System/Log/SystemLogManager.js';
@@ -26,11 +34,17 @@ const SERVER_ERROR_TO_KEY = {
     NOT_ALL_READY: 'TOAST_NEED_MIN_PLAYERS',
     GAME_IN_DEVELOPMENT: 'ERR_GAME_IN_DEVELOPMENT',
     INVALID_NICKNAME: 'NICK_EMPTY_ERR',
+    NICKNAME_TOO_LONG: 'ERR_NICK_TOO_LONG',
+    INVALID_NICKNAME_CHARS: 'ERR_NICK_INVALID_CHARS',
+    FORBIDDEN_NICKNAME: 'ERR_NICK_FORBIDDEN',
     ROOM_CREATE_BANNED: 'ERR_ROOM_CREATE_BANNED',
     ROOM_CREATE_RATE_LIMITED: 'ERR_ROOM_CREATE_RATE_LIMITED',
     SERVER_ROOM_LIMIT_REACHED: 'ERR_SERVER_ROOM_LIMIT_REACHED',
     COUNTDOWN_LOCKED: 'ERR_COUNTDOWN_LOCKED',
-    CANNOT_TRANSFER_HOST: 'ERR_CANNOT_TRANSFER_HOST'
+    CANNOT_TRANSFER_HOST: 'ERR_CANNOT_TRANSFER_HOST',
+    MAX_PLAYERS_BELOW_CURRENT: 'ERR_MAX_PLAYERS_BELOW_CURRENT',
+    NOT_HOST: 'ERR_NOT_HOST',
+    INVALID_MAX_PLAYERS: 'ERR_INVALID_MAX_PLAYERS'
 };
 
 const STORAGE_OFFLINE_STRIKES = 'ag_offline_host_idle_strikes';
@@ -279,16 +293,28 @@ export const RoomManager = {
         return this.getRoomsByGame(gameId);
     },
 
-    async setNickname(newName) {
-        const trimmed = (newName || '').trim().slice(0, 16);
-        if (!trimmed) return false;
+    async setNicknameWithResult(newName) {
+        const trimmed = String(newName ?? '').trim();
+        if (!trimmed) return { ok: false, errorCode: 'INVALID_NICKNAME' };
+        if (trimmed.length > getNicknameMaxLength(trimmed)) {
+            return { ok: false, errorCode: 'NICKNAME_TOO_LONG' };
+        }
+        if (ONBOARDING_LIMITS.ALLOWED_CHAR_REGEX && !ONBOARDING_LIMITS.ALLOWED_CHAR_REGEX.test(trimmed)) {
+            return { ok: false, errorCode: 'INVALID_NICKNAME_CHARS' };
+        }
+        const lower = trimmed.toLowerCase();
+        if (ONBOARDING_LIMITS.FORBIDDEN_TERMS.some(term => lower.includes(term))) {
+            return { ok: false, errorCode: 'FORBIDDEN_NICKNAME' };
+        }
 
         if (this.isOnline()) {
             const res = await NetworkClient.request('SET_NICKNAME', { nickname: trimmed });
-            if (!res.ok) return false;
+            if (!res.ok) {
+                return { ok: false, errorCode: res.error || 'INVALID_NICKNAME' };
+            }
             this.localPlayer.name = res.data?.nickname || trimmed;
             NetworkClient.setStoredNickname(this.localPlayer.name);
-            return true;
+            return { ok: true, nickname: this.localPlayer.name };
         }
 
         this.localPlayer.name = trimmed;
@@ -299,7 +325,12 @@ export const RoomManager = {
             if (mySlot) mySlot.name = this.localPlayer.name;
             this._emitUi('ROOM_UPDATED', cur);
         }
-        return true;
+        return { ok: true, nickname: trimmed };
+    },
+
+    async setNickname(newName) {
+        const res = await this.setNicknameWithResult(newName);
+        return Boolean(res.ok);
     },
 
     generateUniqueCode(prefix = 'ROOM') {
@@ -391,7 +422,10 @@ export const RoomManager = {
                 };
                 for (let a = 1; a <= s.aiCount && a < s.max; a++) {
                     const usedNames = slots.filter(sl => sl.type !== 'empty' && sl.name).map(sl => sl.name);
-                    const sampleDiff = AI_DIFFICULTIES[Math.floor(Math.random() * AI_DIFFICULTIES.length)];
+                    const diffPool = getGameAiDifficulties(gameId);
+                    const sampleDiff = gameId === 'unos'
+                        ? 'normal'
+                        : diffPool[Math.floor(Math.random() * diffPool.length)];
                     slots[a] = {
                         slotIndex: a,
                         type: 'ai',
@@ -484,6 +518,18 @@ export const RoomManager = {
         return this.canStart(room).canStart;
     },
 
+    shouldShowHostIdleWarning(room = this.getCurrentRoom()) {
+        if (!room || room.status !== 'waiting' || room.hostId !== this.localPlayer.id) return false;
+        const otherHumans = room.slots.filter(s =>
+            s.type === 'human' &&
+            s.id !== room.hostId &&
+            s.isConnected !== false &&
+            (!this.isOnline() || !s.isMockHuman)
+        );
+        if (otherHumans.length < 1) return false;
+        return this.canStart(room).canStart;
+    },
+
     handleOfflineHostIdleTimeout() {
         const room = this.getCurrentRoom();
         if (!room || !this.shouldRunOfflineHostIdleTimer(room)) return null;
@@ -522,7 +568,7 @@ export const RoomManager = {
     },
 
     async createRoom({ gameId, title, isPrivate = false, password = '', maxPlayers = 4, customOptions = null }) {
-        const trimmedTitle = (title || '').trim().slice(0, 32);
+        const trimmedTitle = String(title || '').replace(/[\r\n\t]+/g, ' ').trim().slice(0, 20);
         if (!trimmedTitle) {
             return { ok: false, errorCode: 'ERR_TITLE_EMPTY' };
         }
@@ -749,14 +795,16 @@ export const RoomManager = {
         return { ok: true };
     },
 
-    async fillSlotWithAi(slotIndex, aiDifficulty = 'mild') {
-        const normDiff = normalizeAiDifficulty(aiDifficulty, 'mild');
+    async fillSlotWithAi(slotIndex, aiDifficulty = null) {
+        const room = this.getCurrentRoom();
+        const gameId = room?.gameId || 'marble';
+        const defaultDiff = 'normal';
+        const normDiff = normalizeGameAiDifficulty(gameId, aiDifficulty ?? defaultDiff, defaultDiff);
         if (this.isOnline()) {
             const res = await NetworkClient.request('ADD_AI', { slotIndex, aiType: normDiff, aiDifficulty: normDiff });
             if (res.ok && res.data?.room) this.onlineCurrentRoom = res.data.room;
             return res.ok;
         }
-        const room = this.getCurrentRoom();
         if (!room || room.hostId !== this.localPlayer.id || !room.slots[slotIndex] || room.slots[slotIndex].type !== 'empty') return false;
         const usedNames = room.slots.filter(s => s.type !== 'empty' && s.name).map(s => s.name);
         room.slots[slotIndex] = {
@@ -783,6 +831,7 @@ export const RoomManager = {
         }
         const room = this.getCurrentRoom();
         if (!room || room.hostId !== this.localPlayer.id) return false;
+        const defaultDiff = 'normal';
         let changed = false;
         room.slots.forEach(s => {
             if (s.type === 'empty') {
@@ -798,7 +847,7 @@ export const RoomManager = {
                     isMockHuman: false,
                     isConnected: true,
                     aiType: 'random',
-                    aiDifficulty: 'mild'
+                    aiDifficulty: defaultDiff
                 };
                 changed = true;
             }
@@ -834,9 +883,11 @@ export const RoomManager = {
         if (!room || room.hostId !== this.localPlayer.id) return false;
         const slot = room?.slots[slotIndex];
         if (!slot || slot.type !== 'ai') return false;
-        const curDiff = normalizeAiDifficulty(slot.aiDifficulty || slot.aiType, 'mild');
-        const curIdx = AI_DIFFICULTIES.indexOf(curDiff);
-        const nextDiff = AI_DIFFICULTIES[(curIdx + 1) % AI_DIFFICULTIES.length];
+        const diffPool = getGameAiDifficulties(room.gameId);
+        const defaultDiff = 'normal';
+        const curDiff = normalizeGameAiDifficulty(room.gameId, slot.aiDifficulty || slot.aiType, defaultDiff);
+        const curIdx = diffPool.indexOf(curDiff);
+        const nextDiff = diffPool[(curIdx + 1) % diffPool.length];
         slot.aiDifficulty = nextDiff;
         slot.aiType = 'random';
         return true;
@@ -931,6 +982,67 @@ export const RoomManager = {
         return true;
     },
 
+    async updateRoomInfo({ title, isPrivate = false, password = '', maxPlayers = 4 } = {}) {
+        const cur = this.getCurrentRoom();
+        if (!cur || cur.hostId !== this.localPlayer.id) {
+            return { ok: false, errorCode: 'ERR_NOT_HOST' };
+        }
+        const trimmedTitle = String(title || '').replace(/[\r\n\t]+/g, ' ').trim().slice(0, 20);
+        if (!trimmedTitle) {
+            return { ok: false, errorCode: 'ERR_TITLE_EMPTY' };
+        }
+
+        const meta = getGameMeta(cur.gameId);
+        const minAllowed = meta?.minPlayers || 2;
+        const maxAllowed = meta?.maxPlayers || 4;
+        const clampedMax = Math.min(maxAllowed, Math.max(minAllowed, Math.trunc(Number(maxPlayers) || cur.maxPlayers)));
+
+        if (this.isOnline()) {
+            const res = await NetworkClient.request('UPDATE_ROOM_INFO', {
+                title: trimmedTitle,
+                isPrivate: Boolean(isPrivate),
+                password: isPrivate ? String(password || '') : '',
+                maxPlayers: clampedMax
+            });
+            if (!res.ok) {
+                return { ok: false, errorCode: mapServerError(res.error), errorData: res.data || null };
+            }
+            if (res.data?.room) {
+                this.onlineCurrentRoom = res.data.room;
+                this._emitUi('ROOM_UPDATED', res.data.room);
+            }
+            return { ok: true, room: res.data?.room || this.onlineCurrentRoom };
+        }
+
+        const occupiedSlots = cur.slots.filter(s => s.type !== 'empty');
+        if (clampedMax < occupiedSlots.length) {
+            return { ok: false, errorCode: 'ERR_MAX_PLAYERS_BELOW_CURRENT' };
+        }
+
+        if (clampedMax > cur.maxPlayers) {
+            for (let idx = cur.maxPlayers; idx < clampedMax; idx++) {
+                cur.slots.push(createEmptySlot(idx));
+            }
+        } else if (clampedMax < cur.maxPlayers) {
+            const compacted = occupiedSlots.map((slot, idx) => ({
+                ...slot,
+                slotIndex: idx
+            }));
+            while (compacted.length < clampedMax) {
+                compacted.push(createEmptySlot(compacted.length));
+            }
+            cur.slots = compacted;
+        }
+
+        cur.title = trimmedTitle;
+        cur.isPrivate = Boolean(isPrivate);
+        cur.hasPassword = Boolean(cur.isPrivate && password);
+        cur.password = cur.isPrivate ? String(password || '') : '';
+        cur.maxPlayers = clampedMax;
+        this._emitUi('ROOM_UPDATED', cur);
+        return { ok: true, room: cur };
+    },
+
     async returnToRoom() {
         this.stopLocalGameSession();
         if (this.isOnline()) {
@@ -989,6 +1101,10 @@ export const RoomManager = {
     // --- 인게임 로컬 오프라인 폴백 엔진 브리지 & 온라인 액션 송신 ---
     startLocalGameSession(room) {
         this.stopLocalGameSession();
+        if (room?.gameId === 'unos') {
+            this.activeSnapshot = null;
+            return null;
+        }
         const myId = this.localPlayer.id;
         let currentViewerId = myId;
         const resolveViewer = (eng) => {

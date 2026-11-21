@@ -26,21 +26,25 @@ export const DISCORD_COLORS = Object.freeze({
 export const DISCORD_TEMPLATES = Object.freeze({
     BOT_NAME: '루포 아레나 관제봇',
     ERROR_TITLE_PREFIX: '🚨 [오류 보고]',
-    ERROR_FOOTER: 'Rufo BoardGame Arena · 오류 관제 시스템',
+    ERROR_FOOTER: 'Rufo BoardGame Arena · 오류 감지 시스템',
     STATS_TITLE_PREFIX: '📊 [일일 운영 통계]',
-    STATS_FOOTER: 'Rufo BoardGame Arena · KST 일일 브리핑',
+    STATS_FOOTER: 'Rufo BoardGame Arena · 일일 통계 시스템',
     BUG_TITLE_PREFIX: '🐛 [버그 제보]',
-    BUG_FOOTER: 'Rufo BoardGame Arena · 유저 버그 제보함',
+    BUG_FOOTER: 'Rufo BoardGame Arena · 버그 제보 시스템',
     SUGGESTION_TITLE_PREFIX: '💡 [유저 건의]',
-    SUGGESTION_FOOTER: 'Rufo BoardGame Arena · 유저 건의함'
+    SUGGESTION_FOOTER: 'Rufo BoardGame Arena · 유저 건의 시스템'
 });
 
 const MODE_LABELS_KO = Object.freeze({
-    speed: '스피드(10턴)',
-    basic: '기본(15턴)',
-    ember: '불씨(20턴)',
-    default: '기본'
+    speed: '간식',
+    basic: '정식',
+    ember: '불씨',
+    feast: '특식',
+    standard: '기본(1:1)',
+    default: '정식'
 });
+
+const MARBLE_MODE_ORDER = ['speed', 'basic', 'feast', 'ember'];
 
 const GAME_LABELS_KO = Object.freeze({
     arena: '아레나 공통',
@@ -50,13 +54,22 @@ const GAME_LABELS_KO = Object.freeze({
 
 const errorThrottleMap = new Map(); // key: `${errorCode}::${summary}` -> { lastSentAt, suppressedCount }
 
+export function escapeDiscordMarkdown(val) {
+    return String(val ?? '').replace(/([\\*_~`|>#\[\]()])/g, '\\$1');
+}
+
+function sanitizeInlineCode(val) {
+    return String(val ?? '').replace(/`/g, "'");
+}
+
 function clampText(val, maxLen = MAX_EMBED_FIELD, fallback = '-') {
     const cleaned = String(val ?? '')
         .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]+/g, ' ')
         .trim();
     if (!cleaned) return fallback;
     if (cleaned.length <= maxLen) return cleaned;
-    return `${cleaned.slice(0, Math.max(0, maxLen - 3))}...`;
+    const sliced = cleaned.slice(0, Math.max(0, maxLen - 3)).replace(/\\+$/, '');
+    return `${sliced}...`;
 }
 
 function formatKstDateTime(isoOrDate = new Date()) {
@@ -173,37 +186,37 @@ export async function postDiscordWebhook(webhookUrl, rawPayload, {
 }
 
 export function buildErrorAlertPayload(report, { suppressedCount = 0 } = {}) {
-    const gameLabel = GAME_LABELS_KO[report?.gameId] || report?.gameId || 'arena';
+    const gameLabel = GAME_LABELS_KO[report?.gameId] || escapeDiscordMarkdown(report?.gameId) || 'arena';
     const crumbs = Array.isArray(report?.breadcrumbs) ? report.breadcrumbs.slice(-5) : [];
     const crumbLines = crumbs.length > 0
-        ? crumbs.map(c => `\`[${clampText(c.t, 16, '0ms')}]\` **${clampText(c.cat, 16, 'EVENT')}**: ${clampText(c.msg, 120, '')}`).join('\n')
+        ? crumbs.map(c => `\`[${sanitizeInlineCode(clampText(c.t, 16, '0ms'))}]\` **${escapeDiscordMarkdown(clampText(c.cat, 16, 'EVENT'))}**: ${escapeDiscordMarkdown(clampText(c.msg, 120, ''))}`).join('\n')
         : '기록 없음';
 
-    const summaryBase = clampText(report?.summary, 280, '오류 요약 없음');
+    const summaryBase = escapeDiscordMarkdown(clampText(report?.summary, 280, '오류 요약 없음'));
     const summaryText = suppressedCount > 0
         ? `${summaryBase}\n*(직전 30초 내 동일 오류 ${suppressedCount}건 추가 발생)*`
         : summaryBase;
 
     const fields = [
         { name: '발생 시각', value: formatKstDateTime(report?.occurredAt || report?.receivedAt), inline: true },
-        { name: '씬 / 방 코드', value: `\`${clampText(report?.scene, 32)}\` / \`${clampText(report?.roomCode, 24, '없음')}\``, inline: true },
-        { name: '플레이어 ID', value: `\`${clampText(report?.playerId, 48, '익명/오프라인')}\``, inline: true },
+        { name: '씬 / 방 코드', value: `\`${sanitizeInlineCode(clampText(report?.scene, 32))}\` / \`${sanitizeInlineCode(clampText(report?.roomCode, 24, '없음'))}\``, inline: true },
+        { name: '플레이어 ID', value: `\`${sanitizeInlineCode(clampText(report?.playerId, 48, '익명/오프라인'))}\``, inline: true },
         { name: '요약', value: clampText(summaryText, MAX_EMBED_FIELD), inline: false },
-        { name: '에러 상세 메시지', value: `\`${clampText(report?.errorDetail?.message, 900, '메시지 없음')}\``, inline: false },
+        { name: '에러 상세 메시지', value: `\`${sanitizeInlineCode(clampText(report?.errorDetail?.message, 900, '메시지 없음'))}\``, inline: false },
         { name: '최근 블랙박스 (최대 5줄)', value: clampText(crumbLines, MAX_EMBED_FIELD, '기록 없음'), inline: false }
     ];
 
     if (report?.errorDetail?.failedUrl) {
         fields.push({
             name: '실패 리소스 URL',
-            value: `\`${clampText(report.errorDetail.failedUrl, 900)}\``,
+            value: `\`${sanitizeInlineCode(clampText(report.errorDetail.failedUrl, 900))}\``,
             inline: false
         });
     }
 
     return {
         embeds: [{
-            title: clampText(`${DISCORD_TEMPLATES.ERROR_TITLE_PREFIX} ${report?.errorCode || 'ERR_UNKNOWN'} (${gameLabel})`, MAX_EMBED_TITLE),
+            title: clampText(`${DISCORD_TEMPLATES.ERROR_TITLE_PREFIX} ${escapeDiscordMarkdown(report?.errorCode || 'ERR_UNKNOWN')} (${gameLabel})`, MAX_EMBED_TITLE),
             color: DISCORD_COLORS.ERROR,
             fields,
             timestamp: new Date().toISOString(),
@@ -217,7 +230,7 @@ export function buildDailyStatsPayload(stats) {
     let totalMatches = 0;
     let pureHumanMatches = 0;
     let withAiMatches = 0;
-    const gameDetailLines = [];
+    const gameDetailBlocks = [];
 
     for (const [gameId, entry] of Object.entries(gamesObj)) {
         const gTotal = Number(entry?.total) || 0;
@@ -227,35 +240,55 @@ export function buildDailyStatsPayload(stats) {
         pureHumanMatches += gPure;
         withAiMatches += gAi;
 
-        const gameName = GAME_LABELS_KO[gameId] || gameId;
-        const modeEntries = Object.entries(entry?.byMode || {});
-        if (modeEntries.length > 0) {
-            const modeText = modeEntries
-                .map(([m, mv]) => `${MODE_LABELS_KO[m] || m} **${Number(mv?.total) || 0}판** *(인간 ${Number(mv?.pureHuman) || 0} · AI포함 ${Number(mv?.withAi) || 0})*`)
-                .join(' / ');
-            gameDetailLines.push(`• **${gameName}**: 총 **${gTotal}판** (${modeText})`);
+        const gameName = GAME_LABELS_KO[gameId] || escapeDiscordMarkdown(gameId);
+        const byMode = entry?.byMode && typeof entry.byMode === 'object' ? entry.byMode : {};
+        const lines = [`**${gameName}** - 총 **${gTotal}판**`];
+
+        if (gameId === 'marble') {
+            const seenModes = new Set();
+            for (const modeKey of MARBLE_MODE_ORDER) {
+                seenModes.add(modeKey);
+                const mv = byMode[modeKey];
+                const mLabel = MODE_LABELS_KO[modeKey] || modeKey;
+                lines.push(`> ${mLabel} : **${Number(mv?.total) || 0}판** (순수 플레이어 다인전 **${Number(mv?.pureHuman) || 0}판** / AI포함 **${Number(mv?.withAi) || 0}판**)`);
+            }
+            for (const [m, mv] of Object.entries(byMode)) {
+                if (seenModes.has(m)) continue;
+                const mLabel = MODE_LABELS_KO[m] || escapeDiscordMarkdown(m);
+                lines.push(`> ${mLabel} : **${Number(mv?.total) || 0}판** (순수 플레이어 다인전 **${Number(mv?.pureHuman) || 0}판** / AI포함 **${Number(mv?.withAi) || 0}판**)`);
+            }
         } else {
-            gameDetailLines.push(`• **${gameName}**: 총 **${gTotal}판** *(인간 ${gPure} · AI포함 ${gAi})*`);
+            const modeEntries = Object.entries(byMode);
+            if (modeEntries.length > 0) {
+                for (const [m, mv] of modeEntries) {
+                    const mLabel = MODE_LABELS_KO[m] || escapeDiscordMarkdown(m);
+                    lines.push(`> ${mLabel} : **${Number(mv?.total) || 0}판** (순수 플레이어 다인전 **${Number(mv?.pureHuman) || 0}판** / AI포함 **${Number(mv?.withAi) || 0}판**)`);
+                }
+            } else {
+                lines.push(`> 전체 : **${gTotal}판** (순수 플레이어 다인전 **${gPure}판** / AI포함 **${gAi}판**)`);
+            }
         }
+
+        gameDetailBlocks.push(lines.join('\n'));
     }
 
-    const matchBreakdown = gameDetailLines.length > 0
-        ? gameDetailLines.join('\n')
-        : '완주된 온라인 경기가 없습니다.';
+    const matchBreakdown = gameDetailBlocks.length > 0
+        ? gameDetailBlocks.join('\n\n')
+        : '완주된 경기가 없습니다.';
 
     const fields = [
         { name: '기준 일자 (KST)', value: `**${clampText(stats?.date, 20)}**`, inline: true },
         { name: '총 신규 세션 (HELLO)', value: `**${Number(stats?.newSessions) || 0}명**`, inline: true },
         { name: '최대 동시 접속 / 방', value: `접속 **${Number(stats?.peakClients) || 0}명** / 방 **${Number(stats?.peakRooms) || 0}개**`, inline: true },
         {
-            name: '완주 온라인 경기 수',
-            value: `총 **${totalMatches}판** (순수 인간 다인전 **${pureHumanMatches}판** / AI 포함전 **${withAiMatches}판**)`,
+            name: '완주된 경기 수',
+            value: `총 **${totalMatches}판** (순수 플레이어 다인전 **${pureHumanMatches}판** / AI포함 **${withAiMatches}판**)`,
             inline: false
         },
-        { name: '게임 · 모드별 상세', value: clampText(matchBreakdown, MAX_EMBED_FIELD), inline: false },
+        { name: '게임 모드별 상세', value: clampText(matchBreakdown, MAX_EMBED_FIELD), inline: false },
         {
-            name: '관제 접수 현황',
-            value: `🚨 오류보고 **${Number(stats?.errorReportsCount) || 0}건** · 🐛 버그제보 **${Number(stats?.bugCount) || 0}건** · 💡 건의함 **${Number(stats?.suggestionCount) || 0}건**`,
+            name: '제보 접수현황',
+            value: `오류보고 **${Number(stats?.errorReportsCount) || 0}건**\n버그제보 **${Number(stats?.bugCount) || 0}건**\n유저건의 **${Number(stats?.suggestionCount) || 0}건**`,
             inline: false
         }
     ];
@@ -273,10 +306,10 @@ export function buildDailyStatsPayload(stats) {
 
 export function buildFeedbackPayload(feedback, options = {}) {
     const isBug = feedback?.category === 'bug';
-    const gameLabel = GAME_LABELS_KO[feedback?.gameId] || feedback?.gameId || '아레나 공통';
+    const gameLabel = GAME_LABELS_KO[feedback?.gameId] || escapeDiscordMarkdown(feedback?.gameId) || '아레나 공통';
     const authorText = feedback?.nickname
-        ? `${clampText(feedback.nickname, 32)} (\`${clampText(feedback.playerId, 32, '오프라인')}\`)`
-        : `\`${clampText(feedback?.playerId, 32, '익명/오프라인')}\``;
+        ? `${escapeDiscordMarkdown(clampText(feedback.nickname, 32))} (\`${sanitizeInlineCode(clampText(feedback.playerId, 32, '오프라인'))}\`)`
+        : `\`${sanitizeInlineCode(clampText(feedback?.playerId, 32, '익명/오프라인'))}\``;
     const submittedKst = formatKstDateTime(feedback?.createdAt);
     const parsedCreatedMs = feedback?.createdAt ? Date.parse(feedback.createdAt) : NaN;
     const embedTimestamp = !Number.isNaN(parsedCreatedMs)
@@ -287,13 +320,13 @@ export function buildFeedbackPayload(feedback, options = {}) {
         { name: '대상 게임', value: clampText(gameLabel, 64), inline: true },
         { name: '작성자', value: clampText(authorText, 128), inline: true },
         { name: '접수 시각', value: submittedKst, inline: true },
-        { name: '내용', value: clampText(feedback?.content, MAX_EMBED_FIELD, '-'), inline: false }
+        { name: '내용', value: clampText(escapeDiscordMarkdown(feedback?.content), MAX_EMBED_FIELD, '-'), inline: false }
     ];
 
     if (isBug && Array.isArray(feedback?.breadcrumbs) && feedback.breadcrumbs.length > 0) {
         const crumbText = feedback.breadcrumbs
             .slice(-15)
-            .map(c => `\`[${clampText(c.t, 16, '0ms')}]\` **${clampText(c.cat, 16, 'EVENT')}**: ${clampText(c.msg, 120, '')}`)
+            .map(c => `\`[${sanitizeInlineCode(clampText(c.t, 16, '0ms'))}]\` **${escapeDiscordMarkdown(clampText(c.cat, 16, 'EVENT'))}**: ${escapeDiscordMarkdown(clampText(c.msg, 120, ''))}`)
             .join('\n');
         fields.push({
             name: '첨부 블랙박스 (최근 최대 15줄)',
@@ -309,10 +342,10 @@ export function buildFeedbackPayload(feedback, options = {}) {
     return {
         embeds: [{
             title: clampText(
-                `${isBug ? DISCORD_TEMPLATES.BUG_TITLE_PREFIX : DISCORD_TEMPLATES.SUGGESTION_TITLE_PREFIX} ${feedback?.title || '(제목 없음)'}`,
+                `${isBug ? DISCORD_TEMPLATES.BUG_TITLE_PREFIX : DISCORD_TEMPLATES.SUGGESTION_TITLE_PREFIX} ${escapeDiscordMarkdown(feedback?.title || '(제목 없음)')}`,
                 MAX_EMBED_TITLE
             ),
-            description: clampText(`${batchTag}접수 ID: \`${feedback?.feedbackId || '-'}\` · 채널: \`${feedback?.channel || 'ws'}\``, MAX_EMBED_DESC),
+            description: clampText(`${batchTag}접수 ID: \`${sanitizeInlineCode(feedback?.feedbackId || '-')}\` · 채널: \`${sanitizeInlineCode(feedback?.channel || 'ws')}\``, MAX_EMBED_DESC),
             color: isBug ? DISCORD_COLORS.BUG : DISCORD_COLORS.SUGGESTION,
             fields,
             timestamp: embedTimestamp,

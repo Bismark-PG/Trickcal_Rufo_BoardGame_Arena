@@ -25,6 +25,7 @@ export const CardUILang = {
         OTHERWORLD_APPLIED: "[이면세계] 보유한 모든 영토의 시간대(낮/밤)가 역전되었습니다!",
         GOLDIE_REALTY_APPLIED: "[골디의 부동산명함] 남은 대출금(원금+이자)이 0.5배로 감소하고 최고 등급 건물 단계가 2단계 하락했습니다!",
         GOLDIE_REALTY_NO_DOWNGRADE: "[골디의 부동산명함] 남은 대출금(원금+이자)이 0.5배로 감소했습니다! (오두막 이하 영토만 보유해 건물 단계 유지)",
+        CULT_EMERGENCY_FUND_APPLIED: "[교단의 비상금] 모든 대출이 전액 청산되고 비상금을 지급받았습니다!",
         PIRA_LOAN_APPLIED: "[피라의 대부업명함] 앞으로 대출 원금이 0.5배로 감소하고, 고정 이자율 20% 및 정산 미상환 이율 2배가 적용됩니다!",
         REVERSE_ONE_APPLIED: "영토의 시간대(낮/밤)가 역전되었습니다!",
 

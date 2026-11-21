@@ -220,6 +220,16 @@ export function createTurnIndicator(player, currentTurn, worldState = null, rema
     `;
 }
 
+export function computeDiceGaugePower(elapsedMs, cycleMs = GAME_CONSTANTS.DICE_GAUGE_CYCLE_MS || 1200) {
+    const rawCycle = Number(cycleMs);
+    const safeCycle = Number.isFinite(rawCycle) ? Math.max(200, rawCycle) : (GAME_CONSTANTS.DICE_GAUGE_CYCLE_MS || 1200);
+    const rawElapsed = Number(elapsedMs);
+    const safeElapsed = Number.isFinite(rawElapsed) ? Math.max(0, rawElapsed) : 0;
+    const phase = (safeElapsed % safeCycle) / safeCycle;
+    const wave = phase <= 0.5 ? phase * 2 : (1 - phase) * 2;
+    return Math.max(0, Math.min(100, Math.round(wave * 100)));
+}
+
 export function createDiceButton(player, canRoll = true, hasUsableCards = false) {
     const text = pickLangDict(MarbleLang, LangState.current);
     const cText = pickLangDict(CardUILang, LangState.current);
@@ -232,9 +242,26 @@ export function createDiceButton(player, canRoll = true, hasUsableCards = false)
 
     return `
         <div style="position: absolute; bottom: 40px; right: 40px; display: flex; flex-direction: column; align-items: flex-end;">
-            <div style="display: flex; gap: 20px;">
+            <div style="display: flex; align-items: flex-end; gap: 20px;">
                 <button id="btn-inventory" type="button" style="font-family: inherit; padding: 25px 40px; font-size: 30px; font-weight: bold; cursor: ${invBtnCursor}; border-radius: 15px; border: none; background-color: ${invBtnBg}; color: white; box-shadow: 0 10px 20px rgba(0,0,0,0.4);">${cText.BTN_INVENTORY}</button>
-                <button id="btn-roll" type="button" style="font-family: inherit; padding: 25px 60px; font-size: 36px; font-weight: bold; cursor: ${rollBtnCursor}; border-radius: 15px; border: none; background-color: ${rollBtnBg}; color: white; box-shadow: 0 10px 20px rgba(0,0,0,0.4);" ${!canRoll ? 'disabled' : ''}>${text.ROLL_DICE}</button>
+                <div style="display: flex; flex-direction: column; align-items: stretch;">
+                    <div style="height: 54px; display: flex; flex-direction: column; justify-content: flex-end; margin-bottom: 8px; pointer-events: none;">
+                        <div id="dice-gauge-idle" style="display: ${canRoll ? 'flex' : 'none'}; justify-content: center; align-items: center;">
+                            <span style="background: rgba(15, 23, 42, 0.82); color: #f8fafc; border: 1px solid rgba(241, 196, 15, 0.45); border-radius: 999px; padding: 4px 12px; font-size: 13px; font-weight: bold; white-space: nowrap;">⚡ ${text.DICE_GAUGE_HOLD_HINT || '길게 눌러 강약 조절'}</span>
+                        </div>
+                        <div id="dice-gauge-wrap" style="display: none; background: rgba(15, 23, 42, 0.94); border: 2px solid #f1c40f; border-radius: 12px; padding: 7px 12px; box-shadow: 0 8px 18px rgba(0,0,0,0.45);">
+                            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: bold; color: #f8fafc; margin-bottom: 4px;">
+                                <span>⚡ ${text.DICE_GAUGE_POWER_LABEL || '게이지'}</span>
+                                <span id="dice-gauge-pct" style="color: #f1c40f;">0%</span>
+                            </div>
+                            <div style="position: relative; width: 100%; height: 12px; background: #1e293b; border-radius: 999px; overflow: hidden; border: 1px solid rgba(255,255,255,0.22);">
+                                <div style="position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: rgba(255,255,255,0.6); transform: translateX(-50%); z-index: 2;"></div>
+                                <div id="dice-gauge-fill" style="width: 0%; height: 100%; background: linear-gradient(90deg, #3498db, #f1c40f, #e74c3c);"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <button id="btn-roll" type="button" style="font-family: inherit; padding: 25px 60px; font-size: 36px; font-weight: bold; cursor: ${rollBtnCursor}; border-radius: 15px; border: none; background-color: ${rollBtnBg}; color: white; box-shadow: 0 10px 20px rgba(0,0,0,0.4); user-select: none; -webkit-user-select: none; touch-action: none;" ${!canRoll ? 'disabled' : ''}>${text.ROLL_DICE}</button>
+                </div>
             </div>
         </div>
     `;
@@ -865,30 +892,54 @@ export function renderBoardState(ctx, boardImg, tiles, allPlayers, worldState = 
     const { isOverridden, currentTime } = resolveGimmickStatus(worldState);
     const gText = pickLangDict(GimmickLang, LangState.current);
     const playerById = new Map(allPlayers.map(p => [p.id, p]));
+    const gridN = getModeConfig(resolveRenderWorld(worldState).gameMode || 'ember').gridUnits || 13;
+    const U = 1080 / gridN;
+    const nameFontSize = Math.max(16, Math.round(U * 0.25));
+    const timeFontSize = Math.max(12, Math.round(U * 0.16));
+    const maxTextWidth = U * 1.45;
+    const bandAvoidOffset = U * 0.2;
 
     tiles.forEach(tile => {
         if (tile.isDisabled || tile.type === 'disabled') return;
-        if (tile.id % 10 === 0) {
-            ctx.font = `bold 36px ${currentFont}`;
-            ctx.fillStyle = '#e74c3c';
-        } else {
-            ctx.font = `bold 22px ${currentFont}`;
-            ctx.fillStyle = '#2c3e50';
-        }
-        ctx.fillText(getTileName(tile, worldState), tile.x, tile.y);
 
-        // 시간대 속성(낮/밤) 표시 (그을음/빛무리 진행 중에는 우선도에 의해 비활성 흐림 표시)
-        if (tile.timeType === 'day' || tile.timeType === 'night') {
-            const isMatched = !isOverridden && currentTime === tile.timeType;
-            ctx.font = `bold 14px ${currentFont}`;
-            if (isOverridden) {
-                ctx.fillStyle = '#7f8c8d';
-            } else {
-                ctx.fillStyle = tile.timeType === 'day'
-                    ? (isMatched ? '#e67e22' : '#d35400')
-                    : (isMatched ? '#8e44ad' : '#2980b9');
+        // 코너 4칸(0,10,20,30)과 차원 열쇠 칸(card)은 보드판 텍스트 미표시
+        const shouldDrawText = (tile.id % 10 !== 0) && (tile.type !== 'card');
+        if (shouldDrawText) {
+            let textX = tile.x;
+            let textY = tile.y;
+            if (tile.side === 0) textY += bandAvoidOffset;
+            else if (tile.side === 1) textX -= bandAvoidOffset;
+            else if (tile.side === 2) textY -= bandAvoidOffset;
+            else if (tile.side === 3) textX += bandAvoidOffset;
+
+            const hasTimeTag = tile.timeType === 'day' || tile.timeType === 'night';
+            const nameOffsetY = hasTimeTag ? -Math.round(U * 0.11) : 0;
+            const timeOffsetY = Math.round(U * 0.17);
+
+            ctx.save();
+            ctx.translate(textX, textY);
+            if (tile.side === 0 || tile.side === 2) {
+                ctx.rotate(-Math.PI / 2);
             }
-            ctx.fillText(tile.timeType === 'day' ? gText.TILE_TIME_DAY : gText.TILE_TIME_NIGHT, tile.x, tile.y + 20);
+
+            ctx.font = `bold ${nameFontSize}px ${currentFont}`;
+            ctx.fillStyle = '#2c3e50';
+            ctx.fillText(getTileName(tile, worldState), 0, nameOffsetY, maxTextWidth);
+
+            // 시간대 속성(낮/밤) 표시 (그을음/빛무리 진행 중에는 우선도에 의해 비활성 흐림 표시)
+            if (hasTimeTag) {
+                const isMatched = !isOverridden && currentTime === tile.timeType;
+                ctx.font = `bold ${timeFontSize}px ${currentFont}`;
+                if (isOverridden) {
+                    ctx.fillStyle = '#7f8c8d';
+                } else {
+                    ctx.fillStyle = tile.timeType === 'day'
+                        ? (isMatched ? '#e67e22' : '#d35400')
+                        : (isMatched ? '#8e44ad' : '#2980b9');
+                }
+                ctx.fillText(tile.timeType === 'day' ? gText.TILE_TIME_DAY : gText.TILE_TIME_NIGHT, 0, timeOffsetY, maxTextWidth);
+            }
+            ctx.restore();
         }
 
         const ownerObj = (tile.owner && typeof tile.owner === 'object')
@@ -897,8 +948,6 @@ export function renderBoardState(ctx, boardImg, tiles, allPlayers, worldState = 
 
         if (ownerObj) {
             ctx.fillStyle = ownerObj.color; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
-            const gridN = getModeConfig(resolveRenderWorld(worldState).gameMode || 'ember').gridUnits || 13;
-            const U = 1080 / gridN;
             let dx = 0, dy = 0; const offsetDist = U * 0.8;
             if (tile.side === 0) dy = -offsetDist;
             else if (tile.side === 1) dx = offsetDist;
@@ -966,7 +1015,7 @@ export function showSettlementPopup(results, onReturnCallback, customBtnLabel = 
             <div style="font-size:16px; color:#95a5a6;">${sText.TAB_DETAIL_HINT}</div>
         </div>
         <div id="settlement-tabs" style="display:grid; grid-template-columns: repeat(4, 1fr); gap:12px; margin-bottom:18px;"></div>
-        <div id="settlement-detail" style="flex:1; overflow-y:auto; padding-right:8px; display:grid; grid-template-columns: repeat(2, 1fr); gap:14px; align-content:start;"></div>
+        <div id="settlement-detail" style="flex:1; overflow-y:auto; padding-right:8px; display:grid; grid-template-columns: 1fr; gap:14px; align-content:start;"></div>
         <div id="settlement-summary" style="margin-top:16px; padding-top:14px; border-top:2px solid #2e3e57; display:flex; justify-content:space-between; align-items:center;">
             <div id="settlement-summary-metrics" style="display:flex; gap:32px; font-size:22px;"></div>
             <button id="settlement-return-btn" style="font-family:inherit; padding:16px 36px; font-size:24px; font-weight:bold; background:#2ecc71; color:#fff; border:none; border-radius:12px; cursor:pointer;">${escapeHtml(customBtnLabel || sText.BTN_MAINMENU)}</button>
@@ -1009,12 +1058,12 @@ export function showSettlementPopup(results, onReturnCallback, customBtnLabel = 
         detailEl.innerHTML = (cur.categories || []).map(cat => `
             <div style="background:#141c28; border:1px solid #2e3e57; border-radius:12px; padding:14px 18px;">
                 <h3 style="margin:0 0 10px 0; font-size:20px; color:#f39c12; border-bottom:1px solid #2e3e57; padding-bottom:6px;">${escapeHtml(cat.title)}</h3>
-                <div style="display:flex; flex-direction:column; gap:6px; font-size:16px;">
+                <div style="display:flex; flex-direction:column; gap:8px; font-size:16px;">
                     ${(cat.items || []).map(item => {
                         const color = item.isNegative ? '#e74c3c' : (item.isActive ? '#2ecc71' : '#7f8c8d');
-                        return `<div style="display:flex; justify-content:space-between; gap:12px; color:${color};">
-                            <span>${escapeHtml(item.label)}</span>
-                            <span style="font-weight:bold; white-space:nowrap;">${escapeHtml(item.formula)}</span>
+                        return `<div style="display:flex; justify-content:space-between; align-items:center; gap:16px; color:${color};">
+                            <span style="text-align:left;">${escapeHtml(item.label)}</span>
+                            <span style="font-weight:bold; white-space:nowrap; text-align:right;">${escapeHtml(item.formula)}</span>
                         </div>`;
                     }).join('')}
                 </div>

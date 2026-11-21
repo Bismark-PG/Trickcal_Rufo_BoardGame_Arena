@@ -2,6 +2,7 @@ export const MarbleLang = {
     ko: {
         TILE_START: "시작", TILE_ISLAND: "무인도", TILE_FUND: "발전기금", TILE_PORTAL: "차원이동장치", TILE_CARD: "차원이동카드", TILE_NORMAL: "칸",
         ROLL_DICE: "주사위 굴리기 🎲", CURRENT_TURN: "현재 턴:", REMAIN_TIME: "남은 시간:", SEC: "초",
+        DICE_GAUGE_POWER_LABEL: "게이지", DICE_GAUGE_HOLD_HINT: "길게 눌러 강약 조절",
         PLAYER_ME: "플레이어 (나)", NPC: "NPC", MONEY: "소지금:", TERRITORY: "영토:", EA: "개", CURRENCY: "엘드르 달러",
         BADGE_CHIEF: "🔧 정비반장", BADGE_CHIEF_SHORT: "🔧 반장",
         BADGE_MOUNTAIN_DISCIPLE: "🏔️ 제자", BADGE_MOUNTAIN_DISCIPLE_SHORT: "🏔️ 제자",

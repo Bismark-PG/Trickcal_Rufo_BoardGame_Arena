@@ -12,8 +12,14 @@ import {
     MarbleMode2LogAdapter,
     MarbleMode2Log10Adapter,
     MarbleMode3LogAdapter,
-    MarbleMode3Log10Adapter
+    MarbleMode3Log10Adapter,
+    MarbleMode4LogAdapter,
+    MarbleMode4Log10Adapter
 } from '../../Marble/MarbleLogManager.js';
+import {
+    UnosLogAdapter,
+    UnosLog10Adapter
+} from '../../Unos/UnosLogManager.js';
 
 const STORAGE_PREFIX = 'rufo_system_logs_v1_';
 const ERROR_LOG_JSON_FILE = '아레나_오류보고_로그.json';
@@ -80,6 +86,10 @@ class SystemLogManagerImpl {
         this.registerGameLogger('marble_mode2_10', MarbleMode2Log10Adapter);
         this.registerGameLogger('marble_mode3', MarbleMode3LogAdapter);
         this.registerGameLogger('marble_mode3_10', MarbleMode3Log10Adapter);
+        this.registerGameLogger('marble_mode4', MarbleMode4LogAdapter);
+        this.registerGameLogger('marble_mode4_10', MarbleMode4Log10Adapter);
+        this.registerGameLogger('unos', UnosLogAdapter);
+        this.registerGameLogger('unos_10', UnosLog10Adapter);
     }
 
     _withWriteLock(lockKey, task) {
@@ -173,6 +183,7 @@ class SystemLogManagerImpl {
             if (rawMatchData.gameMode === 'speed') resolvedId = is10 ? 'marble_mode1_10' : 'marble_mode1';
             else if (rawMatchData.gameMode === 'basic') resolvedId = is10 ? 'marble_mode2_10' : 'marble_mode2';
             else if (rawMatchData.gameMode === 'ember') resolvedId = is10 ? 'marble_mode3_10' : 'marble_mode3';
+            else if (rawMatchData.gameMode === 'feast') resolvedId = is10 ? 'marble_mode4_10' : 'marble_mode4';
         }
         const adapter = this.getLogger(resolvedId);
         if (!adapter) {

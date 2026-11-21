@@ -9,35 +9,129 @@ import { ErrorTracker } from '../System/ErrorTracker.js';
 import { LangState } from '../System/LanguageManager.js';
 import { LobbyLang } from '../System/Index/LobbyIndex.js';
 import { MenuLang } from '../System/Index/MainMenuIndex.js';
-import { AudioManager, SettingsManager } from '../System/System.js';
+import { OnboardingLang } from '../System/Index/ArenaOnboardingIndex.js';
+import {
+    openInfoPopup,
+    closeInfoPopup,
+    renderArenaSettingsModalHtml,
+    bindArenaSettingsHandlers
+} from '../Lobby/InfoPopupUI.js';
 import { getModeConfig, normalizeMarbleMode } from '../System/Index/Marble/MarblePriceIndex.js';
 
-function getAiLabel(slotOrDiff, text) {
+const HOST_START_IDLE_TIMEOUT_MS = 30000;
+
+function getAiLabel(slotOrDiff, text, gameId = 'marble') {
     const raw = (typeof slotOrDiff === 'object' && slotOrDiff !== null)
         ? (slotOrDiff.aiDifficulty || slotOrDiff.aiType)
         : slotOrDiff;
-    switch (String(raw || '').toLowerCase()) {
+    const key = String(raw || '').toLowerCase();
+
+    if (gameId === 'unos') {
+        if (key === 'mild' || key === 'easy' || key === '1' || key === '순한맛') {
+            return text.AI_DIFF_MILD || '순한맛';
+        }
+        if (key === 'spicy' || key === 'hard' || key === 'nuclear' || key === 'magma' || key === '3' || key === '매운맛') {
+            return text.AI_DIFF_SPICY || '매운맛';
+        }
+        return text.AI_DIFF_NORMAL || '보통맛';
+    }
+
+    switch (key) {
         case 'mild':
-        case 'easy':
-            return text.AI_DIFF_MILD || '순한맛 (쉬움)';
-        case 'spicy':
+        case 'very_easy':
+            return text.AI_DIFF_MILD || '순한맛';
         case 'normal':
-            return text.AI_DIFF_SPICY || '매운맛 (보통)';
+        case 'easy':
+            return text.AI_DIFF_NORMAL || '보통맛';
+        case 'spicy':
+        case 'medium':
+            return text.AI_DIFF_SPICY || '매운맛';
         case 'nuclear':
         case 'hard':
-            return text.AI_DIFF_NUCLEAR || '핵불맛 (어려움)';
+            return text.AI_DIFF_NUCLEAR || '핵불맛';
         case 'magma':
         case 'very_hard':
-            return text.AI_DIFF_MAGMA || '마그맛 (매우어려움)';
+            return text.AI_DIFF_MAGMA || '마그맛';
         default:
-            return text.AI_DIFF_MILD || '순한맛 (쉬움)';
+            return text.AI_DIFF_NORMAL || '보통맛';
     }
+}
+
+function buildModeDetailHtml(modeId, modeCfg, moneyStr, modeMeta) {
+    const maxTurn = Number(modeCfg?.maxTurn) || modeMeta.turns || 20;
+    const dayStart = Number(modeCfg?.timeDayStartTurn) || 5;
+    const slotDur = Number(modeCfg?.timeSlotDuration) || 5;
+    const nightEnd = Math.min(maxTurn, dayStart + (slotDur * 2) - 1);
+    const hasTreasure = Boolean(modeCfg?.enableTreasureAndRequiem);
+
+    let ruleLines = [];
+    if (modeId === 'speed') {
+        ruleLines = [
+            '"보물 카드"가 등장하지 않습니다.',
+            '빵주정비반장이 공석이 됩니다.',
+            '빵주가 3턴부터 해금되며, 그 전에 도착시 50만 달러를 지불하고 개방할 수 있습니다.',
+            '1회를 완주하거나 3턴까지 왕국을 지을 수 없습니다.'
+        ];
+    } else if (modeId === 'basic') {
+        ruleLines = [
+            '"보물 카드"가 등장하지 않습니다.',
+            '빵주가 4턴부터 해금됩니다.',
+            '1회를 완주하거나 4턴까지 왕국을 지을 수 없습니다.'
+        ];
+    } else {
+        ruleLines = [
+            '획득한 보물카드는 망가진제단에서 100만 달러로 바꿀 수 있습니다.',
+            '보물카드가 6장이 모이면 세상은 그을음상태가 됩니다.',
+            '그을음상태가 되었을때 제단에 교환된 보물카드가 없다면, 보물카드를 가장 많이 보유하고있거나, 가장 오랫동안 들고있는 플레이어가 윤회를 얻습니다.',
+            '그을음이 발생되면 모든 영토의 매입비와 건물의 건설비가 0.5배로 하락하게 됩니다.',
+            '빛무리가 발생되면 모든 수입이 1.5배(긍정 효과 2배)로 증가합니다.'
+        ];
+        if (modeId === 'ember') {
+            ruleLines.push('제단에 도착하지 않아도 1턴부터 보물 카드가 활성화됩니다.');
+        }
+    }
+
+    const gimmickLines = hasTreasure
+        ? [
+            `시간대 : ${dayStart}턴 ~ ${nightEnd}턴`,
+            '그을음 : 3턴',
+            '빛무리 : 2턴'
+        ]
+        : [`시간대 : ${dayStart}턴 ~ ${nightEnd}턴`];
+
+    return `
+        <div class="parchment-card mode-detail-parchment">
+            <div><strong>• 최대 턴수 :</strong> ${maxTurn}턴 (${escapeHtml(modeMeta.time)})</div>
+            <div><strong>• 초기자금 :</strong> 시작 순서대로 ${escapeHtml(moneyStr)}</div>
+            <div>
+                <div style="font-weight: 900; color: #9E4412;">• 월드 기믹</div>
+                <div style="padding-left: 10px; font-weight: bold; display: flex; flex-direction: column; gap: 2px;">
+                    ${gimmickLines.map(line => `<div>${escapeHtml(line)}</div>`).join('')}
+                </div>
+            </div>
+            <div>
+                <div style="font-weight: 900; color: #6E3D1E;">• 제한요소</div>
+                <div style="padding-left: 10px; display: flex; flex-direction: column; gap: 3px;">
+                    ${ruleLines.map(line => `<div>- ${escapeHtml(line)}</div>`).join('')}
+                </div>
+            </div>
+            <div style="margin-top: 4px; padding-top: 8px; border-top: 2px dashed rgba(138, 86, 44, 0.3); font-size: 13.5px; color: #724929; font-weight: bold; display: flex; flex-direction: column; gap: 2px;">
+                <div>• AI 난이도는 순한맛이 가장 쉽고, 마그맛이 가장 어렵습니다.</div>
+                <div>• 룰에 익숙하지 않은 분은 순한맛이나 보통맛을 추천합니다.</div>
+                <div>• 적당한 긴장감이 좋으시면 매운맛을 추천합니다.</div>
+                <div>• 도전을 좋아하신다면 핵불맛과 마그맛이 준비되어있습니다.</div>
+                <div>• AI의 플레이 성향은 랜덤으로 배정됩니다.</div>
+            </div>
+        </div>
+    `;
 }
 
 export function initRoom(container, sceneParams = null) {
     let localCountdownTimer = null;
     let localCountdownSec = null;
     let localHostIdleTimer = null;
+    let prevIdleWarningActive = false;
+    let isHostIdleWarningOpen = false;
 
     const clearLocalHostIdleTimer = () => {
         if (localHostIdleTimer) {
@@ -68,6 +162,7 @@ export function initRoom(container, sceneParams = null) {
         if (!RoomManager.canStart(room).canStart) return;
 
         clearLocalHostIdleTimer();
+        closeInfoPopup(container);
         room.status = 'countdown';
         localCountdownSec = 3;
         room.countdownSec = 3;
@@ -82,8 +177,11 @@ export function initRoom(container, sceneParams = null) {
             liveRoom.countdownSec = localCountdownSec;
             if (localCountdownSec <= 0) {
                 clearLocalCountdown();
-                const initialSnapshot = RoomManager.startLocalGameSession(liveRoom);
-                changeScene(gameMeta.sceneGame, { room: liveRoom, initialSnapshot });
+                const initialSnapshot = liveRoom.gameId === 'unos'
+                    ? null
+                    : RoomManager.startLocalGameSession(liveRoom);
+                const targetScene = gameMeta?.sceneGame || (liveRoom.gameId === 'unos' ? 'unos' : 'marble');
+                changeScene(targetScene, { room: liveRoom, initialSnapshot });
                 return;
             }
             render();
@@ -111,7 +209,7 @@ export function initRoom(container, sceneParams = null) {
                         clearLocalCountdown();
                         changeScene(gameMeta?.sceneMain || 'marble_main', { kickNotice });
                     }
-                }, 10000);
+                }, HOST_START_IDLE_TIMEOUT_MS);
             }
         } else {
             clearLocalHostIdleTimer();
@@ -128,10 +226,20 @@ export function initRoom(container, sceneParams = null) {
         ErrorTracker.markTransitionComplete('room');
 
         const isOnline = RoomManager.isOnline();
-        const text = LobbyLang[LangState.current] || LobbyLang.ko;
-        const menuText = MenuLang[LangState.current] || MenuLang.ko;
+        const lang = LangState.current || 'ko';
+        const text = LobbyLang[lang] || LobbyLang.ko;
+        const menuText = MenuLang[lang] || MenuLang.ko;
         const gameMeta = getGameMeta(room.gameId);
-        const gameTitle = (gameMeta.title && gameMeta.title[LangState.current]) || gameMeta.id;
+        const gameTitle = menuText[gameMeta?.nameKey]
+            || (room.gameId === 'unos' ? (text.UNOS_TITLE || '우노스 (UNOS)') : (text.MARBLE_TITLE || '엘리아스 마블'));
+        const isUnos = room.gameId === 'unos';
+        const badgeBg = isUnos ? '#5E72E4' : '#76C140';
+        const badgeColor = isUnos ? '#ffffff' : '#16330A';
+        const badgeBorder = isUnos ? '#C5CEFF' : '#D6F5B3';
+        const netPillStyle = isOnline
+            ? 'background: #FFFBF0; color: #2B6213; border: 2px solid #77C242;'
+            : 'background: #FFF7DF; color: #724929; border: 2px solid #C9965B;';
+
         const mySlot = RoomManager.getMySlot(room);
         const summary = RoomManager.getReadinessSummary(room);
         const isMyHost = room.hostId === RoomManager.localPlayer.id;
@@ -140,42 +248,28 @@ export function initRoom(container, sceneParams = null) {
         const currentMode = normalizeMarbleMode(room.customOptions?.gameMode);
         const currentModeCfg = getModeConfig(currentMode);
 
+        const idleWarningActive = RoomManager.shouldShowHostIdleWarning(room);
+        if (!prevIdleWarningActive && idleWarningActive) {
+            isHostIdleWarningOpen = true;
+        } else if (!idleWarningActive) {
+            isHostIdleWarningOpen = false;
+        }
+        prevIdleWarningActive = idleWarningActive;
+
         const modeItems = [
-            {
-                id: 'speed',
-                label: text.MODE_SPEED || '스피드',
-                turns: 10,
-                time: text.MODE_SPEED_TIME || '약 10~15분',
-                desc: text.MODE_SPEED_DESC || ''
-            },
-            {
-                id: 'basic',
-                label: text.MODE_BASIC || '기본',
-                turns: 15,
-                time: text.MODE_BASIC_TIME || '약 20~25분',
-                desc: text.MODE_BASIC_DESC || ''
-            },
-            {
-                id: 'ember',
-                label: text.MODE_EMBER || '불씨',
-                turns: 20,
-                time: text.MODE_EMBER_TIME || '약 25~30분',
-                desc: text.MODE_EMBER_DESC || ''
-            }
+            { id: 'speed', label: text.MODE_SPEED || '간식', turns: 10, time: text.MODE_SPEED_TIME || '약 10~15분' },
+            { id: 'basic', label: text.MODE_BASIC || '정식', turns: 15, time: text.MODE_BASIC_TIME || '약 20~25분' },
+            { id: 'feast', label: text.MODE_FEAST || '특식', turns: 20, time: text.MODE_FEAST_TIME || '약 25~30분' },
+            { id: 'ember', label: text.MODE_EMBER || '불씨', turns: 15, time: text.MODE_EMBER_TIME || '약 20~25분' }
         ];
-        const selectedModeMeta = modeItems.find(m => m.id === currentMode) || modeItems[2];
+        const selectedModeMeta = modeItems.find(m => m.id === currentMode) || modeItems[3];
         const modeButtonsHtml = modeItems.map(m => {
             const active = m.id === currentMode;
-            const bg = active ? 'linear-gradient(135deg, #f39c12, #e67e22)' : 'rgba(0,0,0,0.28)';
-            const border = active ? '3px solid #f1c40f' : '2px solid rgba(255,255,255,0.22)';
-            const cursor = canEditMode ? 'pointer' : 'default';
-            const opacity = (!canEditMode && !active) ? '0.35' : '1';
-            const pointerEvents = canEditMode ? 'auto' : 'none';
             return `
-                <button type="button" class="btn-room-mode" data-mode="${m.id}" ${!canEditMode ? 'disabled' : ''} style="font-family: inherit; flex: 1; padding: 12px 8px; border-radius: 14px; background: ${bg}; border: ${border}; color: #fff; cursor: ${cursor}; opacity: ${opacity}; pointer-events: ${pointerEvents}; display: flex; flex-direction: column; align-items: center; gap: 4px; box-shadow: ${active ? '0 6px 16px rgba(0,0,0,0.28)' : 'none'};">
-                    <span style="font-size: 22px; font-weight: 900; white-space: nowrap;">${escapeHtml(m.label)}</span>
-                    <span style="font-size: 14px; font-weight: bold; color: ${active ? '#fff9db' : '#dceefb'}; white-space: nowrap;">${m.turns} Turn</span>
-                    <span style="font-size: 13px; color: ${active ? '#ffffff' : 'rgba(255,255,255,0.75)'}; white-space: nowrap;">⏱ ${escapeHtml(m.time)}</span>
+                <button type="button" class="btn-room-mode mode-btn ${active ? 'active' : ''}" data-mode="${m.id}" ${!canEditMode ? 'disabled' : ''}>
+                    <span style="font-size: 20px; font-weight: 900; white-space: nowrap;">${escapeHtml(m.label)}</span>
+                    <span style="font-size: 14px; font-weight: bold; white-space: nowrap;">${m.turns} Turn</span>
+                    <span style="font-size: 13px; opacity: 0.9; white-space: nowrap;">⏱ ${escapeHtml(m.time)}</span>
                 </button>
             `;
         }).join('');
@@ -191,14 +285,14 @@ export function initRoom(container, sceneParams = null) {
             if (slot.type === 'empty') {
                 const hostSlotControls = isMyHost ? `
                     <div style="display: flex; gap: 8px;">
-                        <button class="btn-slot-add-ai" data-idx="${slot.slotIndex}" style="font-family: inherit; padding: 8px 14px; font-size: 16px; font-weight: bold; background: #8e44ad; color: #fff; border: none; border-radius: 8px; cursor: pointer;">${escapeHtml(text.BTN_ADD_AI)}</button>
-                        ${!isOnline ? `<button class="btn-slot-add-mock" data-idx="${slot.slotIndex}" style="font-family: inherit; padding: 8px 14px; font-size: 16px; font-weight: bold; background: #3498db; color: #fff; border: none; border-radius: 8px; cursor: pointer;">${escapeHtml(text.BTN_ADD_TEST_USER)}</button>` : ''}
+                        <button type="button" class="btn-slot-add-ai btn-blue" data-idx="${slot.slotIndex}" style="padding: 8px 16px; font-size: 16px; border-radius: 10px;">${escapeHtml(text.BTN_ADD_AI)}</button>
+                        ${!isOnline ? `<button type="button" class="btn-slot-add-mock btn-wood" data-idx="${slot.slotIndex}" style="padding: 8px 16px; font-size: 16px; border-radius: 10px;">${escapeHtml(text.BTN_ADD_TEST_USER)}</button>` : ''}
                     </div>
                 ` : '';
                 return `
-                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 16px 22px; border-radius: 16px; border: 2px dashed rgba(255,255,255,0.28); background: rgba(0,0,0,0.14); color: rgba(255,255,255,0.65);">
-                        <div style="display: flex; align-items: center; gap: 14px; font-size: 20px;">
-                            <span style="width: 24px; height: 24px; border-radius: 50%; background: rgba(255,255,255,0.18); display: inline-block;"></span>
+                    <div class="slot-empty">
+                        <div style="display: flex; align-items: center; gap: 14px; font-size: 20px; font-weight: bold;">
+                            <span style="width: 24px; height: 24px; border-radius: 50%; background: rgba(255, 224, 173, 0.28); display: inline-block;"></span>
                             <span>${slot.slotIndex + 1}. ${escapeHtml(text.ROLE_EMPTY)}</span>
                         </div>
                         ${hostSlotControls}
@@ -208,43 +302,43 @@ export function initRoom(container, sceneParams = null) {
 
             const isMe = slot.id === RoomManager.localPlayer.id;
             const roleLabel = slot.type === 'ai'
-                ? `${text.ROLE_AI} (${getAiLabel(slot, text)})`
+                ? `${text.ROLE_AI} (${getAiLabel(slot, text, room.gameId)})`
                 : (slot.isHost ? text.ROLE_HOST : text.ROLE_GUEST);
-            const meTag = isMe ? `<span style="color: #f1c40f; font-weight: bold;">${escapeHtml(text.TAG_ME)}</span>` : '';
+            const meTag = isMe ? ` <span style="color: #D95318;">${escapeHtml(text.TAG_ME)}</span>` : '';
             const offlineTag = (slot.type === 'human' && slot.isConnected === false)
-                ? `<span style="margin-left: 8px; padding: 2px 8px; font-size: 14px; border-radius: 6px; background: #c0392b; color: #fff;">${escapeHtml(text.TAG_OFFLINE || 'OFFLINE')}</span>`
+                ? `<span class="pill-badge" style="margin-left: 8px; height: 26px; padding: 0 10px; font-size: 13px; background: #B02E24; color: #fff;">${escapeHtml(text.TAG_OFFLINE || 'OFFLINE')}</span>`
                 : '';
 
             const statusBadge = slot.isHost
-                ? `<span style="padding: 6px 14px; border-radius: 10px; background: #f39c12; color: #fff; font-size: 17px; font-weight: bold;">${escapeHtml(text.ROLE_HOST)}</span>`
+                ? `<span class="pill-badge" style="background: linear-gradient(135deg, #F38221, #D95318); color: #fff; border: 2px solid #FFE4AC;">${escapeHtml(text.ROLE_HOST)}</span>`
                 : (slot.isReady
-                    ? `<span style="padding: 6px 14px; border-radius: 10px; background: #27ae60; color: #fff; font-size: 17px; font-weight: bold;">${escapeHtml(text.STATE_READY)}</span>`
-                    : `<span style="padding: 6px 14px; border-radius: 10px; background: #7f8c8d; color: #fff; font-size: 17px; font-weight: bold;">${escapeHtml(text.STATE_WAITING)}</span>`);
+                    ? `<span class="pill-badge" style="background: #77C242; color: #16330A; border: 2px solid #DFF5BE;">${escapeHtml(text.STATE_READY)}</span>`
+                    : `<span class="pill-badge" style="background: #8B7363; color: #fff;">${escapeHtml(text.STATE_WAITING)}</span>`);
 
             let actionBtns = '';
             if (isMyHost && room.status === 'waiting') {
                 if (slot.type === 'ai') {
                     actionBtns = `
-                        <button class="btn-slot-ai-cycle" data-idx="${slot.slotIndex}" style="font-family: inherit; padding: 7px 12px; font-size: 15px; font-weight: bold; background: #9b59b6; color: #fff; border: none; border-radius: 8px; cursor: pointer;">${escapeHtml(text.BTN_AI_CYCLE)}</button>
-                        <button class="btn-slot-clear" data-idx="${slot.slotIndex}" style="font-family: inherit; padding: 7px 12px; font-size: 15px; font-weight: bold; background: #c0392b; color: #fff; border: none; border-radius: 8px; cursor: pointer;">${escapeHtml(text.BTN_CLEAR_SLOT)}</button>
+                        <button type="button" class="btn-slot-ai-cycle btn-blue" data-idx="${slot.slotIndex}" style="padding: 7px 13px; font-size: 15px; border-radius: 10px;">${escapeHtml(text.BTN_AI_CYCLE)}</button>
+                        <button type="button" class="btn-slot-clear btn-danger" data-idx="${slot.slotIndex}" style="padding: 7px 13px; font-size: 15px; border-radius: 10px;">${escapeHtml(text.BTN_CLEAR_SLOT)}</button>
                     `;
                 } else if (slot.type === 'human' && !slot.isHost && (isOnline || slot.isMockHuman)) {
                     actionBtns = `
-                        <button class="btn-slot-transfer-host" data-idx="${slot.slotIndex}" style="font-family: inherit; padding: 7px 12px; font-size: 15px; font-weight: bold; background: #f39c12; color: #fff; border: none; border-radius: 8px; cursor: pointer;">${escapeHtml(text.BTN_TRANSFER_HOST || '방장 위임')}</button>
-                        <button class="btn-slot-clear" data-idx="${slot.slotIndex}" style="font-family: inherit; padding: 7px 12px; font-size: 15px; font-weight: bold; background: #c0392b; color: #fff; border: none; border-radius: 8px; cursor: pointer;">${escapeHtml(text.BTN_CLEAR_SLOT)}</button>
+                        <button type="button" class="btn-slot-transfer-host btn-orange" data-idx="${slot.slotIndex}" style="padding: 7px 13px; font-size: 15px; border-radius: 10px;">${escapeHtml(text.BTN_TRANSFER_HOST || '방장 위임')}</button>
+                        <button type="button" class="btn-slot-clear btn-danger" data-idx="${slot.slotIndex}" style="padding: 7px 13px; font-size: 15px; border-radius: 10px;">${escapeHtml(text.BTN_CLEAR_SLOT)}</button>
                     `;
                 }
             }
 
             return `
-                <div style="display: flex; align-items: center; justify-content: space-between; padding: 15px 22px; border-radius: 16px; border: 3px solid ${isMe ? '#f1c40f' : 'rgba(255,255,255,0.2)'}; background: #165b7a; color: #fff;">
+                <div class="slot-card ${isMe ? 'is-me' : ''}">
                     <div style="display: flex; align-items: center; gap: 16px; min-width: 0;">
-                        <span style="width: 24px; height: 24px; border-radius: 50%; background: ${slot.color}; border: 2px solid #fff; flex-shrink: 0;"></span>
+                        <span style="width: 26px; height: 26px; border-radius: 50%; background: ${slot.color}; border: 3px solid #4E2812; flex-shrink: 0;"></span>
                         <div style="min-width: 0;">
-                            <div style="font-size: 22px; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                            <div style="font-size: 22px; font-weight: 900; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                                 ${escapeHtml(slot.name)}${meTag}${offlineTag}
                             </div>
-                            <div style="font-size: 15px; color: #dceefb; margin-top: 2px;">${escapeHtml(roleLabel)}</div>
+                            <div style="font-size: 15px; font-weight: bold; color: #724929; margin-top: 2px;">${escapeHtml(roleLabel)}</div>
                         </div>
                     </div>
                     <div style="display: flex; align-items: center; gap: 10px; flex-shrink: 0;">
@@ -258,145 +352,191 @@ export function initRoom(container, sceneParams = null) {
         let statusBannerHtml = '';
         if (activeCountdown !== null) {
             const msg = text.STATUS_ALL_READY_COUNTDOWN.replace('{sec}', activeCountdown);
-            statusBannerHtml = `<div style="padding: 16px 24px; border-radius: 14px; background: #27ae60; color: #fff; font-size: 24px; font-weight: bold; text-align: center;">${escapeHtml(msg)}</div>`;
+            statusBannerHtml = `<div class="room-status-banner" style="background: linear-gradient(135deg, #77C242, #4E8F26); color: #fff; border: 2px solid #DFF5BE;">${escapeHtml(msg)}</div>`;
         } else if (!summary.hasMinPlayers) {
             const msg = text.STATUS_NEED_MIN_PLAYERS
                 .replace('{min}', gameMeta.minPlayers)
                 .replace('{cur}', summary.occupied);
-            statusBannerHtml = `<div style="padding: 16px 24px; border-radius: 14px; background: rgba(231, 76, 60, 0.85); color: #fff; font-size: 20px; font-weight: bold; text-align: center;">${escapeHtml(msg)}</div>`;
-        } else if (summary.humanCount === 0) {
-            const msg = text.STATUS_SOLO_AI_READY || '🤖 최소 인원 충족! 방장이 게임 시작 버튼을 눌러주세요.';
-            statusBannerHtml = `<div style="padding: 16px 24px; border-radius: 14px; background: rgba(39, 174, 96, 0.38); color: #ffffff; font-size: 20px; font-weight: bold; text-align: center;">${escapeHtml(msg)}</div>`;
-        } else if (summary.allHumansReady) {
-            const msg = text.STATUS_HOST_READY_TO_START || '🎉 모든 참가자가 준비 완료! 방장이 게임 시작 버튼을 눌러주세요.';
-            statusBannerHtml = `<div style="padding: 16px 24px; border-radius: 14px; background: rgba(39, 174, 96, 0.38); color: #ffffff; font-size: 20px; font-weight: bold; text-align: center;">${escapeHtml(msg)}</div>`;
+            statusBannerHtml = `<div class="room-status-banner" style="background: #B02E24; color: #fff; border: 2px solid #FFC4BE;">⚠️ ${escapeHtml(msg)}</div>`;
+        } else if (summary.humanCount === 0 || summary.allHumansReady) {
+            const readyMsg = isMyHost
+                ? (text.STATUS_HOST_READY_TO_START || '🎉 전원 준비 완료! 게임 시작 버튼을 눌러주는것이다!')
+                : (text.STATUS_GUEST_READY_WAIT || '🎉 전원 준비 완료! 게임이 시작될 때 까지 잠시 기다리는것이다!');
+            statusBannerHtml = `<div class="room-status-banner" style="background: rgba(119, 194, 66, 0.25); color: #E4FACC; border: 2px solid #77C242;">${escapeHtml(readyMsg)}</div>`;
         } else {
             const msg = text.STATUS_WAIT_ALL_READY
                 .replace('{ready}', summary.readyHumanCount)
                 .replace('{cur}', summary.humanCount);
-            statusBannerHtml = `<div style="padding: 16px 24px; border-radius: 14px; background: rgba(0, 0, 0, 0.28); color: #dceefb; font-size: 20px; font-weight: bold; text-align: center;">${escapeHtml(msg)}</div>`;
+            statusBannerHtml = `<div class="room-status-banner" style="background: rgba(42, 20, 8, 0.45); color: #FDEAC8; border: 2px solid rgba(247, 199, 68, 0.4);">⏳ ${escapeHtml(msg)}</div>`;
         }
 
         const isCountdown = activeCountdown !== null || room.status === 'countdown';
         const isReadyBtnDisabled = !isMyHost && isCountdown;
         let readyBtnLabel = isMyReady ? text.BTN_READY_CANCEL : text.BTN_READY;
-        let readyBtnBg = isMyReady ? '#e67e22' : '#2ecc71';
+        let readyBtnClass = isMyReady ? 'btn-orange' : 'btn-green';
         if (isMyHost) {
             readyBtnLabel = isCountdown
-                ? (text.BTN_CANCEL_START || '시작 취소')
-                : (text.BTN_START_GAME || '게임 시작');
-            readyBtnBg = isCountdown ? '#e74c3c' : '#2ecc71';
+                ? `❌ ${text.BTN_CANCEL_START || '시작 취소'}`
+                : `🚀 ${text.BTN_START_GAME || '게임 시작'}`;
+            readyBtnClass = isCountdown ? 'btn-danger' : 'btn-green';
         }
 
         container.innerHTML = `
-            <div style="width: 100%; height: 100%; background: #bee8fc; padding: 38px 56px; box-sizing: border-box; display: flex; flex-direction: column;">
-                <!-- 상단 헤더 -->
-                <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 24px; flex-wrap: nowrap;">
-                    <div style="display: flex; align-items: center; gap: 18px; min-width: 0; flex: 1;">
-                        <button id="btn-leave-room" style="font-family: inherit; padding: 14px 22px; font-size: 21px; font-weight: bold; background: #c0392b; color: #fff; border: none; border-radius: 12px; cursor: pointer; white-space: nowrap; flex-shrink: 0;">${escapeHtml(text.BACK_TO_GAME_MAIN)}</button>
-                        <div style="min-width: 0; flex: 1;">
-                            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: nowrap;">
-                                <span style="padding: 5px 12px; border-radius: 18px; background: ${gameMeta.accentColor}; color: #fff; font-size: 16px; font-weight: bold; white-space: nowrap; flex-shrink: 0;">${escapeHtml(gameTitle)}</span>
-                                <span style="padding: 5px 12px; border-radius: 18px; background: #165b7a; color: #fff; font-size: 16px; white-space: nowrap; flex-shrink: 0;">${escapeHtml(room.isPrivate ? text.VISIBILITY_PRIVATE_BADGE : text.VISIBILITY_PUBLIC_BADGE)}</span>
-                                <span style="padding: 5px 12px; border-radius: 18px; background: ${isOnline ? '#27ae60' : '#7f8c8d'}; color: #fff; font-size: 15px; font-weight: bold; white-space: nowrap; flex-shrink: 0;">${escapeHtml(isOnline ? (text.NET_ONLINE || '🟢 온라인') : (text.NET_OFFLINE || '🟠 오프라인'))}</span>
-                            </div>
-                            <h1 style="margin: 6px 0 0 0; font-size: 36px; color: #165b7a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(room.title)}</h1>
-                        </div>
-                    </div>
-
-                    <!-- 우측 상단: 닉네임 변경 + 방 코드 공유 + 설정 버튼 -->
-                    <div style="display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; flex-shrink: 0;">
-                        <div style="display: flex; align-items: center; gap: 8px; background: #216a8c; padding: 10px 14px; border-radius: 14px; color: #fff; box-shadow: 0 6px 14px rgba(0,0,0,0.14); flex-shrink: 0;">
-                            <span style="font-size: 16px; font-weight: bold; white-space: nowrap;">${escapeHtml(text.NICKNAME_LABEL)}:</span>
-                            <input id="input-room-nickname" type="text" maxlength="16" value="${escapeHtml(RoomManager.localPlayer.name)}" style="font-family: inherit; width: 128px; padding: 6px 9px; font-size: 17px; border-radius: 8px; border: none; outline: none;">
-                            <button id="btn-room-save-nick" style="font-family: inherit; padding: 6px 12px; font-size: 16px; font-weight: bold; background: #f39c12; color: #fff; border: none; border-radius: 8px; cursor: pointer; white-space: nowrap; flex-shrink: 0;">${escapeHtml(text.BTN_CHANGE_NICK)}</button>
-                        </div>
-
-                        <div style="display: flex; align-items: center; gap: 12px; background: #216a8c; padding: 10px 16px; border-radius: 14px; color: #fff; box-shadow: 0 6px 14px rgba(0,0,0,0.14); flex-shrink: 0;">
-                            <div style="white-space: nowrap;">
-                                <div style="font-size: 13px; color: #dceefb;">${escapeHtml(text.ROOM_CODE_LABEL)}</div>
-                                <div id="room-code-display" style="font-family: monospace; font-size: 25px; font-weight: bold; letter-spacing: 1.5px; color: #f1c40f;">${escapeHtml(room.code)}</div>
-                            </div>
-                            <button id="btn-copy-room-code" style="font-family: inherit; padding: 9px 14px; font-size: 17px; font-weight: bold; background: #f39c12; color: #fff; border: none; border-radius: 10px; cursor: pointer; white-space: nowrap; flex-shrink: 0;">${escapeHtml(text.BTN_COPY_CODE)}</button>
-                        </div>
-
-                        <button id="btn-room-settings" style="font-family: inherit; padding: 14px 20px; font-size: 19px; font-weight: bold; background: #165b7a; color: #fff; border: none; border-radius: 14px; cursor: pointer; box-shadow: 0 6px 14px rgba(0,0,0,0.14); white-space: nowrap; flex-shrink: 0;">${escapeHtml(text.BTN_ROOM_SETTINGS || menuText.SETTINGS)}</button>
-                    </div>
-                </div>
-
-                <!-- 룸 본문 2열 -->
-                <div style="flex: 1; display: grid; grid-template-columns: 1fr 480px; gap: 32px; min-height: 0;">
-                    <!-- 좌측: 플레이어 슬롯 -->
-                    <div style="background: #216a8c; border-radius: 26px; padding: 30px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 12px 26px rgba(0,0,0,0.16);">
-                        <div>
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                                <h2 style="margin: 0; font-size: 30px; color: #fff;">${escapeHtml(text.SLOT_LIST_TITLE)} (${summary.occupied} / ${room.maxPlayers})</h2>
-                                ${isMyHost ? `
-                                <div style="display: flex; gap: 10px;">
-                                    <button id="btn-fill-all-ai" style="font-family: inherit; padding: 10px 18px; font-size: 18px; font-weight: bold; background: #8e44ad; color: #fff; border: none; border-radius: 10px; cursor: pointer;">${escapeHtml(text.BTN_FILL_ALL_AI)}</button>
-                                    <button id="btn-clear-all-ai" style="font-family: inherit; padding: 10px 18px; font-size: 18px; font-weight: bold; background: #165b7a; color: #fff; border: 2px solid rgba(255,255,255,0.25); border-radius: 10px; cursor: pointer;">${escapeHtml(text.BTN_CLEAR_ALL_AI)}</button>
-                                </div>` : ''}
-                            </div>
-                            <div style="display: flex; flex-direction: column; gap: 16px;">
-                                ${slotsHtml}
-                            </div>
-                        </div>
-
-                        ${statusBannerHtml}
-                    </div>
-
-                    <!-- 우측: 커스텀 설정 + 준비/시작 버튼 -->
-                    <div style="background: #165b7a; border-radius: 26px; padding: 30px; color: #fff; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 12px 26px rgba(0,0,0,0.16);">
-                        <div>
-                            <h2 style="margin: 0 0 16px 0; font-size: 26px; color: #f1c40f;">${escapeHtml(text.ROOM_SETTINGS_TITLE)}</h2>
-                            ${room.gameId === 'unos' ? `
-                                <div style="display: flex; flex-direction: column; gap: 14px; font-size: 20px; background: rgba(0,0,0,0.22); padding: 22px; border-radius: 16px;">
-                                    <div>• ${escapeHtml(text.UNOS_SETTING_PLAYERS)}</div>
-                                    <div>• ${escapeHtml(text.UNOS_SETTING_MODE)}</div>
-                                    <div>• ${escapeHtml(text.SETTING_AI_MODE)}</div>
+            <div class="arena-stage">
+                <div class="page-shell">
+                    <!-- 상단 헤더 -->
+                    <div class="top-bar">
+                        <div class="top-bar-left">
+                            <button id="btn-leave-room" type="button" class="btn-danger" style="padding: 14px 22px; font-size: 20px; flex-shrink: 0;">${escapeHtml(text.BACK_TO_GAME_MAIN)}</button>
+                            <div class="top-bar-titles" style="min-width: 0; flex: 1;">
+                                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: nowrap;">
+                                    <span class="pill-badge" style="background: ${badgeBg}; color: ${badgeColor}; border: 2px solid ${badgeBorder};">${escapeHtml(gameTitle)}</span>
+                                    <span class="pill-badge" style="background: #6E3D1E; color: #FFF4DC; border: 2px solid #C9965B;">${escapeHtml(room.isPrivate ? text.VISIBILITY_PRIVATE_BADGE : text.VISIBILITY_PUBLIC_BADGE)}</span>
+                                    <span class="pill-badge" style="${netPillStyle}">${escapeHtml(isOnline ? (text.NET_ONLINE || '🟢 온라인') : (text.NET_OFFLINE || '🟠 오프라인'))}</span>
                                 </div>
-                            ` : `
-                                <div style="margin-bottom: 14px;">
-                                    <div style="font-size: 17px; font-weight: bold; color: #dceefb; margin-bottom: 8px;">${escapeHtml(text.MODE_SELECT_LABEL || '게임 모드 선택')}</div>
-                                    <div style="display: flex; gap: 10px;">
-                                        ${modeButtonsHtml}
+                                <h1>${escapeHtml(room.title)}</h1>
+                            </div>
+                        </div>
+
+                        <!-- 우측 상단: 방 코드 공유 + [설정] + [정보] 바 -->
+                        <div class="top-bar-right">
+                            <div class="room-code-box">
+                                <div>
+                                    <div style="font-size: 13px; color: #FDEAC8; font-weight: bold;">${escapeHtml(text.ROOM_CODE_LABEL)}</div>
+                                    <div id="room-code-display" style="font-family: monospace; font-size: 24px; font-weight: 900; letter-spacing: 1.5px; color: #FFE68B;">${escapeHtml(room.code)}</div>
+                                </div>
+                                <button id="btn-copy-room-code" type="button" class="btn-orange" style="padding: 9px 15px; font-size: 16px;">${escapeHtml(text.BTN_COPY_CODE)}</button>
+                            </div>
+
+                            <button id="btn-room-settings" type="button" class="btn-green" ${isCountdown ? 'disabled' : ''} style="padding: 14px 20px; font-size: 19px;">${escapeHtml(text.BTN_ROOM_SETTINGS || menuText.SETTINGS)}</button>
+                            <button id="btn-room-info" type="button" class="btn-green" ${isCountdown ? 'disabled' : ''} style="padding: 14px 20px; font-size: 19px;">${escapeHtml((OnboardingLang[lang] || OnboardingLang.ko).BTN_INFO || menuText.INFO)}</button>
+                        </div>
+                    </div>
+
+                    <!-- 룸 본문 2열 -->
+                    <div class="room-grid">
+                        <!-- 좌측: 플레이어 슬롯 -->
+                        <section class="wood-panel room-slots-panel">
+                            <div>
+                                <div class="room-slots-toolbar" style="margin-bottom: 18px;">
+                                    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                                        <h2 style="margin: 0; font-size: 28px; font-weight: 900; color: #FFE68B;">${escapeHtml(text.SLOT_LIST_TITLE)} (${summary.occupied} / ${room.maxPlayers})</h2>
+                                        ${isMyHost ? `
+                                        <div style="display: flex; gap: 8px;">
+                                            <button id="btn-fill-all-ai" type="button" class="btn-blue" style="padding: 8px 14px; font-size: 15px; border-radius: 10px;">${escapeHtml(text.BTN_FILL_ALL_AI)}</button>
+                                            <button id="btn-clear-all-ai" type="button" class="btn-wood" style="padding: 8px 14px; font-size: 15px; border-radius: 10px;">${escapeHtml(text.BTN_CLEAR_ALL_AI)}</button>
+                                        </div>` : ''}
                                     </div>
+                                    ${isMyHost ? `<button id="btn-edit-room-info" type="button" class="btn-orange" ${isCountdown || room.status !== 'waiting' ? 'disabled' : ''} style="padding: 9px 18px; font-size: 16px; border-radius: 12px;">${escapeHtml(text.BTN_EDIT_ROOM_INFO || '⚙️ 게임룸 설정')}</button>` : ''}
                                 </div>
-                                <div style="display: flex; flex-direction: column; gap: 10px; font-size: 17px; background: rgba(0,0,0,0.22); padding: 18px; border-radius: 16px; line-height: 1.45;">
-                                    <div>• <strong>${escapeHtml(text.OPTION_TURNS_LABEL || '최대 턴 수')}:</strong> ${selectedModeMeta.turns} Turn (${escapeHtml(selectedModeMeta.time)})</div>
-                                    <div>• <strong>${escapeHtml(text.OPTION_MONEY_LABEL || '초기 자금')}:</strong> ${escapeHtml(initialMoneyOrderStr)}</div>
-                                    <div style="color: #ffeaa7;">• ${escapeHtml(selectedModeMeta.desc)}</div>
-                                    <div style="color: #dceefb; font-size: 15px;">• ${escapeHtml(text.SETTING_AI_MODE)}</div>
+                                <div style="display: flex; flex-direction: column; gap: 14px;">
+                                    ${slotsHtml}
                                 </div>
-                            `}
+                            </div>
+
+                            ${statusBannerHtml}
+                        </section>
+
+                        <!-- 우측: 게임 규칙 상세 설명 + 준비/시작 버튼 -->
+                        <aside class="wood-panel-deep room-settings-panel">
+                            <div style="min-height: 0; display: flex; flex-direction: column; gap: 12px; flex: 1;">
+                                <h2 style="margin: 0; font-size: 26px; font-weight: 900; color: #FFE68B;">${escapeHtml(text.ROOM_SETTINGS_TITLE)}</h2>
+                                ${isUnos ? `
+                                    <div class="lobby-rule-banner" style="height: 195px;">
+                                        <img class="rule-bg" src="./Resource/Texture/BG/BG_Broken_Altar_Special.png" alt="">
+                                        <div class="rule-scrim"></div>
+                                        <img class="rule-char" src="./Resource/Texture/Char/Char_Erpin_Unos.png" alt="에르핀 우노스" style="height: 186px;">
+                                        <div class="lobby-rule-banner-text">
+                                            <span class="pill-badge" style="width: fit-content; background: #5E72E4; color: #fff; border: 2px solid #C5CEFF;">${lang === 'en' ? 'Alpha' : (lang === 'ja' ? 'アルファ' : '알파')}</span>
+                                            <div style="font-size: 24px; font-weight: 900; color: #FFF8EE;">${escapeHtml(gameTitle)}</div>
+                                        </div>
+                                    </div>
+                                    <div class="parchment-card mode-detail-parchment" style="font-size: 17px; gap: 12px;">
+                                        <div>• ${escapeHtml(text.UNOS_SETTING_PLAYERS)}</div>
+                                        <div>• ${escapeHtml(text.UNOS_SETTING_MODE)}</div>
+                                        ${text.UNOS_SETTING_BOARD ? `<div>• ${escapeHtml(text.UNOS_SETTING_BOARD)}</div>` : ''}
+                                        ${text.UNOS_SETTING_WIN ? `<div>• ${escapeHtml(text.UNOS_SETTING_WIN)}</div>` : ''}
+                                        <div style="margin-top: 6px; padding-top: 10px; border-top: 2px dashed rgba(138, 86, 44, 0.3); font-size: 15px; color: #724929; font-weight: bold;">
+                                            • ${escapeHtml(text.UNOS_SETTING_AI_MODE || 'AI 난이도: 순한맛(쉬움) · 보통맛 · 매운맛 3단계 선택 가능')}
+                                        </div>
+                                    </div>
+                                ` : `
+                                    <div>
+                                        <div style="font-size: 15px; font-weight: bold; color: #FDEAC8; margin-bottom: 8px;">${escapeHtml(text.MODE_SELECT_LABEL || '게임 모드 선택')}</div>
+                                        <div class="mode-btn-row">${modeButtonsHtml}</div>
+                                    </div>
+                                    ${buildModeDetailHtml(currentMode, currentModeCfg, initialMoneyOrderStr, selectedModeMeta)}
+                                `}
+                            </div>
+
+                            <button id="btn-toggle-ready" type="button" class="${readyBtnClass}" ${isReadyBtnDisabled ? 'disabled' : ''} style="width: 100%; height: 82px; font-size: 29px; border-radius: 18px; flex-shrink: 0;">
+                                ${escapeHtml(readyBtnLabel)}
+                            </button>
+                        </aside>
+                    </div>
+
+                    ${renderArenaSettingsModalHtml({
+                        popupId: 'popup-room-settings',
+                        idPrefix: 'room-settings',
+                        bgmSliderId: 'room-bgm-slider',
+                        sfxSliderId: 'room-sfx-slider',
+                        fontGothicId: 'room-font-gothic',
+                        fontGulimId: 'room-font-gulim',
+                        langKoId: 'room-lang-ko',
+                        langEnId: 'room-lang-en',
+                        langJaId: 'room-lang-ja',
+                        closeBtnId: 'close-room-settings',
+                        lang,
+                        menuText,
+                        currentNickname: RoomManager.localPlayer?.name || ''
+                    })}
+
+                    <!-- 방장 전용: 게임룸 설정 모달 -->
+                    <div id="modal-edit-room-info" class="arena-modal-backdrop" style="z-index: 1200;">
+                        <div class="arena-modal-box">
+                            <h2 style="margin: 0 0 22px; font-size: 32px; font-weight: 900; text-align: center; color: #4E2812;">⚙️ ${escapeHtml(text.EDIT_ROOM_MODAL_TITLE || '게임룸 설정')}</h2>
+
+                            <div style="margin-bottom: 18px;">
+                                <label style="display: block; font-size: 18px; font-weight: 800; margin-bottom: 8px;">${escapeHtml(text.ROOM_TITLE_LABEL)}</label>
+                                <input id="edit-room-title" class="modal-input" type="text" maxlength="20" value="${escapeHtml(room.title)}">
+                            </div>
+
+                            <div style="margin-bottom: 18px;">
+                                <label style="display: block; font-size: 18px; font-weight: 800; margin-bottom: 8px;">${escapeHtml(text.MAX_PLAYERS_LABEL)}</label>
+                                <div id="edit-room-max-group" style="display: flex; gap: 10px;">
+                                    ${Array.from({ length: Math.max(1, (gameMeta?.maxPlayers || 4) - (gameMeta?.minPlayers || 2) + 1) }, (_, idx) => {
+                                        const n = (gameMeta?.minPlayers || 2) + idx;
+                                        const isSel = n === room.maxPlayers;
+                                        return `<button type="button" class="btn-edit-max-players ${isSel ? 'btn-orange' : 'btn-wood'}" data-max="${n}" style="flex: 1; padding: 11px 10px; font-size: 19px;">${n}${escapeHtml(text.PLAYERS_UNIT)}</button>`;
+                                    }).join('')}
+                                </div>
+                            </div>
+
+                            <div style="margin-bottom: 24px;">
+                                <label style="display: block; font-size: 18px; font-weight: 800; margin-bottom: 8px;">${escapeHtml(text.VISIBILITY_LABEL)}</label>
+                                <div style="display: flex; gap: 20px; font-size: 18px; font-weight: bold;">
+                                    <label style="cursor: pointer;"><input type="radio" name="edit-room-visibility" value="public" ${!room.isPrivate ? 'checked' : ''}> ${escapeHtml(text.PUBLIC_ROOM)}</label>
+                                    <label style="cursor: pointer;"><input type="radio" name="edit-room-visibility" value="private" ${room.isPrivate ? 'checked' : ''}> ${escapeHtml(text.PRIVATE_ROOM)}</label>
+                                </div>
+                                <input id="edit-room-password" class="modal-input" type="password" maxlength="16" value="${escapeHtml(room.password || '')}" placeholder="${escapeHtml(text.JOIN_PASSWORD_OPTIONAL || '비밀번호 (비공개 시 선택)')}" style="margin-top: 10px; padding: 10px 14px; font-size: 17px;">
+                            </div>
+
+                            <div style="display: flex; gap: 14px;">
+                                <button id="btn-cancel-edit-room" type="button" class="btn-wood" style="flex: 1; padding: 14px; font-size: 20px;">${escapeHtml(text.BTN_CANCEL)}</button>
+                                <button id="btn-confirm-edit-room" type="button" class="btn-orange" style="flex: 1.4; padding: 14px; font-size: 20px;">${escapeHtml(text.BTN_SAVE_ROOM_INFO || '변경 저장')}</button>
+                            </div>
                         </div>
-
-                        <button id="btn-toggle-ready" ${isReadyBtnDisabled ? 'disabled' : ''} style="font-family: inherit; width: 100%; padding: 26px; font-size: 32px; font-weight: bold; background: ${readyBtnBg}; color: #fff; border: none; border-radius: 18px; cursor: ${isReadyBtnDisabled ? 'not-allowed' : 'pointer'}; opacity: ${isReadyBtnDisabled ? '0.48' : '1'}; pointer-events: ${isReadyBtnDisabled ? 'none' : 'auto'}; box-shadow: 0 10px 22px rgba(0,0,0,0.3);">
-                            ${escapeHtml(readyBtnLabel)}
-                        </button>
-                    </div>
-                </div>
-
-                <!-- 대기실 설정 팝업 (메인 메뉴 설정과 동일) -->
-                <div id="popup-room-settings" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; padding: 50px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 1000; width: 500px; border: 5px solid #165b7a; color: #1a202c;">
-                    <h2 style="margin-top:0; font-size: 36px; text-align: center; color: #165b7a;">${escapeHtml(menuText.SETTINGS)}</h2>
-                    <div style="font-size: 24px; margin-bottom: 20px;"><label>${escapeHtml(menuText.BGM)}: <input type="range" id="room-bgm-slider" min="0" max="1" step="0.1" value="${AudioManager.bgmPlayer.volume}" style="width:100%;"></label></div>
-                    <div style="font-size: 24px; margin-bottom: 30px;"><label>${escapeHtml(menuText.SFX)}: <input type="range" id="room-sfx-slider" min="0" max="1" step="0.1" value="${AudioManager.sfxVolume}" style="width:100%;"></label></div>
-
-                    <div style="font-size: 24px; margin-bottom: 30px; text-align: center;">
-                        <p style="margin:0 0 10px 0;">${escapeHtml(menuText.FONT)}</p>
-                        <button id="room-font-gothic" type="button" style="font-family: 'Malgun Gothic', sans-serif; padding: 10px 20px; font-size: 20px; cursor: pointer;">${escapeHtml(menuText.FONT_GOTHIC)}</button>
-                        <button id="room-font-gulim" type="button" style="font-family: 'Gulim', 'Dotum', sans-serif; padding: 10px 20px; font-size: 20px; cursor: pointer;">${escapeHtml(menuText.FONT_GULIM)}</button>
                     </div>
 
-                    <div style="font-size: 24px; margin-bottom: 30px; text-align: center;">
-                        <p style="margin:0 0 10px 0;">${escapeHtml(menuText.LANG)}</p>
-                        <button id="room-lang-ko" type="button" style="padding: 10px; font-size: 18px; font-family: inherit; cursor: pointer;">한글</button>
-                        <button id="room-lang-en" type="button" style="padding: 10px; font-size: 18px; font-family: inherit; cursor: pointer;">Eng</button>
-                        <button id="room-lang-ja" type="button" style="padding: 10px; font-size: 18px; font-family: inherit; cursor: pointer;">日本語</button>
-                    </div>
-
-                    <button id="close-room-settings" type="button" style="font-family: inherit; width: 100%; padding: 15px; font-size: 24px; background: #e74c3c; color: white; border: none; border-radius: 10px; cursor: pointer;">${escapeHtml(menuText.CLOSE)}</button>
+                    <!-- 방장 준비완료 30초 시작 대기 중앙 알림 팝업 -->
+                    ${isHostIdleWarningOpen && !isCountdown ? `
+                    <div id="modal-host-idle-warning" class="arena-modal-backdrop open" style="z-index: 2200; cursor: pointer;">
+                        <div class="arena-modal-box" style="width: 600px; text-align: center; border-color: #F38221; cursor: pointer;">
+                            <h2 style="margin: 0 0 14px 0; font-size: 30px; font-weight: 900; color: #9E4412;">⏰ ${escapeHtml(text.HOST_IDLE_WARNING_TITLE || '게임 시작 대기 안내')}</h2>
+                            <p style="margin: 0 0 26px 0; font-size: 20px; font-weight: bold; line-height: 1.55; color: #4E2812;">${escapeHtml(text.HOST_IDLE_WARNING_MSG || '모든 플레이어가 준비를 완료했습니다! 일정 시간 안에 시작하지 않으면 자동으로 강퇴됩니다!')}</p>
+                            <button id="btn-dismiss-idle-warning" type="button" class="btn-orange" style="padding: 13px 44px; font-size: 20px;">${escapeHtml(text.HOST_IDLE_WARNING_CONFIRM || '확인')}</button>
+                        </div>
+                    </div>` : ''}
                 </div>
             </div>
         `;
@@ -417,47 +557,121 @@ export function initRoom(container, sceneParams = null) {
             showLobbyToast(container, `${text.CODE_COPIED} ${room.code}`);
         };
 
-        const nickInput = container.querySelector('#input-room-nickname');
-        const saveNickBtn = container.querySelector('#btn-room-save-nick');
-        const saveRoomNick = async () => {
-            const val = nickInput ? nickInput.value : '';
-            if (!(await RoomManager.setNickname(val))) {
-                showLobbyToast(container, text.NICK_EMPTY_ERR);
-                return;
+        bindArenaSettingsHandlers({
+            container,
+            popupId: 'popup-room-settings',
+            openBtnId: 'btn-room-settings',
+            idPrefix: 'room-settings',
+            bgmSliderId: 'room-bgm-slider',
+            sfxSliderId: 'room-sfx-slider',
+            fontGothicId: 'room-font-gothic',
+            fontGulimId: 'room-font-gulim',
+            langKoId: 'room-lang-ko',
+            langEnId: 'room-lang-en',
+            langJaId: 'room-lang-ja',
+            closeBtnId: 'close-room-settings',
+            canOpen: () => !isCountdown,
+            onNicknameApplied: () => {
+                if (!RoomManager.isOnline()) return;
+                render();
             }
-            render();
-            showLobbyToast(container, `${text.NICK_UPDATED} ${RoomManager.localPlayer.name}`);
-        };
-        if (saveNickBtn) saveNickBtn.onclick = saveRoomNick;
-        if (nickInput) {
-            nickInput.onkeydown = (e) => {
-                if (e.key === 'Enter') saveRoomNick();
+        });
+
+        const settingsPopup = container.querySelector('#popup-room-settings');
+        const openInfoBtn = container.querySelector('#btn-room-info');
+        if (isCountdown) {
+            if (settingsPopup) settingsPopup.classList.remove('open');
+            closeInfoPopup(container);
+        }
+        if (openInfoBtn) {
+            openInfoBtn.onclick = () => {
+                if (isCountdown) return;
+                openInfoPopup(container, { gameId: room.gameId || 'marble' });
             };
         }
 
-        const settingsPopup = container.querySelector('#popup-room-settings');
-        const openSettingsBtn = container.querySelector('#btn-room-settings');
-        const closeSettingsBtn = container.querySelector('#close-room-settings');
-        if (openSettingsBtn && settingsPopup) {
-            openSettingsBtn.onclick = () => { settingsPopup.style.display = 'block'; };
+        const editRoomModal = container.querySelector('#modal-edit-room-info');
+        const openEditRoomBtn = container.querySelector('#btn-edit-room-info');
+        const editTitleInput = container.querySelector('#edit-room-title');
+        const editPwInput = container.querySelector('#edit-room-password');
+        const cancelEditRoomBtn = container.querySelector('#btn-cancel-edit-room');
+        const confirmEditRoomBtn = container.querySelector('#btn-confirm-edit-room');
+        const editMaxBtns = container.querySelectorAll('.btn-edit-max-players');
+        let selectedEditMax = room.maxPlayers;
+
+        if (isCountdown && editRoomModal) {
+            editRoomModal.classList.remove('open');
         }
-        if (closeSettingsBtn && settingsPopup) {
-            closeSettingsBtn.onclick = () => { settingsPopup.style.display = 'none'; };
+        const syncEditMaxStyles = () => {
+            editMaxBtns.forEach(btn => {
+                const isSel = Number(btn.dataset.max) === selectedEditMax;
+                btn.classList.toggle('btn-orange', isSel);
+                btn.classList.toggle('btn-wood', !isSel);
+            });
+        };
+        editMaxBtns.forEach(btn => {
+            btn.onclick = () => {
+                selectedEditMax = Number(btn.dataset.max) || room.maxPlayers;
+                syncEditMaxStyles();
+            };
+        });
+        if (openEditRoomBtn && editRoomModal) {
+            openEditRoomBtn.onclick = () => {
+                if (isCountdown || room.status !== 'waiting') return;
+                selectedEditMax = room.maxPlayers;
+                syncEditMaxStyles();
+                if (editTitleInput) editTitleInput.value = room.title || '';
+                if (editPwInput) editPwInput.value = room.password || '';
+                const pubRadio = container.querySelector('input[name="edit-room-visibility"][value="public"]');
+                const prvRadio = container.querySelector('input[name="edit-room-visibility"][value="private"]');
+                if (pubRadio && prvRadio) {
+                    pubRadio.checked = !room.isPrivate;
+                    prvRadio.checked = Boolean(room.isPrivate);
+                }
+                editRoomModal.classList.add('open');
+                if (editTitleInput) editTitleInput.focus();
+            };
         }
-        const bgmSlider = container.querySelector('#room-bgm-slider');
-        if (bgmSlider) bgmSlider.oninput = (e) => AudioManager.setBGMVolume(e.target.value);
-        const sfxSlider = container.querySelector('#room-sfx-slider');
-        if (sfxSlider) sfxSlider.oninput = (e) => AudioManager.setSFXVolume(e.target.value);
-        const fontGothicBtn = container.querySelector('#room-font-gothic');
-        if (fontGothicBtn) fontGothicBtn.onclick = () => SettingsManager.toggleFont(false);
-        const fontGulimBtn = container.querySelector('#room-font-gulim');
-        if (fontGulimBtn) fontGulimBtn.onclick = () => SettingsManager.toggleFont(true);
-        const langKoBtn = container.querySelector('#room-lang-ko');
-        if (langKoBtn) langKoBtn.onclick = () => LangState.set('ko');
-        const langEnBtn = container.querySelector('#room-lang-en');
-        if (langEnBtn) langEnBtn.onclick = () => LangState.set('en');
-        const langJaBtn = container.querySelector('#room-lang-ja');
-        if (langJaBtn) langJaBtn.onclick = () => LangState.set('ja');
+        if (cancelEditRoomBtn && editRoomModal) {
+            cancelEditRoomBtn.onclick = () => editRoomModal.classList.remove('open');
+        }
+        if (editRoomModal) {
+            editRoomModal.onclick = (e) => {
+                if (e.target === editRoomModal) editRoomModal.classList.remove('open');
+            };
+        }
+        const submitEditRoom = async () => {
+            const nextTitle = editTitleInput ? editTitleInput.value : room.title;
+            const vis = container.querySelector('input[name="edit-room-visibility"]:checked')?.value;
+            const res = await RoomManager.updateRoomInfo({
+                title: nextTitle,
+                isPrivate: vis === 'private',
+                password: editPwInput ? editPwInput.value : '',
+                maxPlayers: selectedEditMax
+            });
+            if (!res.ok) {
+                showLobbyToast(container, text[res.errorCode] || text.ERR_TITLE_EMPTY);
+                return;
+            }
+            if (editRoomModal) editRoomModal.classList.remove('open');
+            syncLocalCountdownState();
+            render();
+            showLobbyToast(container, text.TOAST_ROOM_INFO_UPDATED || '게임룸 설정이 변경되었습니다.');
+        };
+        if (confirmEditRoomBtn) confirmEditRoomBtn.onclick = submitEditRoom;
+        if (editTitleInput) {
+            editTitleInput.onkeydown = (e) => {
+                if (e.key === 'Enter') submitEditRoom();
+            };
+        }
+
+        const idleWarnModal = container.querySelector('#modal-host-idle-warning');
+        if (idleWarnModal) {
+            idleWarnModal.onclick = () => {
+                isHostIdleWarningOpen = false;
+                if (idleWarnModal.parentNode) idleWarnModal.remove();
+            };
+        }
 
         container.querySelectorAll('.btn-room-mode').forEach(btn => {
             btn.onclick = async () => {
@@ -501,7 +715,7 @@ export function initRoom(container, sceneParams = null) {
                 return;
             }
             let toastMsg = null;
-            if (room.gameId !== 'unos' && !isMyReady && !RoomManager.getReadinessSummary(room).hasMinPlayers) {
+            if (!isMyReady && !RoomManager.getReadinessSummary(room).hasMinPlayers) {
                 toastMsg = text.TOAST_NEED_MIN_PLAYERS;
             }
             const res = await RoomManager.toggleReady();
@@ -520,7 +734,7 @@ export function initRoom(container, sceneParams = null) {
 
         container.querySelectorAll('.btn-slot-add-ai').forEach(btn => {
             btn.onclick = async () => {
-                await RoomManager.fillSlotWithAi(Number(btn.dataset.idx), 'mild');
+                await RoomManager.fillSlotWithAi(Number(btn.dataset.idx));
                 syncLocalCountdownState();
                 render();
             };
@@ -573,14 +787,17 @@ export function initRoom(container, sceneParams = null) {
                 if (payload.message) {
                     showLobbyToast(container, payload.message, 3000);
                 }
-            } else if (typeof payload?.seconds === 'number' && payload.seconds <= 0) {
-                const curGameId = RoomManager.getCurrentRoom()?.gameId || 'marble';
-                const targetScene = getGameMeta(curGameId)?.sceneGame || 'marble';
-                ErrorTracker.startTransitionWatchdog(targetScene, {
-                    timeoutMs: 9500,
-                    gameId: curGameId,
-                    reason: 'Waiting for GAME_START after countdown'
-                });
+            } else {
+                closeInfoPopup(container);
+                if (typeof payload?.seconds === 'number' && payload.seconds <= 0) {
+                    const curGameId = RoomManager.getCurrentRoom()?.gameId || 'marble';
+                    const targetScene = getGameMeta(curGameId)?.sceneGame || 'marble';
+                    ErrorTracker.startTransitionWatchdog(targetScene, {
+                        timeoutMs: 9500,
+                        gameId: curGameId,
+                        reason: 'Waiting for GAME_START after countdown'
+                    });
+                }
             }
             render();
         } else if (evtName === 'GAME_START') {

@@ -3,16 +3,38 @@ export const AI_BOT_NAMES = [
     '네르', '에슈르', '다야', '셰이디', '프리클', '엘레나'
 ];
 
-export const AI_DIFFICULTIES = ['mild', 'spicy', 'nuclear', 'magma'];
+export const AI_DIFFICULTIES = ['mild', 'normal', 'spicy', 'nuclear', 'magma'];
 export const AI_ARCHETYPE_POOL = ['aggressive', 'defensive', 'marathon'];
 
-export function normalizeAiDifficulty(raw, fallback = 'mild') {
+export const UNOS_AI_DIFFICULTIES = ['mild', 'normal', 'spicy'];
+
+export function normalizeAiDifficulty(raw, fallback = 'normal') {
+    const val = String(raw ?? '').trim().toLowerCase();
+    if (val === 'mild' || val === 'very_easy' || val === 'veryeasy' || val === '1' || val === '순한맛') return 'mild';
+    if (val === 'normal' || val === 'easy' || val === '2' || val === '보통맛' || val === '보통') return 'normal';
+    if (val === 'spicy' || val === 'medium' || val === '3' || val === '매운맛') return 'spicy';
+    if (val === 'nuclear' || val === 'hard' || val === '4' || val === '핵불맛') return 'nuclear';
+    if (val === 'magma' || val === 'very_hard' || val === 'veryhard' || val === '5' || val === '마그맛') return 'magma';
+    return AI_DIFFICULTIES.includes(fallback) ? fallback : 'normal';
+}
+
+export function normalizeUnosAiDifficulty(raw, fallback = 'normal') {
     const val = String(raw ?? '').trim().toLowerCase();
     if (val === 'mild' || val === 'easy' || val === '1' || val === '순한맛') return 'mild';
-    if (val === 'spicy' || val === 'normal' || val === '2' || val === '매운맛') return 'spicy';
-    if (val === 'nuclear' || val === 'hard' || val === '3' || val === '핵불맛') return 'nuclear';
-    if (val === 'magma' || val === 'very_hard' || val === 'veryhard' || val === '4' || val === '마그맛') return 'magma';
-    return AI_DIFFICULTIES.includes(fallback) ? fallback : 'mild';
+    if (val === 'normal' || val === 'medium' || val === '2' || val === '보통맛' || val === '보통') return 'normal';
+    if (val === 'spicy' || val === 'hard' || val === 'nuclear' || val === 'magma' || val === '3' || val === '매운맛') return 'spicy';
+    return UNOS_AI_DIFFICULTIES.includes(fallback) ? fallback : 'normal';
+}
+
+export function getGameAiDifficulties(gameId) {
+    return gameId === 'unos' ? UNOS_AI_DIFFICULTIES : AI_DIFFICULTIES;
+}
+
+export function normalizeGameAiDifficulty(gameId, raw, fallback = null) {
+    if (gameId === 'unos') {
+        return normalizeUnosAiDifficulty(raw, fallback || 'normal');
+    }
+    return normalizeAiDifficulty(raw, fallback || 'normal');
 }
 
 /**
@@ -58,7 +80,7 @@ export const GAME_REGISTRY = {
         maxPlayers: 2,
         status: 'preparing',
         lobbyEnabled: true,
-        gameSupported: false,
+        gameSupported: true,
         preloadOnBoot: true, // 향후 우노스 인게임 에셋 추가 시 부팅 공용 로딩 자동 합류
         sceneMain: 'unos_main',
         sceneGame: 'unos',

@@ -2,7 +2,14 @@
 // 서버 권위적 로비, 대기방 관리, 카운트다운, 재접속/이탈 처리 및 게임 세션 오케스트레이션
 
 import crypto from 'node:crypto';
-import { getGameMeta, pickRandomBotName, AI_DIFFICULTIES, normalizeAiDifficulty } from '../GameRegistry.js';
+import {
+    getGameMeta,
+    pickRandomBotName,
+    AI_DIFFICULTIES,
+    normalizeAiDifficulty,
+    getGameAiDifficulties,
+    normalizeGameAiDifficulty
+} from '../GameRegistry.js';
 import { GAME_CONSTANTS, getModeConfig, normalizeMarbleMode } from '../Index/Marble/MarblePriceIndex.js';
 import { createGameSession, hasGameSessionSupport } from './GameSessionRegistry.js';
 import { SystemLogManager } from '../Log/SystemLogManager.js';
@@ -12,7 +19,7 @@ const CODE_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
 const WAITING_DISCONNECT_GRACE_MS = 20000;
 const PLAYING_EMPTY_ROOM_GRACE_MS = 60000;
-const HOST_START_IDLE_MS = 10000;
+export const HOST_START_IDLE_MS = 30000;
 const HOST_IDLE_BAN_MS = 3600000;
 const HOST_IDLE_MAX_STRIKES = 3;
 
@@ -52,6 +59,13 @@ export function consumeFeedbackQuota(timestampsList, now = Date.now()) {
     return { allowed: true, timestamps: activeHour, retryAfterMs: 0 };
 }
 
+export const MAX_NICKNAME_LENGTH = 12;
+export const MAX_JAPANESE_NICKNAME_LENGTH = 12;
+export const MAX_ROOM_TITLE_LENGTH = 20;
+export const FORBIDDEN_NICKNAME_TERMS = ['bismark'];
+export const JAPANESE_NICKNAME_CHAR_REGEX = /[\u3040-\u309F\u30A0-\u30FF\uFF65-\uFF9F\u4E00-\u9FFF\u30FC]/;
+export const ALLOWED_NICKNAME_REGEX = /^[가-힣a-zA-Z0-9 \u3040-\u309F\u30A0-\u30FF\uFF65-\uFF9F\u4E00-\u9FFF\u30FC]+$/;
+
 function sanitizeText(str, maxLen = 24, fallback = '') {
     const cleaned = String(str ?? '')
         .replace(/[\r\n\t]+/g, ' ')
@@ -60,7 +74,67 @@ function sanitizeText(str, maxLen = 24, fallback = '') {
     return cleaned || fallback;
 }
 
-function clampCustomOptions(raw) {
+function hasForbiddenNickname(cleanedNick) {
+    const lower = String(cleanedNick ?? '').toLowerCase();
+    return FORBIDDEN_NICKNAME_TERMS.some(term => lower.includes(term));
+}
+
+export function getNicknameMaxLength(cleanedNick) {
+    return JAPANESE_NICKNAME_CHAR_REGEX.test(String(cleanedNick ?? ''))
+        ? MAX_JAPANESE_NICKNAME_LENGTH
+        : MAX_NICKNAME_LENGTH;
+}
+
+function sanitizeHelloNickname(rawNickname, fallback = '') {
+    const cleaned = sanitizeText(rawNickname, 64, '')
+        .replace(/[^가-힣a-zA-Z0-9 \u3040-\u309F\u30A0-\u30FF\uFF65-\uFF9F\u4E00-\u9FFF\u30FC]+/g, '')
+        .trim();
+    if (!cleaned || hasForbiddenNickname(cleaned)) {
+        return fallback;
+    }
+    return sanitizeText(cleaned, getNicknameMaxLength(cleaned), fallback);
+}
+
+export function validateNickname(rawNickname) {
+    const cleaned = String(rawNickname ?? '').trim();
+    if (!cleaned) {
+        return { ok: false, error: 'INVALID_NICKNAME', nickname: '' };
+    }
+    if (cleaned.length > getNicknameMaxLength(cleaned)) {
+        return { ok: false, error: 'NICKNAME_TOO_LONG', nickname: '' };
+    }
+    if (!ALLOWED_NICKNAME_REGEX.test(cleaned)) {
+        return { ok: false, error: 'INVALID_NICKNAME_CHARS', nickname: '' };
+    }
+    if (hasForbiddenNickname(cleaned)) {
+        return { ok: false, error: 'FORBIDDEN_NICKNAME', nickname: '' };
+    }
+    return { ok: true, error: null, nickname: cleaned };
+}
+
+function clampCustomOptions(raw, gameId = 'marble') {
+    if (gameId === 'unos') {
+        const rawMode = typeof raw?.gameMode === 'string' && raw.gameMode.trim()
+            ? raw.gameMode.trim().slice(0, 24)
+            : 'standard';
+        const opts = { gameMode: rawMode };
+        if (Number.isFinite(Number(raw?.aiDelayMs))) {
+            opts.aiDelayMs = Math.max(0, Math.min(5000, Number(raw.aiDelayMs)));
+        }
+        if (Number.isFinite(Number(raw?.turnOrderDrawSec))) {
+            opts.turnOrderDrawSec = Math.max(1, Math.min(30, Number(raw.turnOrderDrawSec)));
+        }
+        if (Number.isFinite(Number(raw?.turnOrderAiDelayMs))) {
+            opts.turnOrderAiDelayMs = Math.max(0, Math.min(5000, Number(raw.turnOrderAiDelayMs)));
+        }
+        if (Number.isFinite(Number(raw?.turnOrderRevealMs))) {
+            opts.turnOrderRevealMs = Math.max(0, Math.min(5000, Number(raw.turnOrderRevealMs)));
+        }
+        if (Number.isFinite(Number(raw?.turnOrderTieDelayMs))) {
+            opts.turnOrderTieDelayMs = Math.max(0, Math.min(5000, Number(raw.turnOrderTieDelayMs)));
+        }
+        return opts;
+    }
     const gameMode = normalizeMarbleMode(raw?.gameMode);
     const modeCfg = getModeConfig(gameMode);
     return {
@@ -273,7 +347,7 @@ export class LobbyServer {
         }
 
         const now = Date.now();
-        const reqNick = sanitizeText(msg.nickname, 16, '');
+        const reqNick = sanitizeHelloNickname(msg.nickname, '');
         const reqClientId = sanitizeText(msg.clientId, 64, '');
 
         if (session) {
@@ -287,6 +361,8 @@ export class LobbyServer {
             }
             if (reqNick) {
                 session.nickname = reqNick;
+            } else if (!validateNickname(session.nickname).ok) {
+                session.nickname = sanitizeHelloNickname(session.nickname, '교주');
             }
         } else {
             this._evictIdleSessionsIfNeeded();
@@ -372,11 +448,12 @@ export class LobbyServer {
             }
 
             case 'SET_NICKNAME': {
-                const nick = sanitizeText(msg.nickname, 16, '');
-                if (!nick) {
-                    this._sendReply(client, msg, false, null, 'INVALID_NICKNAME');
+                const nickCheck = validateNickname(msg.nickname);
+                if (!nickCheck.ok) {
+                    this._sendReply(client, msg, false, null, nickCheck.error);
                     return;
                 }
+                const nick = nickCheck.nickname;
                 session.nickname = nick;
                 const room = this._getSessionRoom(session);
                 if (room && (room.status === 'waiting' || room.status === 'countdown')) {
@@ -425,8 +502,9 @@ export class LobbyServer {
                 const code = this._generateUniqueCode(meta.codePrefix || 'RM');
                 const isPrivate = Boolean(msg.isPrivate);
                 const password = isPrivate ? sanitizeText(msg.password, 16, '') : '';
-                const title = sanitizeText(msg.title, 32, `${session.nickname}의 방`);
-                const customOptions = clampCustomOptions(msg.customOptions);
+                const defaultRoomTitle = sanitizeText(`${session.nickname}의 방`, MAX_ROOM_TITLE_LENGTH, '새로운 게임룸');
+                const title = sanitizeText(msg.title, MAX_ROOM_TITLE_LENGTH, defaultRoomTitle);
+                const customOptions = clampCustomOptions(msg.customOptions, gameId);
 
                 const slots = Array.from({ length: maxPlayers }, (_, idx) => createEmptySlot(idx));
                 slots[0] = {
@@ -564,7 +642,7 @@ export class LobbyServer {
                     return;
                 }
                 this._cancelCountdownIfActive(room);
-                this._assignAiSlot(room, slot, msg.aiDifficulty || msg.aiType || 'mild');
+                this._assignAiSlot(room, slot, msg.aiDifficulty || msg.aiType || null);
                 this._syncRoomState(room);
                 this._sendReply(client, msg, true, { room: this._serializeRoom(room) });
                 return;
@@ -577,7 +655,7 @@ export class LobbyServer {
                 let added = false;
                 for (const slot of room.slots) {
                     if (slot.type === 'empty') {
-                        this._assignAiSlot(room, slot, 'mild');
+                        this._assignAiSlot(room, slot, null);
                         added = true;
                     }
                 }
@@ -610,9 +688,11 @@ export class LobbyServer {
                     this._sendReply(client, msg, false, null, 'NOT_AI_SLOT');
                     return;
                 }
-                const curDiff = normalizeAiDifficulty(slot.aiDifficulty || slot.aiType, 'mild');
-                const curIdx = AI_DIFFICULTIES.indexOf(curDiff);
-                const nextDiff = AI_DIFFICULTIES[(curIdx + 1) % AI_DIFFICULTIES.length];
+                const diffPool = getGameAiDifficulties(room.gameId);
+                const defaultDiff = 'normal';
+                const curDiff = normalizeGameAiDifficulty(room.gameId, slot.aiDifficulty || slot.aiType, defaultDiff);
+                const curIdx = diffPool.indexOf(curDiff);
+                const nextDiff = diffPool[(curIdx + 1) % diffPool.length];
                 slot.aiDifficulty = nextDiff;
                 slot.aiType = 'random';
                 this._syncRoomState(room);
@@ -677,7 +757,65 @@ export class LobbyServer {
                 const room = this._requireWaitingHost(session, client, msg);
                 if (!room) return;
                 this._cancelCountdownIfActive(room);
-                room.customOptions = clampCustomOptions(msg.customOptions);
+                room.customOptions = clampCustomOptions(msg.customOptions, room.gameId);
+                this._syncRoomState(room);
+                this._sendReply(client, msg, true, { room: this._serializeRoom(room) });
+                return;
+            }
+
+            case 'UPDATE_ROOM_INFO': {
+                const room = this._requireWaitingHost(session, client, msg);
+                if (!room) return;
+
+                const meta = getGameMeta(room.gameId);
+                const minAllowed = meta?.minPlayers || 2;
+                const maxAllowed = meta?.maxPlayers || 4;
+                const occupiedSlots = room.slots.filter(s => s.type !== 'empty');
+
+                let nextMaxPlayers = room.maxPlayers;
+                if (msg.maxPlayers !== undefined) {
+                    const parsedMax = Number(msg.maxPlayers);
+                    if (!Number.isFinite(parsedMax)) {
+                        this._sendReply(client, msg, false, null, 'INVALID_MAX_PLAYERS');
+                        return;
+                    }
+                    nextMaxPlayers = Math.min(maxAllowed, Math.max(minAllowed, Math.trunc(parsedMax)));
+                    if (nextMaxPlayers < occupiedSlots.length) {
+                        this._sendReply(client, msg, false, null, 'MAX_PLAYERS_BELOW_CURRENT');
+                        return;
+                    }
+                }
+
+                const nextTitle = msg.title !== undefined
+                    ? sanitizeText(msg.title, MAX_ROOM_TITLE_LENGTH, room.title)
+                    : room.title;
+                const nextIsPrivate = msg.isPrivate !== undefined ? Boolean(msg.isPrivate) : Boolean(room.isPrivate);
+                const nextPassword = !nextIsPrivate
+                    ? ''
+                    : (msg.password !== undefined ? sanitizeText(msg.password, 16, '') : room.password);
+
+                this._cancelCountdownIfActive(room);
+
+                if (nextMaxPlayers > room.maxPlayers) {
+                    for (let idx = room.maxPlayers; idx < nextMaxPlayers; idx++) {
+                        room.slots.push(createEmptySlot(idx));
+                    }
+                } else if (nextMaxPlayers < room.maxPlayers) {
+                    const compacted = occupiedSlots.map((slot, idx) => ({
+                        ...slot,
+                        slotIndex: idx
+                    }));
+                    while (compacted.length < nextMaxPlayers) {
+                        compacted.push(createEmptySlot(compacted.length));
+                    }
+                    room.slots = compacted;
+                }
+
+                room.title = nextTitle;
+                room.isPrivate = nextIsPrivate;
+                room.password = nextPassword;
+                room.maxPlayers = nextMaxPlayers;
+
                 this._syncRoomState(room);
                 this._sendReply(client, msg, true, { room: this._serializeRoom(room) });
                 return;
@@ -955,9 +1093,10 @@ export class LobbyServer {
         return `${p}${crypto.randomInt(100000, 999999)}`;
     }
 
-    _assignAiSlot(room, slot, aiDifficulty = 'mild') {
+    _assignAiSlot(room, slot, aiDifficulty = null) {
         const usedNames = room.slots.filter(s => s.type !== 'empty' && s !== slot && s.name).map(s => s.name);
-        const normDiff = normalizeAiDifficulty(aiDifficulty, 'mild');
+        const defaultDiff = 'normal';
+        const normDiff = normalizeGameAiDifficulty(room.gameId, aiDifficulty ?? defaultDiff, defaultDiff);
         slot.type = 'ai';
         slot.id = `ai_${room.id}_${slot.slotIndex}`;
         slot.name = pickRandomBotName(usedNames);
@@ -1224,18 +1363,24 @@ export class LobbyServer {
                     room.status = 'finished';
                     this._resetConsecutiveIdleStrikesForRoom(room);
                     const hasAi = Array.isArray(room.slots) && room.slots.some(s => s.type === 'ai');
+                    const resolvedGameMode = room.customOptions?.gameMode
+                        || matchLogData?.mode
+                        || matchLogData?.gameMode
+                        || (room.gameId === 'unos' ? 'standard' : 'default');
                     this.statsCollector?.recordOnlineMatchFinished({
                         gameId: room.gameId || 'marble',
-                        gameMode: room.customOptions?.gameMode || 'default',
+                        gameMode: resolvedGameMode,
                         hasAi
                     });
                     if (matchLogData && (!this.disableDiskWrite || this.logDir)) {
                         const logGameId = room.gameId || 'marble';
-                        SystemLogManager.recordGameResult(logGameId, matchLogData, {
-                            logDir: this.logDir
-                        }).catch((err) => {
-                            console.error('[LobbyServer] Failed to record game log:', err);
-                        });
+                        if (logGameId === 'marble' || SystemLogManager.getLogger(logGameId)) {
+                            SystemLogManager.recordGameResult(logGameId, matchLogData, {
+                                logDir: this.logDir
+                            }).catch((err) => {
+                                console.error('[LobbyServer] Failed to record game log:', err);
+                            });
+                        }
                         if (logGameId === 'marble') {
                             SystemLogManager.recordGameResult('marble_10', matchLogData, {
                                 logDir: this.logDir

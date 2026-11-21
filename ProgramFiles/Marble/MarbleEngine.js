@@ -68,6 +68,95 @@ function isDiceRollDouble(d1, d2, d3, diceCount, useRufo) {
     return false;
 }
 
+/**
+ * 게이지 주사위 power 값을 0~100 정수로 정규화한다. (미지정 시 기본값 50)
+ */
+export function normalizeDicePower(rawPower) {
+    const def = GAME_CONSTANTS.DICE_GAUGE_DEFAULT_POWER ?? 50;
+    if (rawPower === null || rawPower === undefined) return def;
+    if (typeof rawPower === 'string' && rawPower.trim() === '') return def;
+    if (typeof rawPower !== 'number' && typeof rawPower !== 'string') return def;
+    const num = Number(rawPower);
+    if (!Number.isFinite(num)) return def;
+    return Math.max(0, Math.min(100, Math.round(num)));
+}
+
+/**
+ * 1d6/2d6 Soft-Weighted 게이지 확률 분포 테이블을 계산한다.
+ */
+export function computeSoftWeightedDiceTable(diceCount = 2, rawPower = 50) {
+    const count = diceCount >= 2 ? 2 : 1;
+    const power = normalizeDicePower(rawPower);
+    const nMin = GAME_CONSTANTS.DICE_GAUGE_NEUTRAL_MIN ?? 45;
+    const nMax = GAME_CONSTANTS.DICE_GAUGE_NEUTRAL_MAX ?? 55;
+    const isNeutral = power >= nMin && power <= nMax;
+
+    const minSum = count === 2 ? 2 : 1;
+    const maxSum = count === 2 ? 12 : 6;
+    const targetSum = minSum + (power / 100) * (maxSum - minSum);
+
+    const wClose = GAME_CONSTANTS.DICE_GAUGE_WEIGHT_CLOSE ?? 1.6;
+    const wMid = GAME_CONSTANTS.DICE_GAUGE_WEIGHT_MID ?? 1.25;
+    const wFar = GAME_CONSTANTS.DICE_GAUGE_WEIGHT_FAR ?? 0.85;
+
+    const outcomes = [];
+    let totalWeight = 0;
+
+    if (count === 2) {
+        for (let d1 = 1; d1 <= 6; d1++) {
+            for (let d2 = 1; d2 <= 6; d2++) {
+                const sum = d1 + d2;
+                let weight = 1.0;
+                if (!isNeutral) {
+                    const dist = Math.abs(sum - targetSum);
+                    if (dist <= 2) weight = wClose;
+                    else if (dist <= 3) weight = wMid;
+                    else weight = wFar;
+                }
+                totalWeight += weight;
+                outcomes.push({ d1, d2, sum, weight, prob: 0 });
+            }
+        }
+    } else {
+        for (let d1 = 1; d1 <= 6; d1++) {
+            const sum = d1;
+            let weight = 1.0;
+            if (!isNeutral) {
+                const dist = Math.abs(sum - targetSum);
+                if (dist <= 2) weight = wClose;
+                else if (dist <= 3) weight = wMid;
+                else weight = wFar;
+            }
+            totalWeight += weight;
+            outcomes.push({ d1, d2: 0, sum, weight, prob: 0 });
+        }
+    }
+
+    const stepProbs = new Map();
+    for (const item of outcomes) {
+        item.prob = item.weight / totalWeight;
+        stepProbs.set(item.sum, (stepProbs.get(item.sum) || 0) + item.prob);
+    }
+
+    return { power, targetSum, isNeutral, totalWeight, outcomes, stepProbs };
+}
+
+/**
+ * 가중치 분포 테이블에서 무작위 주사위 눈금을 1회 추첨한다.
+ */
+export function rollSoftWeightedDice(diceCount = 2, rawPower = 50, rng = Math.random) {
+    const table = computeSoftWeightedDiceTable(diceCount, rawPower);
+    let r = Math.max(0, Math.min(0.999999999, Number(rng()) || 0)) * table.totalWeight;
+    for (const item of table.outcomes) {
+        r -= item.weight;
+        if (r <= 0) {
+            return { d1: item.d1, d2: item.d2, power: table.power, table };
+        }
+    }
+    const last = table.outcomes[table.outcomes.length - 1];
+    return { d1: last.d1, d2: last.d2, power: table.power, table };
+}
+
 class ScopedTimer {
     constructor(runSynced, onTick, defaultOnTimeout, onBeforeTimeout = null) {
         this.runSynced = runSynced;
@@ -133,7 +222,7 @@ export class MarbleGameEngine {
 
         const opts = customOptions || room?.customOptions || {};
         this.gameMode = normalizeMarbleMode(opts.gameMode || 'ember');
-        this.defaultAiDifficulty = opts.aiDifficulty ? normalizeAiDifficulty(opts.aiDifficulty, 'nuclear') : null;
+        this.defaultAiDifficulty = opts.aiDifficulty ? normalizeAiDifficulty(opts.aiDifficulty, 'spicy') : null;
         const modeCfg = getModeConfig(this.gameMode);
         this.skipTurnOrderRoll = Boolean(opts.skipTurnOrderRoll);
         this.forceInteractiveTurnOrder = Boolean(opts.forceInteractiveTurnOrder);
@@ -551,9 +640,9 @@ export class MarbleGameEngine {
                         } else if (this.defaultAiDifficulty) {
                             resolvedAiDiff = this.defaultAiDifficulty;
                         } else if (AI_ARCHETYPE_POOL.includes(slot.aiType)) {
-                            resolvedAiDiff = 'nuclear';
+                            resolvedAiDiff = 'spicy';
                         } else {
-                            resolvedAiDiff = 'mild';
+                            resolvedAiDiff = 'normal';
                         }
                     }
                     const p = new Player(
@@ -1044,7 +1133,7 @@ export class MarbleGameEngine {
                     return { ok: false, error: 'CANNOT_ROLL_NOW' };
                 }
                 markHumanResponded();
-                this.executeRoll();
+                this.executeRoll({ power: action.power });
                 return { ok: true };
             }
 
@@ -1716,7 +1805,16 @@ export class MarbleGameEngine {
                 if (this.destroyed || this.isGameOver || this.turnManager.getCurrentPlayer() !== player || !player.isAi() || this.isRolling || this.isWaitingAction) {
                     return;
                 }
-                this.executeRoll();
+                const aiPower = AIManager.decideDicePower({
+                    player,
+                    tiles: this.tiles,
+                    allPlayers: this.allPlayers,
+                    turnManager: this.turnManager,
+                    diceCount: getPlayerDiceCount(player),
+                    hasRufoDiceBuff: Boolean(player.hasRufoDiceBuff),
+                    computeDiceTable: computeSoftWeightedDiceTable
+                });
+                this.executeRoll({ power: aiPower });
             }, delay);
         };
         const cardToUse = AIManager.decideUseCard({
@@ -1981,7 +2079,7 @@ export class MarbleGameEngine {
         this.startTurn();
     }
 
-    executeRoll() {
+    executeRoll(options = {}) {
         if (this.destroyed || this.isGameOver || this.isRolling || this.isWaitingAction) return;
         this._arrivalTileId = null;
         this.isRolling = true;
@@ -1996,21 +2094,15 @@ export class MarbleGameEngine {
         const useRufo = player.hasRufoDiceBuff;
         const useErpin = player.hasErpinDiceBuff;
         const baseDiceCount = getPlayerDiceCount(player);
+        let { d1, d2, power: dicePower, table: diceTable } = rollSoftWeightedDice(baseDiceCount, options?.power);
 
         // 현재 주사위 분포 기반 동적 기댓값 누적 (제단/차원 도착, 정령산 추가 통행료, [205] 마르코프 회복 확률)
         const wm = this.world?.metrics;
         if (wm && player.restTurns <= 0) {
             const d3Offset = useRufo ? 6 : 0;
             const outcomes = [];
-            if (baseDiceCount >= 2) {
-                const weights = [1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1];
-                for (let i = 0; i < weights.length; i++) {
-                    outcomes.push({ steps: 2 + i + d3Offset, prob: weights[i] / 36 });
-                }
-            } else {
-                for (let s = 1; s <= 6; s++) {
-                    outcomes.push({ steps: s + d3Offset, prob: 1 / 6 });
-                }
+            for (const [sum, prob] of diceTable.stepProbs.entries()) {
+                outcomes.push({ steps: sum + d3Offset, prob });
             }
 
             let pMountain = 0;
@@ -2038,8 +2130,6 @@ export class MarbleGameEngine {
         }
         player._rollingMoveInProgress = true;
 
-        let d1 = Math.floor(Math.random() * 6) + 1;
-        let d2 = baseDiceCount >= 2 ? (Math.floor(Math.random() * 6) + 1) : 0;
         const d3 = useRufo ? 6 : 0;
         const erpinTriggered = Boolean(useErpin && (d1 === 1 || d2 === 1));
 
@@ -2052,6 +2142,7 @@ export class MarbleGameEngine {
             diceCount: baseDiceCount,
             useRufo,
             useErpin: Boolean(useErpin),
+            power: dicePower,
             phase: 'SPINNING'
         };
         this.emitState();

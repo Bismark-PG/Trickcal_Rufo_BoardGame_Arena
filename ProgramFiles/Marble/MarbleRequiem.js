@@ -8,7 +8,7 @@ import {
     getGimmickText
 } from './MarbleRuntime.js';
 import { BOARD_TILES } from '../System/Index/Marble/MarbleBoardIndex.js';
-import { GAME_CONSTANTS, BUILDING_COSTS, MULTIPLIERS } from '../System/Index/Marble/MarblePriceIndex.js';
+import { GAME_CONSTANTS, BUILDING_COSTS, MULTIPLIERS, getModeConfig } from '../System/Index/Marble/MarblePriceIndex.js';
 import { getPlayerThinkTime } from './MarbleCardTreasure.js';
 import { AIManager } from './MarbleAI.js';
 
@@ -283,8 +283,9 @@ export function checkAndTriggerClimax(ctx) {
     const drawnTreasures = getDrawnTreasures();
     const tradedCards = getAltarTradedCards();
 
-    // 기획서 26p: 그을음은 20번째 턴에서는 발동되지 않음
-    if (currentGlobalTurn >= GAME_CONSTANTS.WORLD_GIMMICK_END_TURN) return false;
+    // 기획서 26p: 마지막 턴(고봉밥 20 / 불씨 15)에서는 그을음이 발동되지 않음
+    const endTurn = getModeConfig(getActiveWorld()?.gameMode).worldGimmickEndTurn ?? GAME_CONSTANTS.WORLD_GIMMICK_END_TURN;
+    if (currentGlobalTurn >= endTurn) return false;
 
     // 세상에 나온 보물이 6장이고, 아직 그을음이 한 번도 안 터졌다면 발동
     if (drawnTreasures.size >= 6 && !state.hasSootEverTriggered) {
@@ -464,10 +465,11 @@ export function advanceRequiemOnTurnStart(currentPlayer, globalTurn, allPlayers,
     const gText = getGimmickText();
     const state = rq();
 
-    // 20번째 턴 강제 종료 규칙 (단, 19번째 턴에 발동된 경우 발동 시점으로부터 1턴 보장 후 20번째 턴 진행 중 종료)
-    if (globalTurn >= GAME_CONSTANTS.WORLD_GIMMICK_END_TURN) {
-        const needsGuaranteedTurn19 = (state.gimmickTriggeredGlobalTurn === 19) && (state.isSootState || state.isHaloState);
-        if (!needsGuaranteedTurn19 || currentPlayer.playerIndex === state.gimmickAnchorPlayerIndex) {
+    // 마지막 턴 강제 종료 규칙 (단, 직전 턴(endTurn-1)에 발동된 경우 발동 시점으로부터 1턴 보장 후 마지막 턴 진행 중 종료)
+    const endTurn = getModeConfig(getActiveWorld()?.gameMode).worldGimmickEndTurn ?? GAME_CONSTANTS.WORLD_GIMMICK_END_TURN;
+    if (globalTurn >= endTurn) {
+        const needsGuaranteedLastPreTurn = (state.gimmickTriggeredGlobalTurn === (endTurn - 1)) && (state.isSootState || state.isHaloState);
+        if (!needsGuaranteedLastPreTurn || currentPlayer.playerIndex === state.gimmickAnchorPlayerIndex) {
             if (state.isSootState || state.isHaloState) {
                 clearAllRequiemStates(allPlayers);
                 RuntimePopup.showToast(gText.TURN20_GIMMICK_CLEAR, 3800);

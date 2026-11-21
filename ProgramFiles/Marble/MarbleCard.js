@@ -8,9 +8,9 @@ import {
 } from './MarbleRuntime.js';
 import { CARD_IDS } from '../System/Index/Marble/MarbleCardIndex.js';
 import { BOARD_TILES } from '../System/Index/Marble/MarbleBoardIndex.js';
-import { getModeConfig } from '../System/Index/Marble/MarblePriceIndex.js';
+import { getModeConfig, isPlayerTreasureUnlocked } from '../System/Index/Marble/MarblePriceIndex.js';
 import { WorldGimmickManager } from './MarbleWorldGimmick.js';
-import { OdysseyManager, getDrawnTreasures } from './MarbleOdyssey.js';
+import { OdysseyManager, getDrawnTreasures, getCultFundDrawShare } from './MarbleOdyssey.js';
 import { RequiemState } from './MarbleRequiem.js';
 
 import { executeNormalCard, useNormalActiveCard } from './MarbleCardNormal.js';
@@ -118,7 +118,7 @@ export function isCardEligible(card, ctx) {
         return false;
     }
 
-    // 1. 빵주 연구원(32): 빵주 정비반장 상태의 플레이어에게는 등장하지 않음
+    // 1. 빵주 연구원(33): 빵주 정비반장 상태의 플레이어에게는 등장하지 않음
     if (card.id === CARD_IDS.BBANGJU_RESEARCHER && player.isBbangjuChief) {
         return false;
     }
@@ -129,9 +129,9 @@ export function isCardEligible(card, ctx) {
         return false;
     }
 
-    // 3. 오디세이아(111): 망가진 제단 방문 이력이 없거나, 남은 보물 카드가 없거나, 이미 그을음이 발동되었으면 미등장
+    // 3. 오디세이아(111): 보물 해금 조건 미충족이거나, 남은 보물 카드가 없거나, 이미 그을음이 발동되었으면 미등장
     if (card.id === CARD_IDS.SPEC_ODYSSEY) {
-        if (!player.hasVisitedAltar || RequiemState.hasSootEverTriggered || RequiemState.isSootState || drawnTreasures.size >= 6) return false;
+        if (!isPlayerTreasureUnlocked(player, modeCfg.id) || RequiemState.hasSootEverTriggered || RequiemState.isSootState || drawnTreasures.size >= 6) return false;
     }
 
     // 4. 애증의 늑대(112): 보물 카드를 뺏어올 상대가 없다면 등장하지 않음
@@ -165,12 +165,17 @@ export function isCardEligible(card, ctx) {
         if (!player.hasRecoveredMemory) return false;
     }
 
-    // 10. 골디의 부동산명함(28): 대출 보유자에게만 등장 (미보유자는 선택풀 제외, 피라의 명함만 노출)
+    // 10. 골디의 부동산명함(51): 대출 보유자에게만 등장 (미보유자는 선택풀 제외, 피라의 명함만 노출)
     if (card.id === CARD_IDS.GOLDIE_REALTY) {
         const hasDebt = typeof player.getTotalLoanDebt === 'function'
             ? player.getTotalLoanDebt() > 0
             : ((player.loanPrincipal || 0) + (player.loanInterestPrincipal || 0) + (player.loanInterest || 0)) > 0;
         if (!hasDebt) return false;
+    }
+
+    // 11. 교단의 비상금(28): 대출·회생불가 조건 충족 시에만 등장
+    if (card.id === CARD_IDS.CULT_EMERGENCY_FUND) {
+        if (getCultFundDrawShare(player, tiles) <= 0) return false;
     }
 
     return true;
@@ -417,7 +422,7 @@ export function useActiveCard(ctx, card, onComplete = null, onCancel = null) {
         return;
     }
 
-    // 일반 사용형 카드 (36 ~ 48)
+    // 일반 사용형 카드 (39 ~ 51)
     useNormalActiveCard(ctx, card, finalizeUse, handleCancel);
 }
 

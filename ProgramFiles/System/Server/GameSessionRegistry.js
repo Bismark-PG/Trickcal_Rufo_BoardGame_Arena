@@ -2,9 +2,11 @@
 // 게임 종목(gameId)별 서버 게임 세션 생성기 레지스트리 (우노스 등 신규 게임 확장 지점)
 
 import { MarbleServerSession } from './MarbleServerSession.js';
+import { UnosServerSession } from './UnosServerSession.js';
 
 const SESSION_FACTORIES = {
-    marble: (deps) => new MarbleServerSession(deps)
+    marble: (deps) => new MarbleServerSession(deps),
+    unos: (deps) => new UnosServerSession(deps)
 };
 
 export function createGameSession(gameId, deps) {

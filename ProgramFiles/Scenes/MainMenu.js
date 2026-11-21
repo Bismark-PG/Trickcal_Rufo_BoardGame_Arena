@@ -1,91 +1,194 @@
 import { changeScene } from '../Main.js';
-import { AudioManager, SettingsManager } from '../System/System.js';
+import { shouldBypassResourceGuard } from '../System/System.js';
 import { LangState } from '../System/LanguageManager.js';
-import { MenuLang } from '../System/Index/MainMenuIndex.js';
+import {
+    MenuLang,
+    MAIN_MENU_CATALOG,
+    pickNextRufoReaction
+} from '../System/Index/MainMenuIndex.js';
 import { getAllRegisteredGames } from '../System/GameRegistry.js';
 import { RoomManager } from '../Lobby/RoomManager.js';
 import { openQuickJoinModal } from '../Lobby/QuickJoinUI.js';
-import { openBugReportModal, openSuggestionModal } from '../Lobby/FeedbackUI.js';
+import {
+    openInfoPopup,
+    getSessionNickname,
+    renderArenaSettingsModalHtml,
+    bindArenaSettingsHandlers
+} from '../Lobby/InfoPopupUI.js';
 import { showLobbyToast, escapeHtml } from '../Lobby/LobbyUI.js';
 
-export function initMenu(container) {
-    const renderUI = () => {
-        const text = MenuLang[LangState.current];
-        const games = getAllRegisteredGames();
-        const emptyCount = Math.max(0, 9 - games.length);
+function getMainStatusBadgeHtml(game) {
+    if (game.statusType === 'active') {
+        return `<span class="status-badge active">${escapeHtml(game.statusText)}</span>`;
+    }
+    if (game.statusType === 'dev') {
+        return `<span class="status-badge dev">${escapeHtml(game.statusText)}</span>`;
+    }
+    return `<span class="status-badge soon">${escapeHtml(game.statusText)}</span>`;
+}
 
-        const gameCardsHtml = games.map(g => {
-            const isActive = g.lobbyEnabled || g.status === 'active';
-            const title = text[g.nameKey] || g.id;
-            const desc = text[g.descKey] || '';
-            const bg = isActive ? '#165b7a' : 'rgba(22, 91, 122, 0.72)';
-            const border = isActive ? `3px solid ${g.accentColor}` : '2px dashed rgba(255,255,255,0.28)';
+export function initMenu(container) {
+    let filterMode = 'all'; // 'all' | 'released' | 'dev'
+    let selectedGameId = 'marble';
+    let customRufoReaction = null;
+    let lastRufoId = null;
+    let elfEasterEggTriggered = false;
+
+    const getActiveNick = () =>
+        (RoomManager.localPlayer?.name || getSessionNickname() || '교주').trim() || '교주';
+
+    const getFilteredCatalog = () => {
+        if (filterMode === 'all') return MAIN_MENU_CATALOG;
+        return MAIN_MENU_CATALOG.filter(g => g.releaseGroup === filterMode);
+    };
+
+    const getSelectedCatalogGame = () =>
+        MAIN_MENU_CATALOG.find(g => g.id === selectedGameId) || MAIN_MENU_CATALOG[0];
+
+    if (!RoomManager.isOnline()) {
+        RoomManager.initNetwork();
+    }
+
+    const renderUI = () => {
+        const lang = LangState.current || 'ko';
+        const text = MenuLang[lang] || MenuLang.ko;
+        const games = getAllRegisteredGames();
+        const prevListScrollTop = container.querySelector('.final-dock-list')?.scrollTop || 0;
+
+        const list = getFilteredCatalog();
+        const selected = list.find(g => g.id === selectedGameId) || list[0] || getSelectedCatalogGame();
+        const rufo = customRufoReaction || { img: selected.rufoChar, quote: selected.rufoQuote };
+        const ctaClass = selected.statusType === 'dev' ? 'locked-style' : (selected.statusType === 'soon' ? 'soon-style' : '');
+        const currentNick = getActiveNick();
+
+        const dockListHtml = list.map(g => {
+            const isSel = g.id === selected.id;
+            const subText = g.subLabel || `${g.players} · ${g.playTime}`;
+            const cardBgClass = g.bgFit === 'contain' ? 'dock-card-bg logo-bg' : 'dock-card-bg';
             return `
-                <button class="game-select-btn" data-game-id="${escapeHtml(g.id)}" style="font-family: inherit; height: 250px; background: ${bg}; color: ${isActive ? '#fff' : 'rgba(255,255,255,0.75)'}; border: ${border}; border-radius: 20px; cursor: pointer; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 12px; padding: 20px;">
-                    <span style="font-size: 34px; font-weight: bold;">${escapeHtml(title)}</span>
-                    <span style="font-size: 19px; color: ${isActive ? '#f1c40f' : 'rgba(255,255,255,0.6)'};">${escapeHtml(desc)}</span>
+                <button type="button" class="final-dock-btn ${isSel ? 'selected' : ''}" data-select-game="${escapeHtml(g.id)}">
+                    <img class="${cardBgClass}" src="${escapeHtml(g.bg)}" alt="">
+                    <div class="dock-card-scrim"></div>
+                    <div class="dock-card-text">
+                        ${getMainStatusBadgeHtml(g)}
+                        <span class="dock-card-title">${escapeHtml(g.icon)} ${escapeHtml(g.title)}</span>
+                        <span class="dock-card-sub">${escapeHtml(subText)}</span>
+                    </div>
+                    <img class="dock-card-thumb" src="${escapeHtml(g.heroChar)}" alt="">
                 </button>
             `;
         }).join('');
 
+        const heroBgClass = selected.bgFit === 'contain' ? 'showcase-bg logo-bg' : 'showcase-bg';
+
         container.innerHTML = `
-            <div style="width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; position: relative; padding-top: 50px;">
-                <div style="position: absolute; top: 50px; right: 50px; display: flex; gap: 20px;">
-                    <button id="btn-quick-join" style="font-family: inherit; padding: 15px 28px; font-size: 24px; font-weight: bold; background: #f39c12; color: #fff; border: none; border-radius: 10px; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.18);">${escapeHtml(text.QUICK_JOIN)}</button>
-                    <button id="btn-settings" style="font-family: inherit; padding: 15px 30px; font-size: 24px; background: #165b7a; color: #fff; border: none; border-radius: 10px; cursor: pointer;">${text.SETTINGS}</button>
-                    <button id="btn-info" style="font-family: inherit; padding: 15px 30px; font-size: 24px; background: #165b7a; color: #fff; border: none; border-radius: 10px; cursor: pointer;">${text.INFO}</button>
-                </div>
-
-                <div style="text-align: center; margin-bottom: 50px;">
-                    <img src="./Resource/Texture/Main_Chara.png" alt="캐릭터" style="max-height: 150px;">
-                    <h1 style="font-size: 48px; margin: 10px 0;">${text.TITLE}</h1>
-                </div>
-
-                <div style="width: 1200px; height: 650px; background: #216a8c; border-radius: 30px; padding: 40px; overflow-y: auto; box-sizing: border-box; display: grid; grid-template-columns: repeat(3, 1fr); gap: 30px;">
-                    ${gameCardsHtml}
-                    ${Array(emptyCount).fill(`<div style="height: 250px; font-size: 32px; background: #165b7a; color: rgba(255,255,255,0.5); border: none; border-radius: 20px; display:flex; justify-content:center; align-items:center;">${text.PREPARING}</div>`).join('')}
-                </div>
-
-                <div id="popup-settings" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; padding: 50px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 10; width: 500px; border: 5px solid #165b7a;">
-                    <h2 style="margin-top:0; font-size: 36px; text-align: center;">${text.SETTINGS}</h2>
-                    <div style="font-size: 24px; margin-bottom: 20px;"><label>${text.BGM}: <input type="range" id="bgm-slider" min="0" max="1" step="0.1" value="${AudioManager.bgmPlayer.volume}" style="width:100%;"></label></div>
-                    <div style="font-size: 24px; margin-bottom: 30px;"><label>${text.SFX}: <input type="range" id="sfx-slider" min="0" max="1" step="0.1" value="${AudioManager.sfxVolume}" style="width:100%;"></label></div>
-                    
-                    <div style="font-size: 24px; margin-bottom: 30px; text-align: center;">
-                        <p style="margin:0 0 10px 0;">${text.FONT}</p>
-                        <button id="font-gothic" style="font-family: 'Malgun Gothic', sans-serif; padding: 10px 20px; font-size: 20px;">${text.FONT_GOTHIC}</button>
-                        <button id="font-gulim" style="font-family: 'Gulim', 'Dotum', sans-serif; padding: 10px 20px; font-size: 20px;">${text.FONT_GULIM}</button>
-                    </div>
-
-                    <div style="font-size: 24px; margin-bottom: 30px; text-align: center;">
-                        <p style="margin:0 0 10px 0;">${text.LANG}</p>
-                        <button id="lang-ko" style="padding: 10px; font-size: 18px; font-family: inherit;">한글</button>
-                        <button id="lang-en" style="padding: 10px; font-size: 18px; font-family: inherit;">Eng</button>
-                        <button id="lang-ja" style="padding: 10px; font-size: 18px; font-family: inherit;">日本語</button>
-                    </div>
-                    
-                    <button id="close-settings" style="font-family: inherit; width: 100%; padding: 15px; font-size: 24px; background: #e74c3c; color: white; border: none; border-radius: 10px; cursor: pointer;">${text.CLOSE}</button>
-                </div>
-
-                <div id="popup-info" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; padding: 44px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 10; width: 520px; text-align: center; border: 5px solid #165b7a;">
-                    <h2 style="margin-top: 0; font-size: 38px; color: #165b7a;">${escapeHtml(text.INFO)}</h2>
-
-                    <div style="background: #f0f7fb; border: 2px solid #cbd5e0; border-radius: 16px; padding: 22px 20px; margin-top: 20px; text-align: center;">
-                        <h3 style="margin: 0 0 8px 0; font-size: 22px; color: #165b7a;">${escapeHtml(text.INFO_FEEDBACK_SECTION || '버그 제보 및 건의하기')}</h3>
-                        <p style="margin: 0 0 18px 0; font-size: 15px; line-height: 1.5; color: #4a5568;">${escapeHtml(text.INFO_FEEDBACK_DESC || '이용 중 불편한 점이나 새로운 아이디어를 운영진에게 바로 전달할 수 있습니다.')}</p>
-                        <div style="display: flex; gap: 12px;">
-                            <button id="btn-info-bug-report" type="button" style="font-family: inherit; flex: 1; padding: 14px 12px; font-size: 20px; font-weight: bold; background: #e67e22; color: #fff; border: none; border-radius: 12px; cursor: pointer;">${escapeHtml(text.BTN_BUG_REPORT || '🐛 버그 제보')}</button>
-                            <button id="btn-info-suggestion" type="button" style="font-family: inherit; flex: 1; padding: 14px 12px; font-size: 20px; font-weight: bold; background: #27ae60; color: #fff; border: none; border-radius: 12px; cursor: pointer;">${escapeHtml(text.BTN_SUGGESTION || '💡 건의하기')}</button>
+            <div class="arena-stage">
+                <header class="arena-header">
+                    <div class="header-left">
+                        <div class="brand-pill">
+                            <span class="brand-logo-icon">🦊</span>
+                            <h1 class="brand-title">${escapeHtml(text.TITLE)}</h1>
+                        </div>
+                        <div class="nick-badge">
+                            <span class="nick-tag">${escapeHtml(text.NICK_TAG || '닉네임')}</span>
+                            <span id="menu-header-nickname">${escapeHtml(currentNick)}</span>
                         </div>
                     </div>
+                    <div class="header-actions">
+                        <button type="button" id="btn-quick-join" class="header-btn quick-join">${escapeHtml(text.QUICK_JOIN)}</button>
+                        <button type="button" id="btn-settings" class="header-btn teal-btn">⚙️ ${escapeHtml(text.SETTINGS)}</button>
+                        <button type="button" id="btn-info" class="header-btn teal-btn">ℹ️ ${escapeHtml(text.INFO)}</button>
+                    </div>
+                </header>
 
-                    <button id="close-info" style="font-family: inherit; width: 100%; padding: 15px; font-size: 24px; background: #e74c3c; color: white; border: none; border-radius: 10px; cursor: pointer; margin-top: 26px;">${escapeHtml(text.CLOSE)}</button>
+                <main class="stage-body">
+                    <div class="final-hybrid-layout">
+                        <aside class="shelf-mascot-col final-mascot-col" id="btn-rufo-interact" title="${escapeHtml(text.RUFO_CLICK_TIP || '루포를 클릭해 대화하기')}">
+                            <div class="shelf-bubble">${escapeHtml(rufo.quote)}</div>
+                            <div class="shelf-rufo-stage">
+                                <div class="final-rufo-img-wrap">
+                                    <img src="${escapeHtml(rufo.img)}" alt="루포">
+                                </div>
+                                <span class="shelf-click-tip">${escapeHtml(text.RUFO_CLICK_TIP || '💡 루포를 클릭해 대화하기')}</span>
+                            </div>
+                        </aside>
+
+                        <section class="final-rack-col">
+                            <div class="category-tabs">
+                                <button type="button" class="cat-tab ${filterMode === 'all' ? 'active' : ''}" data-final-cat="all">${escapeHtml(text.CAT_ALL || '전체')}</button>
+                                <button type="button" class="cat-tab ${filterMode === 'released' ? 'active' : ''}" data-final-cat="released">${escapeHtml(text.CAT_RELEASED || '릴리즈')}</button>
+                                <button type="button" class="cat-tab ${filterMode === 'dev' ? 'active' : ''}" data-final-cat="dev">${escapeHtml(text.CAT_DEV || '개발중')}</button>
+                            </div>
+
+                            <div class="final-dock-list">
+                                ${dockListHtml}
+                            </div>
+
+                            <div class="custom-scroll-hint">${escapeHtml(text.SCROLL_HINT || '↕ 위아래로 스크롤해 다른 게임도 둘러보세요!')}</div>
+                        </section>
+
+                        <section class="custom-showcase-col">
+                            <div class="showcase-banner">
+                                <img class="${heroBgClass}" src="${escapeHtml(selected.bg)}" alt="컨셉 배경">
+                                <div class="showcase-scrim"></div>
+                                <img class="showcase-hero-char" src="${escapeHtml(selected.heroChar)}" alt="${escapeHtml(selected.title)}">
+                                <div class="showcase-banner-content">
+                                    <div class="tag-row">
+                                        ${getMainStatusBadgeHtml(selected)}
+                                        ${selected.tags.map(t => `<span class="info-pill">${escapeHtml(t)}</span>`).join('')}
+                                    </div>
+                                    <div class="showcase-banner-title-area">
+                                        <div class="subtitle-kicker">${escapeHtml(selected.kicker)}</div>
+                                        <h2>${escapeHtml(selected.title)}</h2>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="showcase-details">
+                                <div class="final-desc-wrap">
+                                    <p class="details-desc">${escapeHtml(selected.description)}</p>
+                                </div>
+                                <div class="final-details-bottom">
+                                    <div class="feature-chip-row">
+                                        ${selected.features.map(f => `<span class="feature-chip">✓ ${escapeHtml(f)}</span>`).join('')}
+                                    </div>
+                                    <button type="button" class="cta-btn ${ctaClass}" id="btn-enter-game">${escapeHtml(selected.ctaLabel)}</button>
+                                </div>
+                            </div>
+                        </section>
+                    </div>
+                </main>
+
+                <!-- 모달: 준비중 / 외부 접근 제한 게임 안내 -->
+                <div id="modal-menu-notice" class="arena-modal-backdrop">
+                    <div class="arena-modal-box" style="width: 600px; text-align: center;">
+                        <div style="font-size: 46px; margin-bottom: 12px;">🚧</div>
+                        <p id="modal-menu-notice-text" style="margin: 0 0 26px; font-size: 24px; font-weight: 900; line-height: 1.5; color: #4E2812;">${escapeHtml(text.UNOS_EXTERNAL_BLOCK_MSG || '이 게임은 지금 생각중인것이다! 다음에 오는 것이다!')}</p>
+                        <button id="btn-menu-notice-ok" type="button" class="btn-orange" style="padding: 13px 44px; font-size: 20px;">${escapeHtml(text.BTN_OK_RUFO || text.BTN_CONFIRM || '알았다는것이다')}</button>
+                    </div>
                 </div>
+
+                ${renderArenaSettingsModalHtml({
+                    popupId: 'popup-settings',
+                    idPrefix: 'menu-settings',
+                    bgmSliderId: 'bgm-slider',
+                    sfxSliderId: 'sfx-slider',
+                    fontGothicId: 'font-gothic',
+                    fontGulimId: 'font-gulim',
+                    langKoId: 'lang-ko',
+                    langEnId: 'lang-en',
+                    langJaId: 'lang-ja',
+                    closeBtnId: 'close-settings',
+                    lang,
+                    menuText: text,
+                    currentNickname: currentNick
+                })}
             </div>
         `;
 
-        if (!RoomManager.isOnline()) {
-            RoomManager.initNetwork();
+        const nextListEl = container.querySelector('.final-dock-list');
+        if (nextListEl && prevListScrollTop > 0) {
+            nextListEl.scrollTop = prevListScrollTop;
         }
 
         const quickJoinBtn = container.querySelector('#btn-quick-join');
@@ -93,49 +196,102 @@ export function initMenu(container) {
             quickJoinBtn.onclick = () => openQuickJoinModal(container);
         }
 
-        const infoPopupEl = container.querySelector('#popup-info');
-        const bugReportBtn = container.querySelector('#btn-info-bug-report');
-        if (bugReportBtn) {
-            bugReportBtn.onclick = () => {
-                if (infoPopupEl) infoPopupEl.style.display = 'none';
-                openBugReportModal(container, { defaultGameId: 'arena' });
-            };
+        const infoBtn = container.querySelector('#btn-info');
+        if (infoBtn) {
+            infoBtn.onclick = () => openInfoPopup(container, { gameId: 'arena' });
         }
 
-        const suggestionBtn = container.querySelector('#btn-info-suggestion');
-        if (suggestionBtn) {
-            suggestionBtn.onclick = () => {
-                if (infoPopupEl) infoPopupEl.style.display = 'none';
-                openSuggestionModal(container, { defaultGameId: 'arena' });
-            };
-        }
+        const noticeModal = container.querySelector('#modal-menu-notice');
+        const noticeTextEl = container.querySelector('#modal-menu-notice-text');
+        const noticeOkBtn = container.querySelector('#btn-menu-notice-ok');
+        const openNoticeModal = (msgText) => {
+            if (!noticeModal) return;
+            if (noticeTextEl) noticeTextEl.textContent = msgText;
+            noticeModal.classList.add('open');
+        };
+        const closeNoticeModal = () => noticeModal?.classList.remove('open');
+        if (noticeOkBtn) noticeOkBtn.onclick = closeNoticeModal;
+        if (noticeModal) noticeModal.onclick = (e) => { if (e.target === noticeModal) closeNoticeModal(); };
 
-        container.querySelectorAll('.game-select-btn').forEach(btn => {
+        container.querySelectorAll('[data-select-game]').forEach(btn => {
             btn.onclick = () => {
-                const gameId = btn.dataset.gameId;
+                selectedGameId = btn.getAttribute('data-select-game');
+                customRufoReaction = null;
+                lastRufoId = null;
+                renderUI();
+            };
+        });
+
+        container.querySelectorAll('[data-final-cat]').forEach(btn => {
+            btn.onclick = () => {
+                filterMode = btn.getAttribute('data-final-cat');
+                const visible = getFilteredCatalog();
+                if (visible.length > 0 && !visible.some(g => g.id === selectedGameId)) {
+                    selectedGameId = visible[0].id;
+                    customRufoReaction = null;
+                    lastRufoId = null;
+                }
+                renderUI();
+            };
+        });
+
+        // 루포 클릭 시 전체 재렌더 없이 말풍선·이미지만 직접 교체해 우측 히어로 호버링 초기화 방지
+        const rufoBtn = container.querySelector('#btn-rufo-interact');
+        if (rufoBtn) {
+            rufoBtn.onclick = () => {
+                const picked = pickNextRufoReaction(getActiveNick(), lastRufoId, elfEasterEggTriggered);
+                if (picked.requiresElfNick) elfEasterEggTriggered = true;
+                lastRufoId = picked.id;
+                customRufoReaction = picked;
+                const bubbleEl = rufoBtn.querySelector('.shelf-bubble');
+                const imgEl = rufoBtn.querySelector('.final-rufo-img-wrap img');
+                if (bubbleEl) bubbleEl.textContent = picked.quote;
+                if (imgEl) imgEl.src = picked.img;
+            };
+        }
+
+        const enterGameBtn = container.querySelector('#btn-enter-game');
+        if (enterGameBtn) {
+            enterGameBtn.onclick = () => {
+                const gameId = selected.id;
                 const meta = games.find(g => g.id === gameId);
-                if (!meta) return;
+                if (!meta) {
+                    openNoticeModal(text.UNOS_EXTERNAL_BLOCK_MSG || '이 게임은 지금 생각중인것이다! 다음에 오는 것이다!');
+                    return;
+                }
+                if (gameId === 'unos' && !shouldBypassResourceGuard(typeof window !== 'undefined' ? window.location : null)) {
+                    openNoticeModal(text.UNOS_EXTERNAL_BLOCK_MSG || '이 게임은 지금 생각중인것이다! 다음에 오는 것이다!');
+                    return;
+                }
                 if (meta.lobbyEnabled || meta.status === 'active') {
                     changeScene(meta.sceneMain);
                 } else {
                     showLobbyToast(container, text.UNOS_PREPARING_MSG);
                 }
             };
+        }
+
+        bindArenaSettingsHandlers({
+            container,
+            popupId: 'popup-settings',
+            openBtnId: 'btn-settings',
+            idPrefix: 'menu-settings',
+            bgmSliderId: 'bgm-slider',
+            sfxSliderId: 'sfx-slider',
+            fontGothicId: 'font-gothic',
+            fontGulimId: 'font-gulim',
+            langKoId: 'lang-ko',
+            langEnId: 'lang-en',
+            langJaId: 'lang-ja',
+            closeBtnId: 'close-settings',
+            onNicknameApplied: (newNick) => {
+                const nickSpan = container.querySelector('#menu-header-nickname');
+                if (nickSpan) nickSpan.textContent = newNick;
+                elfEasterEggTriggered = false;
+                lastRufoId = null;
+                customRufoReaction = null;
+            }
         });
-        document.getElementById('btn-settings').onclick = () => document.getElementById('popup-settings').style.display = 'block';
-        document.getElementById('close-settings').onclick = () => document.getElementById('popup-settings').style.display = 'none';
-        document.getElementById('btn-info').onclick = () => document.getElementById('popup-info').style.display = 'block';
-        document.getElementById('close-info').onclick = () => document.getElementById('popup-info').style.display = 'none';
-
-        document.getElementById('bgm-slider').oninput = (e) => AudioManager.setBGMVolume(e.target.value);
-        document.getElementById('sfx-slider').oninput = (e) => AudioManager.setSFXVolume(e.target.value);
-
-        document.getElementById('font-gothic').onclick = () => SettingsManager.toggleFont(false);
-        document.getElementById('font-gulim').onclick = () => SettingsManager.toggleFont(true);
-
-        document.getElementById('lang-ko').onclick = () => LangState.set('ko');
-        document.getElementById('lang-en').onclick = () => LangState.set('en');
-        document.getElementById('lang-ja').onclick = () => LangState.set('ja');
     };
 
     const langHandler = () => renderUI();

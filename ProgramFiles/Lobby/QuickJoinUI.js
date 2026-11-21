@@ -11,53 +11,46 @@ import { escapeHtml, showLobbyToast, ensureGameTabAccess } from './LobbyUI.js';
 export function openQuickJoinModal(container) {
     if (!container) return;
 
+    const mountTarget = container.querySelector('.arena-stage') || container;
     const existing = container.querySelector('#modal-quick-join');
     if (existing) existing.remove();
 
     const text = LobbyLang[LangState.current] || LobbyLang.ko;
-    const currentNick = RoomManager.localPlayer?.name || '';
 
     const modal = document.createElement('div');
     modal.id = 'modal-quick-join';
-    modal.style.cssText = 'position: absolute; inset: 0; background: rgba(0, 0, 0, 0.62); display: flex; align-items: center; justify-content: center; z-index: 1500; padding: 20px;';
+    modal.className = 'arena-modal-backdrop open';
+    modal.style.zIndex = '1500';
     modal.innerHTML = `
-        <div style="background: #165b7a; border: 3px solid #f1c40f; border-radius: 24px; padding: 34px; width: 520px; max-width: 92vw; color: #fff; box-shadow: 0 18px 40px rgba(0,0,0,0.35); font-family: inherit;">
-            <h2 style="margin: 0 0 10px 0; font-size: 28px; color: #f1c40f;">⚡ ${escapeHtml(text.QUICK_JOIN_TITLE)}</h2>
-            <p style="margin: 0 0 22px 0; font-size: 16px; color: #d6eaf8; line-height: 1.5;">${escapeHtml(text.QUICK_JOIN_DESC)}</p>
+        <div class="arena-modal-box" style="width: 540px;">
+            <h2 style="margin: 0 0 10px 0; font-size: 28px; font-weight: 900; text-align: center; color: #4E2812;">⚡ ${escapeHtml(text.QUICK_JOIN_TITLE)}</h2>
+            <p style="margin: 0 0 22px 0; font-size: 16px; font-weight: bold; color: #724929; line-height: 1.5; text-align: center;">${escapeHtml(text.QUICK_JOIN_DESC)}</p>
 
-            <div style="display: flex; flex-direction: column; gap: 16px;">
+            <div style="display: flex; flex-direction: column; gap: 14px;">
                 <div>
-                    <label for="input-quick-code" style="display: block; margin-bottom: 6px; font-size: 16px; font-weight: bold; color: #f9e79f;">${escapeHtml(text.JOIN_CODE_LABEL)}</label>
-                    <input id="input-quick-code" type="text" maxlength="16" autocomplete="off" placeholder="${escapeHtml(text.JOIN_CODE_PLACEHOLDER)}"
-                        style="width: 100%; box-sizing: border-box; padding: 13px 16px; font-size: 22px; font-family: inherit; font-weight: bold; letter-spacing: 2px; text-transform: uppercase; border: 2px solid #2e86c1; border-radius: 12px; background: #fff; color: #1b2631;" />
-                    <div style="margin-top: 6px; font-size: 13px; color: #aed6f1;">${escapeHtml(text.JOIN_CODE_HINT)}</div>
+                    <label for="input-quick-code" style="display: block; margin-bottom: 6px; font-size: 16px; font-weight: 800; color: #4E2812;">${escapeHtml(text.JOIN_CODE_LABEL)}</label>
+                    <input id="input-quick-code" class="modal-input" type="text" maxlength="16" autocomplete="off" placeholder="${escapeHtml(text.JOIN_CODE_PLACEHOLDER)}"
+                        style="font-family: monospace; text-align: center; letter-spacing: 3px; font-size: 24px; text-transform: uppercase;" />
                 </div>
 
                 <div>
-                    <label for="input-quick-password" style="display: block; margin-bottom: 6px; font-size: 15px; color: #d6eaf8;">${escapeHtml(text.JOIN_PASSWORD_OPTIONAL)}</label>
-                    <input id="input-quick-password" type="password" maxlength="20" autocomplete="off"
-                        style="width: 100%; box-sizing: border-box; padding: 11px 14px; font-size: 17px; font-family: inherit; border: 2px solid #2e86c1; border-radius: 12px; background: #fff; color: #1b2631;" />
-                </div>
-
-                <div>
-                    <label for="input-quick-nick" style="display: block; margin-bottom: 6px; font-size: 15px; color: #d6eaf8;">${escapeHtml(text.QUICK_JOIN_NICK_LABEL)}</label>
-                    <input id="input-quick-nick" type="text" maxlength="16" value="${escapeHtml(currentNick)}"
-                        style="width: 100%; box-sizing: border-box; padding: 11px 14px; font-size: 17px; font-family: inherit; border: 2px solid #2e86c1; border-radius: 12px; background: #fff; color: #1b2631;" />
+                    <label for="input-quick-password" style="display: block; margin-bottom: 6px; font-size: 15px; font-weight: bold; color: #724929;">${escapeHtml(text.JOIN_PASSWORD_OPTIONAL)}</label>
+                    <input id="input-quick-password" class="modal-input" type="password" maxlength="20" autocomplete="off"
+                        style="padding: 11px 14px; font-size: 17px;" />
                 </div>
             </div>
 
-            <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 26px;">
-                <button id="btn-quick-cancel" type="button" style="font-family: inherit; padding: 12px 24px; font-size: 18px; background: #34495e; color: #fff; border: none; border-radius: 12px; cursor: pointer;">${escapeHtml(text.BTN_CANCEL)}</button>
-                <button id="btn-quick-submit" type="button" style="font-family: inherit; padding: 12px 26px; font-size: 18px; font-weight: bold; background: #f39c12; color: #fff; border: none; border-radius: 12px; cursor: pointer;">${escapeHtml(text.QUICK_JOIN_SUBMIT)}</button>
+            <div style="display: flex; gap: 14px; margin-top: 24px;">
+                <button id="btn-quick-cancel" type="button" class="btn-wood" style="flex: 1; padding: 14px; font-size: 20px;">${escapeHtml(text.BTN_CANCEL)}</button>
+                <button id="btn-quick-submit" type="button" class="btn-orange" style="flex: 1.4; padding: 14px; font-size: 20px;">${escapeHtml(text.QUICK_JOIN_SUBMIT)}</button>
             </div>
         </div>
     `;
 
-    container.appendChild(modal);
+    mountTarget.appendChild(modal);
 
     const codeInput = modal.querySelector('#input-quick-code');
     const pwInput = modal.querySelector('#input-quick-password');
-    const nickInput = modal.querySelector('#input-quick-nick');
     const cancelBtn = modal.querySelector('#btn-quick-cancel');
     const submitBtn = modal.querySelector('#btn-quick-submit');
 
@@ -82,14 +75,7 @@ export function openQuickJoinModal(container) {
         try {
             await RoomManager.initNetwork();
 
-            const nextNick = (nickInput?.value || '').trim();
-            if (nextNick && nextNick !== RoomManager.localPlayer?.name) {
-                await RoomManager.setNickname(nextNick);
-            }
-
             const password = pwInput?.value || '';
-            // expectedGameId에 null을 넘겨 EMRB / UNOS 등 종목과 무관하게 코드로 자동 매칭한다.
-            // 다중 탭 검사는 방 입장이 실제로 성공한 직후에만 수행해 오타/존재하지 않는 코드 시 기존 탭 오인 퇴장 및 상태 잔류를 막는다.
             const res = await RoomManager.joinRoomByCode(normalizedCode, null, password);
             if (res && res.ok) {
                 const targetGameId = res.room?.gameId || inferGameIdFromCode(normalizedCode);
@@ -119,7 +105,7 @@ export function openQuickJoinModal(container) {
         if (typeof codeInput.focus === 'function') codeInput.focus();
     }
 
-    [codeInput, pwInput, nickInput].forEach(el => {
+    [codeInput, pwInput].forEach(el => {
         if (!el) return;
         el.onkeydown = (e) => {
             if (e.key === 'Enter') submitQuickJoin();

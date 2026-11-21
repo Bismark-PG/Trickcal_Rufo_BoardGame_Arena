@@ -123,25 +123,25 @@ export const TimeSlotConfig = {
 };
 
 /**
- * 확정 배치된 칸별 세부 배경(`Resource/Texture/Marble/BG/`) 변형 매니페스트.
- * 신규 BG 에셋이 추가되면 해당 타일 ID의 지원 변형(`Day`/`Night`, `Common`, `Normal`/`Special`)을 등록한다.
+ * 확정 배치된 칸별 세부 배경(`Resource/Texture/BG/`) 변형 매니페스트.
+ * 신규 BG 에셋이 추가되면 해당 타일 ID의 지원 변형(`''` 단일, `'Day'`/`'Night'`, `'Normal'`/`'Special'`)을 등록한다.
  */
 export const TILE_BG_VARIANTS = {
-    0: ['Common'],
+    0: [''],
     1: ['Day', 'Night'],
     3: ['Day'],
     4: ['Day', 'Night'],
-    5: ['Common'],
+    5: [''],
     6: ['Day', 'Night'],
     8: ['Day'],
     9: ['Day', 'Night'],
-    10: ['Common'],
+    10: [''],
     11: ['Normal', 'Special'],
     13: ['Night'],
     14: ['Day', 'Night'],
-    19: ['Day'],
-    20: ['Common'],
-    21: ['Day'],
+    19: [''],
+    20: [''],
+    21: [''],
     24: ['Day'],
     25: ['Normal']
 };
@@ -149,6 +149,16 @@ export const TILE_BG_VARIANTS = {
 export function formatTileBgSlug(tileId) {
     const rawEn = BoardNames[tileId]?.en || '';
     return rawEn.replace(/'/g, '').trim().replace(/\s+/g, '_');
+}
+
+/**
+ * 공용 배경 경로(`Resource/Texture/BG/BG_<영문명>[_<상태/시간대>].png`)를 조합한다.
+ */
+export function formatTileBgPath(tileId, tag = '') {
+    const slug = formatTileBgSlug(tileId);
+    if (!slug) return null;
+    const suffix = (tag && tag !== 'Common') ? `_${tag}` : '';
+    return `./Resource/Texture/BG/BG_${slug}${suffix}.png`;
 }
 
 /**
@@ -163,14 +173,9 @@ export function resolveTileBgPath(tileOrId, worldState = null, playerState = nul
     const variants = TILE_BG_VARIANTS[tileId];
     if (!Array.isArray(variants) || variants.length === 0) return null;
 
-    const col = Math.floor(tileId / 10) + 1;
-    const paddedId = String(tileId).padStart(2, '0');
-    const slug = formatTileBgSlug(tileId);
-    if (!slug) return null;
-
     let tag = variants[0];
-    if (variants.includes('Common')) {
-        tag = 'Common';
+    if (variants.includes('') || variants.includes('Common')) {
+        tag = '';
     } else if (variants.includes('Normal') || variants.includes('Special')) {
         let isSpecial = false;
         if (tileId === BOARD_TILES.LAKE) {
@@ -192,7 +197,7 @@ export function resolveTileBgPath(tileOrId, worldState = null, playerState = nul
         }
     }
 
-    return `./Resource/Texture/Marble/BG/BG_${col}_${paddedId}_${tag}_${slug}.png`;
+    return formatTileBgPath(tileId, tag);
 }
 
 export function getTileIntroDesc(tileName) {

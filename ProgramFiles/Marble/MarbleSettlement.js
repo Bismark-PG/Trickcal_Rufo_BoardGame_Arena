@@ -186,20 +186,7 @@ export function processFinalSettlement(allPlayers, tiles) {
     results.forEach(res => {
         const p = res.player;
 
-        // (1) 기본 보유 현금
-        const baseCategory = {
-            title: sText.CAT_BASE,
-            items: [
-                {
-                    label: sText.ITEM_CASH,
-                    formula: `${formatMoney(res.baseCash)} * ${p.isBankrupt ? 0 : 1} = ${formatMoney(res.baseCash)}`,
-                    amount: res.baseCash,
-                    isActive: !p.isBankrupt && res.baseCash > 0
-                }
-            ]
-        };
-
-        // (2) 일반 영토 및 건물 정산 (건설 단계 0~4별)
+        // (1) 보유 자산 정산 (보유 현금 + 일반 영토 및 건물 0~4단계)
         const levelLabels = [
             sText.ITEM_LAND_LV0,
             sText.ITEM_LAND_LV1,
@@ -207,29 +194,39 @@ export function processFinalSettlement(allPlayers, tiles) {
             sText.ITEM_LAND_LV3,
             sText.ITEM_LAND_LV4
         ];
-        const landItems = [];
+        const assetItems = [
+            {
+                label: sText.ITEM_CASH,
+                formula: `${formatMoney(res.baseCash)}`,
+                amount: res.baseCash,
+                isActive: !p.isBankrupt && res.baseCash > 0
+            }
+        ];
+        let landAssetTotal = 0;
         for (let lv = 0; lv <= 4; lv++) {
             const matchingTiles = p.isBankrupt
                 ? []
                 : tiles.filter(t => t.owner === p && t.type === 'normal' && t.level === lv);
             const count = matchingTiles.length;
-            const settleMult = MULTIPLIERS.SETTLEMENT[lv] + lv; // 기본 정산 배율 + 건설 단계(0~4) 합산 (0.5 / 2.0 / 3.5 / 4.75 / 6.0)
+            const settleMult = MULTIPLIERS.SETTLEMENT[lv] + lv; // 1.0 / 2.0 / 3.5 / 4.75 / 6.0
             const lvSum = matchingTiles.reduce((sum, t) => sum + Math.round(t.basePrice * settleMult), 0);
             res.totalAsset += lvSum;
+            landAssetTotal += lvSum;
 
-            landItems.push({
+            assetItems.push({
                 label: levelLabels[lv],
-                formula: `* ${count}${sText.UNIT_COUNT} = ${count > 0 ? '+' : ''}${formatMoney(lvSum)}`,
+                formula: `${count}${sText.UNIT_COUNT} = ${count > 0 ? '+' : ''}${formatMoney(lvSum)}`,
                 amount: lvSum,
                 isActive: count > 0
             });
         }
-        const landCategory = {
-            title: sText.CAT_LAND,
-            items: landItems
+        res.landAssetTotal = landAssetTotal;
+        const assetCategory = {
+            title: sText.CAT_ASSET,
+            items: assetItems
         };
 
-        // (3) 특수 영토(요충지) 수금 정산
+        // (2) 특수 영토 보유특권 (요충지 수금 정산)
         const specTerrItems = SPECIAL_TERRITORY_IDS.map(tileId => {
             const tileName = BoardNames[tileId][LangState.current] || BoardNames[tileId].ko;
             const info = specialTerritoryCollectMap.get(`${p.id}_${tileId}`) || {
@@ -240,8 +237,8 @@ export function processFinalSettlement(allPlayers, tiles) {
             };
             const isActive = info.owned && info.count > 0;
             return {
-                label: `[${tileName}] ${sText.ITEM_SPEC_TERR_COLLECT}`,
-                formula: `${formatMoney(info.unitToll)} * ${isActive ? info.count : 0} = ${isActive ? '+' : ''}${formatMoney(info.total)}`,
+                label: `[${tileName}] (${info.unitToll.toLocaleString()}엘드르달러)`,
+                formula: `${isActive ? info.count : 0}${sText.UNIT_PERSONS} = ${isActive ? '+' : ''}${formatMoney(info.total)}`,
                 amount: info.total,
                 isActive
             };
@@ -251,7 +248,7 @@ export function processFinalSettlement(allPlayers, tiles) {
         const paidActive = res.specialTerritoryPaidCount > 0;
         specTerrItems.push({
             label: sText.ITEM_SPEC_TERR_PAID,
-            formula: `* ${paidActive ? res.specialTerritoryPaidCount : 0} = ${paidActive ? '-' : ''}${formatMoney(res.specialTerritoryPaidTotal)}`,
+            formula: `${paidActive ? res.specialTerritoryPaidCount : 0}${sText.UNIT_TIMES} = ${paidActive ? '-' : ''}${formatMoney(res.specialTerritoryPaidTotal)}`,
             amount: -res.specialTerritoryPaidTotal,
             isActive: paidActive,
             isNegative: paidActive
@@ -262,37 +259,38 @@ export function processFinalSettlement(allPlayers, tiles) {
             items: specTerrItems
         };
 
-        // (4) 특수 칸 소유 정산 (극장, 모나티엄 25, 정령 호수 / 퍼리비이치, 마녀 도서관)
+        // (3) 특수 칸 소유 특권 (극장, 모나티엄 25, 정령 호수 / 퍼리비이치, 마녀 도서관, 다야의 궁전)
         const unitReward = GAME_CONSTANTS.SETTLE_SPECIAL_TILE_UNIT; // 10만
+        const libraryUnitReward = GAME_CONSTANTS.SETTLE_LIBRARY_UNIT ?? 50000; // 마녀 도서관 5만
         const isFurry = WorldGimmickManager.isFurryBeach;
         const lakeUnitReward = isFurry ? GAME_CONSTANTS.SETTLE_FURRY_BEACH_UNIT : unitReward; // 퍼리비이치 시 15만, 기본 10만
 
-        // 4-1. 엘리아스 극장
+        // 3-1. 엘리아스 극장
         const ownsTheater = !p.isBankrupt && tiles[BOARD_TILES.THEATER].owner === p;
         const theaterCount = ownsTheater ? (p.tracker.theaterProfitCount || 0) : 0;
         const theaterReward = theaterCount * unitReward;
         res.totalAsset += theaterReward;
 
-        // 4-2. 모나티엄 25
+        // 3-2. 모나티엄 25
         const ownsMonatium = !p.isBankrupt && tiles[BOARD_TILES.MONATIUM_25].owner === p;
         const monatiumCount = ownsMonatium ? totalMonatiumVisits : 0;
         const monatiumReward = monatiumCount * unitReward;
         res.totalAsset += monatiumReward;
 
-        // 4-3. 정령 호수 / 퍼리비이치
+        // 3-3. 정령 호수 / 퍼리비이치
         const ownsLake = !p.isBankrupt && tiles[BOARD_TILES.LAKE].owner === p;
         const lakeCount = ownsLake ? totalLakeRests : 0;
         const lakeReward = lakeCount * lakeUnitReward;
         res.lakeReward = lakeReward;
         res.totalAsset += lakeReward;
 
-        // 4-4. 마녀 도서관 (모든 플레이어의 총 카드 칸 도착 횟수 * 10만)
+        // 3-4. 마녀 도서관 (모든 플레이어의 총 카드 칸 도착 횟수 * 5만)
         const ownsLibrary = !p.isBankrupt && tiles[BOARD_TILES.LIBRARY].owner === p;
         const libraryCount = ownsLibrary ? totalCardTileVisits : 0;
-        const libraryReward = libraryCount * unitReward;
+        const libraryReward = libraryCount * libraryUnitReward;
         res.totalAsset += libraryReward;
 
-        // 4-5. 다야의 궁전 (정산 시점 보유자에 한해 본인이 보유했었던 총 턴 수 * 10만)
+        // 3-5. 다야의 궁전 (정산 시점 보유자에 한해 본인이 보유했었던 총 턴 수 * 10만)
         const ownsDaya = !p.isBankrupt && tiles[BOARD_TILES.DAYA].owner === p;
         const dayaCount = ownsDaya ? (p.tracker.dayaHoldTurns || 0) : 0;
         const dayaReward = dayaCount * unitReward;
@@ -303,40 +301,40 @@ export function processFinalSettlement(allPlayers, tiles) {
             items: [
                 {
                     label: sText.ITEM_THEATER,
-                    formula: `${formatMoney(unitReward)} * ${theaterCount} = ${theaterReward > 0 ? '+' : ''}${formatMoney(theaterReward)}`,
+                    formula: `${formatMoney(unitReward)} × ${theaterCount} = ${theaterReward > 0 ? '+' : ''}${formatMoney(theaterReward)}`,
                     amount: theaterReward,
                     isActive: ownsTheater && theaterCount > 0
                 },
                 {
                     label: sText.ITEM_MONATIUM25,
-                    formula: `${formatMoney(unitReward)} * ${monatiumCount} = ${monatiumReward > 0 ? '+' : ''}${formatMoney(monatiumReward)}`,
+                    formula: `${formatMoney(unitReward)} × ${monatiumCount} = ${monatiumReward > 0 ? '+' : ''}${formatMoney(monatiumReward)}`,
                     amount: monatiumReward,
                     isActive: ownsMonatium && monatiumCount > 0
                 },
                 {
                     label: isFurry ? sText.ITEM_FURRY_BEACH : sText.ITEM_LAKE,
-                    formula: `${formatMoney(lakeUnitReward)} * ${lakeCount} = ${lakeReward > 0 ? '+' : ''}${formatMoney(lakeReward)}`,
+                    formula: `${formatMoney(lakeUnitReward)} × ${lakeCount} = ${lakeReward > 0 ? '+' : ''}${formatMoney(lakeReward)}`,
                     amount: lakeReward,
                     isActive: ownsLake && lakeCount > 0
                 },
                 {
                     label: sText.ITEM_LIBRARY,
-                    formula: `${formatMoney(unitReward)} * ${libraryCount} = ${libraryReward > 0 ? '+' : ''}${formatMoney(libraryReward)}`,
+                    formula: `${formatMoney(libraryUnitReward)} × ${libraryCount} = ${libraryReward > 0 ? '+' : ''}${formatMoney(libraryReward)}`,
                     amount: libraryReward,
                     isActive: ownsLibrary && libraryCount > 0
                 },
                 {
                     label: sText.ITEM_DAYA,
-                    formula: `${formatMoney(unitReward)} * ${dayaCount} = ${dayaReward > 0 ? '+' : ''}${formatMoney(dayaReward)}`,
+                    formula: `${formatMoney(unitReward)} × ${dayaCount} = ${dayaReward > 0 ? '+' : ''}${formatMoney(dayaReward)}`,
                     amount: dayaReward,
                     isActive: ownsDaya && dayaCount > 0
                 }
             ]
         };
 
-        // (5) 보유 및 상태 정산 (빵주 정비반장, 김씨노동기, 달바라기 한 송이, 태초의 엘리프)
-        const bbangjuBase = modeCfg.settleBbangjuBase ?? GAME_CONSTANTS.SETTLE_BBANGJU_BASE; // 불씨 150만 / 기본 75만
-        const bbangjuUnit = modeCfg.settleBbangjuUnit ?? GAME_CONSTANTS.SETTLE_BBANGJU_UNIT; // 불씨 20만 / 기본 10만
+        // (4) 카드 보유 및 상태 특권 (김씨노동기, 달바라기 한 송이, 태초의 엘리프, 빵주 정비반장, 최다 순회자)
+        const bbangjuBase = modeCfg.settleBbangjuBase ?? GAME_CONSTANTS.SETTLE_BBANGJU_BASE; // 불씨/고봉밥 150만 / 기본 75만
+        const bbangjuUnit = modeCfg.settleBbangjuUnit ?? GAME_CONSTANTS.SETTLE_BBANGJU_UNIT; // 불씨/고봉밥 20만 / 기본 10만
         const isChief = !p.isBankrupt && p.isBbangjuChief;
         const bbangjuCount = isChief ? getGlobalBbangjuVisits() : 0;
         const bbangjuReward = isChief ? Math.round((bbangjuBase + bbangjuCount * bbangjuUnit) / totalBbangjuChiefs) : 0;
@@ -351,14 +349,34 @@ export function processFinalSettlement(allPlayers, tiles) {
         const kimActive = res.kimWorkerCollectCount > 0;
         const moonActive = res.moonFlowerCollectCount > 0;
         const statePaidActive = res.stateStealPaidTotal > 0;
+        const lapUnit = GAME_CONSTANTS.SETTLE_LAP_LEADER_UNIT || 150000;
 
         const bbangjuFormulaStr = !isChief
-            ? `${formatMoney(bbangjuUnit)} * 0 = ${formatMoney(0)}`
+            ? `${formatMoney(bbangjuBase)} / ${formatMoney(bbangjuUnit)} × 0${sText.UNIT_TIMES} = ${formatMoney(0)}`
             : (totalBbangjuChiefs > 1
-                ? `(${formatMoney(bbangjuBase)} + ${formatMoney(bbangjuUnit)} * ${bbangjuCount}) / ${totalBbangjuChiefs}${sText.UNIT_PERSONS} = +${formatMoney(bbangjuReward)}`
-                : `${formatMoney(bbangjuBase)} + (${formatMoney(bbangjuUnit)} * ${bbangjuCount}) = +${formatMoney(bbangjuReward)}`);
+                ? `(${formatMoney(bbangjuBase)} + ${formatMoney(bbangjuUnit)} × ${bbangjuCount}${sText.UNIT_TIMES}) ÷ ${totalBbangjuChiefs}${sText.UNIT_PERSONS} = +${formatMoney(bbangjuReward)}`
+                : `${formatMoney(bbangjuBase)} + ${formatMoney(bbangjuUnit)} × ${bbangjuCount}${sText.UNIT_TIMES} = +${formatMoney(bbangjuReward)}`);
 
-        const stateItems = [];
+        const stateItems = [
+            {
+                label: sText.ITEM_KIM_WORKER,
+                formula: `${formatMoney(stealUnit)} × ${kimActive ? res.kimWorkerCollectCount : 0}${sText.UNIT_TIMES} = ${kimActive ? '+' : ''}${formatMoney(res.kimWorkerCollectTotal)}`,
+                amount: res.kimWorkerCollectTotal,
+                isActive: kimActive
+            },
+            {
+                label: sText.ITEM_MOON_FLOWER,
+                formula: `${formatMoney(stealUnit)} × ${moonActive ? res.moonFlowerCollectCount : 0}${sText.UNIT_TIMES} = ${moonActive ? '+' : ''}${formatMoney(res.moonFlowerCollectTotal)}`,
+                amount: res.moonFlowerCollectTotal,
+                isActive: moonActive
+            },
+            {
+                label: sText.ITEM_ORIGIN_ELIF,
+                formula: `${formatMoney(unitReward)} × ${originTurns}턴 = ${originReward > 0 ? '+' : ''}${formatMoney(originReward)}`,
+                amount: originReward,
+                isActive: hasOriginElif && originTurns > 0
+            }
+        ];
         if (modeCfg.enableBbangjuChief) {
             stateItems.push({
                 label: sText.ITEM_BBANGJU_CHIEF,
@@ -369,32 +387,14 @@ export function processFinalSettlement(allPlayers, tiles) {
         }
         stateItems.push(
             {
-                label: sText.ITEM_KIM_WORKER,
-                formula: `${formatMoney(stealUnit)} * ${kimActive ? res.kimWorkerCollectCount : 0} = ${kimActive ? '+' : ''}${formatMoney(res.kimWorkerCollectTotal)}`,
-                amount: res.kimWorkerCollectTotal,
-                isActive: kimActive
-            },
-            {
-                label: sText.ITEM_MOON_FLOWER,
-                formula: `${formatMoney(stealUnit)} * ${moonActive ? res.moonFlowerCollectCount : 0} = ${moonActive ? '+' : ''}${formatMoney(res.moonFlowerCollectTotal)}`,
-                amount: res.moonFlowerCollectTotal,
-                isActive: moonActive
-            },
-            {
-                label: sText.ITEM_ORIGIN_ELIF,
-                formula: `${formatMoney(unitReward)} * ${originTurns} = ${originReward > 0 ? '+' : ''}${formatMoney(originReward)}`,
-                amount: originReward,
-                isActive: hasOriginElif && originTurns > 0
-            },
-            {
                 label: sText.ITEM_LAP_LEADER,
-                formula: `${formatMoney(GAME_CONSTANTS.SETTLE_LAP_LEADER_UNIT || 150000)} * ${res.isLapLeaderWinner ? (p.tracker?.lapPassCount || 0) : 0} = ${res.lapLeaderReward > 0 ? '+' : ''}${formatMoney(res.lapLeaderReward)}`,
+                formula: `${formatMoney(lapUnit)} × ${res.isLapLeaderWinner ? (p.tracker?.lapPassCount || 0) : 0}${sText.UNIT_TIMES} = ${res.lapLeaderReward > 0 ? '+' : ''}${formatMoney(res.lapLeaderReward)}`,
                 amount: res.lapLeaderReward,
                 isActive: res.isLapLeaderWinner && res.lapLeaderReward > 0
             },
             {
                 label: sText.ITEM_STATE_STEAL_PAID,
-                formula: `* ${statePaidActive ? res.stateStealPaidCount : 0} = ${statePaidActive ? '-' : ''}${formatMoney(res.stateStealPaidTotal)}`,
+                formula: `${statePaidActive ? res.stateStealPaidCount : 0}${sText.UNIT_TIMES} = ${statePaidActive ? '-' : ''}${formatMoney(res.stateStealPaidTotal)}`,
                 amount: -res.stateStealPaidTotal,
                 isActive: statePaidActive,
                 isNegative: statePaidActive
@@ -406,7 +406,7 @@ export function processFinalSettlement(allPlayers, tiles) {
             items: stateItems
         };
 
-        // (6) 대출 원금 및 정산 미상환 이자 청산
+        // (5) 대출 청산
         const loanPrincipal = res.loanPrincipal || 0;
         const loanInterest = res.loanInterest || 0;
         const hasLoan = !p.isBankrupt && p.loanCount > 0;
@@ -416,14 +416,14 @@ export function processFinalSettlement(allPlayers, tiles) {
             items: [
                 {
                     label: sText.ITEM_LOAN_PRINCIPAL,
-                    formula: `* ${hasLoan ? p.loanCount : 0} = ${loanPrincipal > 0 ? '-' : ''}${formatMoney(loanPrincipal)}`,
+                    formula: `${hasLoan ? p.loanCount : 0}${sText.UNIT_TIMES} = ${loanPrincipal > 0 ? '-' : ''}${formatMoney(loanPrincipal)}`,
                     amount: -loanPrincipal,
                     isActive: loanPrincipal > 0,
                     isNegative: loanPrincipal > 0
                 },
                 {
                     label: sText.ITEM_LOAN_INTEREST,
-                    formula: `* ${hasLoan ? 1 : 0} = ${loanInterest > 0 ? '-' : ''}${formatMoney(loanInterest)}`,
+                    formula: `${hasLoan ? 1 : 0}${sText.UNIT_TIMES} = ${loanInterest > 0 ? '-' : ''}${formatMoney(loanInterest)}`,
                     amount: -loanInterest,
                     isActive: loanInterest > 0,
                     isNegative: loanInterest > 0
@@ -432,8 +432,7 @@ export function processFinalSettlement(allPlayers, tiles) {
         };
 
         res.categories = [
-            baseCategory,
-            landCategory,
+            assetCategory,
             specTerrCategory,
             specialTileCategory,
             stateCategory,
@@ -465,6 +464,7 @@ export function serializeSettlementResults(rankedResults) {
             color: res.player.color
         },
         baseCash: res.baseCash,
+        landAssetTotal: res.landAssetTotal || 0,
         totalAsset: res.totalAsset,
         totalLoan: res.totalLoan,
         specialTerritoryCollectTotal: res.specialTerritoryCollectTotal || 0,

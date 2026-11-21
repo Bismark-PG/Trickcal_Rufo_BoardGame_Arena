@@ -6,7 +6,22 @@ import { getMarblePreloadManifest, preloadMarbleAssets } from '../Marble/MarbleA
 import { ErrorTracker } from './ErrorTracker.js';
 
 const ARENA_COMMON_ASSETS = [
-    './Resource/Texture/Main_Chara.png'
+    './Resource/Texture/Char/Char_Rufo_Sit.png',
+    './Resource/Texture/Logo_Trickcal.png',
+    './Resource/Texture/Char/Char_Erpin_Marble.png',
+    './Resource/Texture/Char/Char_Erpin_Unos.png',
+    './Resource/Texture/Char/Char_Dummy.png',
+    './Resource/Texture/Char/Char_Rufo_Close.png',
+    './Resource/Texture/Char/Char_Rufo_Dice.png',
+    './Resource/Texture/Char/Char_Rufo_Happy_1.png',
+    './Resource/Texture/Char/Char_Rufo_Happy_2.png',
+    './Resource/Texture/Char/Char_Rufo_Happy_3.png',
+    './Resource/Texture/Char/Char_Rufo_Idle.png',
+    './Resource/Texture/Char/Char_Rufo_Surprise.png',
+    './Resource/Texture/Char/Char_Rufo_Taunt_1.png',
+    './Resource/Texture/Char/Char_Rufo_Taunt_2.png',
+    './Resource/Texture/BG/BG_Throne_room.png',
+    './Resource/Texture/BG/BG_Broken_Altar_Special.png'
 ];
 
 const _commonImageCache = new Map();

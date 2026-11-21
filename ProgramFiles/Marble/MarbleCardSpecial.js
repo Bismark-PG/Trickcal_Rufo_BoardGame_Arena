@@ -9,7 +9,7 @@ import {
 } from './MarbleRuntime.js';
 import { CARD_IDS, treasureCards } from '../System/Index/Marble/MarbleCardIndex.js';
 import { BOARD_TILES } from '../System/Index/Marble/MarbleBoardIndex.js';
-import { GAME_CONSTANTS, getActiveBoardSize } from '../System/Index/Marble/MarblePriceIndex.js';
+import { GAME_CONSTANTS, getActiveBoardSize, isPlayerTreasureUnlocked } from '../System/Index/Marble/MarblePriceIndex.js';
 import { WorldGimmickManager, syncFurryBeachFeeMultiplier } from './MarbleWorldGimmick.js';
 import { checkAndDestroyRank2Privilege, applyLapPassBonus } from './MarbleCardNormal.js';
 import { acquireTreasureCard, stealTreasureCardFromPlayer, getAvailableTreasureCards } from './MarbleCardTreasure.js';
@@ -187,7 +187,8 @@ export function executeSpecialCard(ctx, card, onComplete = null) {
         // [111] 오디세이아: 보물 카드를 확정적으로 1장 획득
         case "spec_get_treasure": {
             const avail = getAvailableTreasureCards(treasureCards);
-            if (!p.hasVisitedAltar || avail.length === 0) {
+            const isUnlocked = isPlayerTreasureUnlocked(p, getActiveWorld()?.gameMode);
+            if (!isUnlocked || avail.length === 0) {
                 RuntimePopup.showToast(uiText.SPEC_ODYSSEY_FAIL, 2800, p.id);
                 scheduleGameTask(finish, 1800);
                 return;

@@ -75,6 +75,7 @@ export const GimmickLang = {
         // 보물 카드 관련 (제단)
         ALTAR_TITLE: "망가진 제단",
         ALTAR_VISIT: "제단에 발을 들였습니다. 이제부터 차원 열쇠 카드에서 미지의 힘이 깨어납니다...",
+        ALTAR_VISIT_PREUNLOCKED: "제단에 발을 들였습니다. 다음 방문 시 보물의 위치로 인도됩니다!",
         ALTAR_TRADE_Q: "보물 카드를 제단에 바치겠습니까? (개당 100만 엘드르 달러 획득)",
         ALTAR_TRADE_DONE: "보물을 바치고 돈을 챙겼습니다...",
         ALTAR_BTN_ALL: "전부 교환",

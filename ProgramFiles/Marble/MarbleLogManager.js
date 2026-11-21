@@ -49,6 +49,18 @@ export const MARBLE_MODE3_LOG_10_FILES = {
     RAW_DATA: '마블_모드3_10사이클_로그데이터.json'
 };
 
+export const MARBLE_MODE4_LOG_FILES = {
+    CYCLE_DETAIL: '마블_모드4_100사이클_상세로그.md',
+    AVERAGE_100: '마블_모드4_100사이클_평균로그.md',
+    RAW_DATA: '마블_모드4_100사이클_로그데이터.json'
+};
+
+export const MARBLE_MODE4_LOG_10_FILES = {
+    CYCLE_DETAIL: '마블_모드4_10사이클_상세로그.md',
+    AVERAGE_100: '마블_모드4_10사이클_평균로그.md',
+    RAW_DATA: '마블_모드4_10사이클_로그데이터.json'
+};
+
 export const MARBLE_LOG_FILES = MARBLE_MODE3_LOG_FILES;
 export const MARBLE_LOG_10_FILES = MARBLE_MODE3_LOG_10_FILES;
 
@@ -57,6 +69,7 @@ export const MARBLE_10_MAX_HISTORY = 10;
 
 // MarbleOdyssey PROB_TABLE (0~5개 보유 시 다음 드로우 보물 등장 확률)
 const TREASURE_PROB_TABLE = [0.05, 0.10, 0.20, 0.40, 0.80, 1.00];
+const TREASURE_PROB_TABLE_EMBER = [0.10, 0.20, 0.40, 0.60, 0.80, 1.00];
 
 export function fmt4(value) {
     const num = Number(value);
@@ -156,10 +169,11 @@ export function computeNormalizedAssetGapPct(values) {
 }
 
 /**
- * 제단 해금 이후 누적 랜덤 드로우 횟수(D)에 대해
- * 7-상태 흡수 마르코프 연쇄(PROB_TABLE: 5, 10, 20, 40, 80, 100%)의 정확한 기대 보물 획득 수를 계산한다.
+ * 해금 이후 누적 랜덤 드로우 횟수(D)에 대해
+ * 7-상태 흡수 마르코프 연쇄의 정확한 기대 보물 획득 수를 계산한다.
  */
-export function computeTreasureMarkovExpectation(drawCount) {
+export function computeTreasureMarkovExpectation(drawCount, probTable = TREASURE_PROB_TABLE) {
+    const table = Array.isArray(probTable) && probTable.length >= 6 ? probTable : TREASURE_PROB_TABLE;
     const d = Math.max(0, Math.floor(Number(drawCount) || 0));
     let dist = [1, 0, 0, 0, 0, 0, 0];
 
@@ -167,7 +181,7 @@ export function computeTreasureMarkovExpectation(drawCount) {
         const next = [0, 0, 0, 0, 0, 0, 0];
         for (let k = 0; k < 6; k++) {
             if (dist[k] <= 0) continue;
-            const p = TREASURE_PROB_TABLE[k];
+            const p = table[k];
             next[k] += dist[k] * (1 - p);
             next[k + 1] += dist[k] * p;
         }
@@ -180,8 +194,8 @@ export function computeTreasureMarkovExpectation(drawCount) {
         expectedCount += k * dist[k];
     }
 
-    const baselineFullDraws = TREASURE_PROB_TABLE.reduce((acc, p) => acc + (1 / p), 0); // 39.75회
-    const baselineRatePct = (6 / baselineFullDraws) * 100; // 15.0943%
+    const baselineFullDraws = table.reduce((acc, p) => acc + (1 / p), 0);
+    const baselineRatePct = (6 / baselineFullDraws) * 100;
     const expectedPerDrawRatePct = d > 0 ? clampPct((expectedCount / d) * 100) : 0;
 
     return {
@@ -388,7 +402,7 @@ export function buildMatchLogDataFromEngine(engine, rankedSettlement = null) {
             slotIndex: p.playerIndex || 1,
             isAi: p.isAi(),
             aiType: p.aiType || 'human',
-            aiDifficulty: p.isAi() ? (p.aiDifficulty || 'nuclear') : null,
+            aiDifficulty: p.isAi() ? (p.aiDifficulty || 'spicy') : null,
             settlementRank: (settleEntry ? settleEntry.idx + 1 : allPlayers.length),
             tieAwareNetWorthRank: postNetWorthRankMap.get(p) ?? allPlayers.length,
             tieAwareTotalAssetRank: discEntry.afterRank,
@@ -407,8 +421,10 @@ export function buildMatchLogDataFromEngine(engine, rankedSettlement = null) {
             totalLoanRaw: rawLoanPrincipal + rawLoanInterest,
             netWorth: res.netWorth,
             isBankruptFinal: Boolean(res.isBankruptFinal),
-            landAssetNet: getCategoryNetSum(res.categories, 1),
-            treasureSettleBonus: getCategoryNetSum(res.categories, 4),
+            landAssetNet: Number.isFinite(res.landAssetTotal)
+                ? res.landAssetTotal
+                : Math.max(0, getCategoryNetSum(res.categories, 0) - (res.baseCash || 0)),
+            treasureSettleBonus: getCategoryNetSum(res.categories, 3),
             landBuyCount: ownedNormals.length,
             buildingLevels,
             landmarkCount,
@@ -493,7 +509,8 @@ export function buildMatchLogDataFromEngine(engine, rankedSettlement = null) {
 
     const wm = engine.world?.metrics || {};
     const postAltarDraws = wm.postAltarEligibleDraws || 0;
-    const markov = computeTreasureMarkovExpectation(postAltarDraws);
+    const markovTable = engine.gameMode === 'ember' ? TREASURE_PROB_TABLE_EMBER : TREASURE_PROB_TABLE;
+    const markov = computeTreasureMarkovExpectation(postAltarDraws, markovTable);
     const actualProbTreasures = wm.drawnViaProbTableCount || 0;
     const actualOdysseyTreasures = wm.drawnViaOdysseyCount || 0;
     const actualAltarTreasures = wm.drawnViaAltarPortalCount || 0;
@@ -2929,7 +2946,7 @@ function formatSummaryCardSectionLines(dCards, popCards = null, totalSimulated =
     lines.push(`| 카드 등급 | 드로우 횟수 | 전체 대비 비율 | 대표 ${sampleCycles}사이클 횟수 (비율) | 비고 |`);
     lines.push(`| :--- | :---: | :---: | :---: | :--- |`);
     const gradeMeta = [
-        { key: 'normal', name: '일반 카드 (1~50)', note: `등장 종류 ${src.allNormalCount}종` },
+        { key: 'normal', name: '일반 카드 (1~51)', note: `등장 종류 ${src.allNormalCount}종` },
         { key: 'special', name: '특수 카드 (101~206)', note: `등장 종류 ${src.allSpecialCount}종` },
         {
             key: 'treasure',
@@ -3962,5 +3979,7 @@ export const MarbleMode2LogAdapter = createMarbleLogAdapter(MARBLE_MAX_HISTORY, 
 export const MarbleMode2Log10Adapter = createMarbleLogAdapter(MARBLE_10_MAX_HISTORY, MARBLE_MODE2_LOG_10_FILES, compactCyclesQuantilePreserve);
 export const MarbleMode3LogAdapter = createMarbleLogAdapter(MARBLE_MAX_HISTORY, MARBLE_MODE3_LOG_FILES, compactCyclesDensityPreserve);
 export const MarbleMode3Log10Adapter = createMarbleLogAdapter(MARBLE_10_MAX_HISTORY, MARBLE_MODE3_LOG_10_FILES, compactCyclesQuantilePreserve);
+export const MarbleMode4LogAdapter = createMarbleLogAdapter(MARBLE_MAX_HISTORY, MARBLE_MODE4_LOG_FILES, compactCyclesDensityPreserve);
+export const MarbleMode4Log10Adapter = createMarbleLogAdapter(MARBLE_10_MAX_HISTORY, MARBLE_MODE4_LOG_10_FILES, compactCyclesQuantilePreserve);
 export const MarbleLogAdapter = MarbleMode3LogAdapter;
 export const MarbleLog10Adapter = MarbleMode3Log10Adapter;

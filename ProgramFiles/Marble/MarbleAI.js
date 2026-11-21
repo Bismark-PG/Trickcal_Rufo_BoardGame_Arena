@@ -22,10 +22,10 @@ import { getDrawnTreasures } from './MarbleOdyssey.js';
 import { normalizeAiDifficulty } from '../System/GameRegistry.js';
 
 export const AI_DIFFICULTY_CONFIG = {
-    // 1단계: 순한맛 (쉬움) - 높은 현금 유보율, 낮은 전방 위험 감지, 증축 단계 하향 확률, 착지·도서관 오차, 낮은 전술 카드 발동률
+    // 1단계: 순한맛 (매우 쉬움) - 높은 현금 유보율, 낮은 전방 위험 감지, 증축 단계 하향 확률, 착지·도서관 오차, 낮은 전술 카드 발동률
     mild: {
         id: 'mild',
-        label: '순한맛 (쉬움)',
+        label: '순한맛 (매우 쉬움)',
         marginScale: { aggressive: 1.45, defensive: 1.35, marathon: 1.40 },
         dangerLookaheadScale: 0.50,
         buildStepDownProb: { aggressive: 0.35, defensive: 0.42, marathon: 0.38 },
@@ -38,12 +38,19 @@ export const AI_DIFFICULTY_CONFIG = {
         loanRepayReserveScale: 1.45,
         loanRepayMinTurnsAdd: 2,
         sistThreshold: 1350000,
-        leaderFocusBonus: 0.0
+        sistSpecialThreshold: 1350000,
+        leaderFocusBonus: 0.0,
+        tacticalTier: 0,
+        portalLookaheadRiskWeight: 0.0,
+        portalLookaheadMaxStep: 7,
+        bbangjuSupportProbScale: 0.60,
+        diceGaugePowers: null,
+        endgameRoiBoost: false
     },
-    // 2단계: 매운맛 (보통) - 완만한 유보율, 약간의 증축 양보·평가 오차, 표준보다 조금 보수적인 카드/특수칸 활용
-    spicy: {
-        id: 'spicy',
-        label: '매운맛 (보통)',
+    // 2단계: 보통맛 (쉬움) - 기존 매운맛 이관: 완만한 유보율, 약간의 증축 양보·평가 오차, 가벼운 캐주얼 대전
+    normal: {
+        id: 'normal',
+        label: '보통맛 (쉬움)',
         marginScale: { aggressive: 1.18, defensive: 1.14, marathon: 1.16 },
         dangerLookaheadScale: 0.80,
         buildStepDownProb: { aggressive: 0.14, defensive: 0.18, marathon: 0.15 },
@@ -56,12 +63,19 @@ export const AI_DIFFICULTY_CONFIG = {
         loanRepayReserveScale: 1.18,
         loanRepayMinTurnsAdd: 1,
         sistThreshold: 1150000,
-        leaderFocusBonus: 0.0
+        sistSpecialThreshold: 1150000,
+        leaderFocusBonus: 0.0,
+        tacticalTier: 0,
+        portalLookaheadRiskWeight: 0.0,
+        portalLookaheadMaxStep: 7,
+        bbangjuSupportProbScale: 0.85,
+        diceGaugePowers: null,
+        endgameRoiBoost: false
     },
-    // 3단계: 핵불맛 (어려움) - 10만 사이클 밸런스 검증 표준 파라미터 (오차 0, 최적 판단 100%)
-    nuclear: {
-        id: 'nuclear',
-        label: '핵불맛 (어려움)',
+    // 3단계: 매운맛 (보통) - 기존 핵불맛 이관: 10만 사이클 밸런스 검증 표준 파라미터 (오차 0, 최적 판단 100%, 순수 2d6)
+    spicy: {
+        id: 'spicy',
+        label: '매운맛 (보통)',
         marginScale: { aggressive: 1.00, defensive: 1.00, marathon: 1.00 },
         dangerLookaheadScale: 1.00,
         buildStepDownProb: { aggressive: 0.0, defensive: 0.0, marathon: 0.0 },
@@ -74,12 +88,19 @@ export const AI_DIFFICULTY_CONFIG = {
         loanRepayReserveScale: 1.00,
         loanRepayMinTurnsAdd: 0,
         sistThreshold: 1000000,
-        leaderFocusBonus: 0.0
+        sistSpecialThreshold: 1000000,
+        leaderFocusBonus: 0.0,
+        tacticalTier: 0,
+        portalLookaheadRiskWeight: 0.0,
+        portalLookaheadMaxStep: 7,
+        bbangjuSupportProbScale: 1.00,
+        diceGaugePowers: null,
+        endgameRoiBoost: false
     },
-    // 4단계: 마그맛 (매우어려움) - 극한의 자본 회전율, 요충지·시간대 선택과 집중, 1위 집중 견제, 포탈 2중 위험 탐색, 시스트·대출 조기 최적화
-    magma: {
-        id: 'magma',
-        label: '마그맛 (매우어려움)',
+    // 4단계: 핵불맛 (어려움) - 기존 마그맛 전술 계승 + 3단 게이지 주사위(0/50/100) 전략 조절, 1위 견제, 포탈 2중 위험 탐색
+    nuclear: {
+        id: 'nuclear',
+        label: '핵불맛 (어려움)',
         marginScale: { aggressive: 0.92, defensive: 0.88, marathon: 0.90 },
         dangerLookaheadScale: 1.15,
         buildStepDownProb: { aggressive: 0.0, defensive: 0.0, marathon: 0.0 },
@@ -92,7 +113,39 @@ export const AI_DIFFICULTY_CONFIG = {
         loanRepayReserveScale: 0.82,
         loanRepayMinTurnsAdd: -1,
         sistThreshold: 750000,
-        leaderFocusBonus: 0.35
+        sistSpecialThreshold: 600000,
+        leaderFocusBonus: 0.35,
+        tacticalTier: 1,
+        portalLookaheadRiskWeight: 0.14,
+        portalLookaheadMaxStep: 7,
+        bbangjuSupportProbScale: 1.45,
+        diceGaugePowers: [0, 50, 100],
+        endgameRoiBoost: false
+    },
+    // 5단계: 마그맛 (매우 어려움) - 최상위 보스급: 5단 정밀 게이지 최적화, 1위 집중 저격(0.55), 2~12칸 2중 위험 탐색, 막판 정산 ROI 극대화
+    magma: {
+        id: 'magma',
+        label: '마그맛 (매우 어려움)',
+        marginScale: { aggressive: 0.84, defensive: 0.80, marathon: 0.82 },
+        dangerLookaheadScale: 1.30,
+        buildStepDownProb: { aggressive: 0.0, defensive: 0.0, marathon: 0.0 },
+        specialTileSkipProb: 0.0,
+        specialReserveScale: 0.68,
+        landingScoreNoise: 0,
+        portalSuboptimalProb: 0.0,
+        librarySuboptimalProb: 0.0,
+        activeCardUseProb: { aggressive: 1.00, defensive: 1.00, marathon: 1.00 },
+        loanRepayReserveScale: 0.72,
+        loanRepayMinTurnsAdd: -1,
+        sistThreshold: 600000,
+        sistSpecialThreshold: 450000,
+        leaderFocusBonus: 0.55,
+        tacticalTier: 2,
+        portalLookaheadRiskWeight: 0.22,
+        portalLookaheadMaxStep: 12,
+        bbangjuSupportProbScale: 1.65,
+        diceGaugePowers: [0, 25, 50, 75, 100],
+        endgameRoiBoost: true
     }
 };
 
@@ -101,12 +154,12 @@ export const AIManager = {
     // 0. 공통 상황 평가 헬퍼 (내부/공용)
     // ==========================================
     getDifficultyKey(player) {
-        return normalizeAiDifficulty(player?.aiDifficulty || 'nuclear', 'nuclear');
+        return normalizeAiDifficulty(player?.aiDifficulty || 'spicy', 'spicy');
     },
 
     getDifficultyConfig(player) {
         const key = this.getDifficultyKey(player);
-        return AI_DIFFICULTY_CONFIG[key] || AI_DIFFICULTY_CONFIG.nuclear;
+        return AI_DIFFICULTY_CONFIG[key] || AI_DIFFICULTY_CONFIG.spicy;
     },
 
     getMaxTurn() {
@@ -313,8 +366,13 @@ export const AIManager = {
                 } else {
                     baseMargin = Math.min(1400000, Math.max(baseMargin, Math.round(scaledMaxToll * 0.65)));
                 }
-            } else if (player.aiType === 'aggressive' && diffCfg.id === 'magma' && maxToll >= 1200000 && !(isSoot && !player.isReincarnated)) {
-                baseMargin = Math.min(900000, Math.max(baseMargin, Math.round(maxToll * 0.38)));
+            } else if (player.aiType === 'aggressive' && (diffCfg.tacticalTier || 0) >= 1 && !(isSoot && !player.isReincarnated)) {
+                const triggerToll = (diffCfg.tacticalTier || 0) >= 2 ? 1000000 : 1200000;
+                if (maxToll >= triggerToll) {
+                    const mult = (diffCfg.tacticalTier || 0) >= 2 ? 0.42 : 0.38;
+                    const cap = (diffCfg.tacticalTier || 0) >= 2 ? 950000 : 900000;
+                    baseMargin = Math.min(cap, Math.max(baseMargin, Math.round(maxToll * mult)));
+                }
             }
         }
 
@@ -355,8 +413,9 @@ export const AIManager = {
         }
 
         const cheapest = sellables[0];
+        const maxTurn = this.getMaxTurn();
         if (player.aiType === 'defensive') {
-            if (cheapest.level === 0 && !cheapest.isSpecialToll && (globalTurn <= 15 || getTileSellValue(cheapest) > emergencyLoanAmount)) {
+            if (cheapest.level === 0 && !cheapest.isSpecialToll && (globalTurn <= Math.max(1, maxTurn - 5) || getTileSellValue(cheapest) > emergencyLoanAmount)) {
                 return { action: 'sell', tiles: [cheapest] };
             }
             if (canLoan) return { action: 'loan', tiles: [] };
@@ -373,7 +432,7 @@ export const AIManager = {
 
         // 공격형
         if (canLoan) {
-            if (globalTurn >= 19 && cheapest.level === 0 && getTileSellValue(cheapest) > emergencyLoanAmount) {
+            if (globalTurn >= Math.max(1, maxTurn - 1) && cheapest.level === 0 && getTileSellValue(cheapest) > emergencyLoanAmount) {
                 return { action: 'sell', tiles: [cheapest] };
             }
             return { action: 'loan', tiles: [] };
@@ -402,7 +461,7 @@ export const AIManager = {
         if (player.aiType === 'marathon' && allEmpty) {
             return { action: 'sell', tiles: picked };
         }
-        if (player.aiType === 'aggressive' && globalTurn >= 19 && allEmpty) {
+        if (player.aiType === 'aggressive' && globalTurn >= Math.max(1, this.getMaxTurn() - 1) && allEmpty) {
             return { action: 'sell', tiles: picked };
         }
 
@@ -474,8 +533,8 @@ export const AIManager = {
         if (!player.inventory.some(c => c.id === CARD_IDS.SIST_DEAL)) return false;
 
         const diffCfg = this.getDifficultyConfig(player);
-        const sistThreshold = (diffCfg.id === 'magma' && tile.isSpecialToll)
-            ? 600000
+        const sistThreshold = tile.isSpecialToll
+            ? (diffCfg.sistSpecialThreshold ?? diffCfg.sistThreshold ?? 1000000)
             : (diffCfg.sistThreshold ?? 1000000);
         if (rawCost >= sistThreshold) return true;
         const halfCost = Math.round(rawCost * 0.5);
@@ -510,14 +569,45 @@ export const AIManager = {
         const isLatePhase = this.getTurnPhase(globalTurn) === 'late';
 
         const hasSist = player.inventory && player.inventory.some(c => c.id === CARD_IDS.SIST_DEAL);
-        const sistThreshold = (diffCfg.id === 'magma' && tile.isSpecialToll)
-            ? 600000
+        const tier = diffCfg.tacticalTier || 0;
+        const sistThreshold = tile.isSpecialToll
+            ? (diffCfg.sistSpecialThreshold ?? diffCfg.sistThreshold ?? 1000000)
             : (diffCfg.sistThreshold ?? 1000000);
         const getEffCost = (lvl) => {
             const raw = calcCosts[lvl];
             if (hasSist && raw >= sistThreshold) return Math.round(raw * 0.5);
             return raw;
         };
+
+        // 마그맛(endgameRoiBoost): 잔여 2턴 이내(maxTurn-1 ~ maxTurn) 막판 구간에서는 정산 순자산 환산 이익(정산가치 증가 - 지출) 극대화
+        const maxTurn = this.getMaxTurn();
+        const remainingTurns = maxTurn - globalTurn;
+        if (diffCfg.endgameRoiBoost && tile.type === 'normal' && remainingTurns <= 1) {
+            const curSettleVal = tile.level >= 0
+                ? Math.round(tile.basePrice * (MULTIPLIERS.SETTLEMENT[tile.level] + tile.level))
+                : 0;
+            const endgameReserve = remainingTurns <= 0 ? 0 : Math.min(Math.round(safetyMargin * 0.55), 400000);
+            let bestEndLvl = -1;
+            let bestEndGain = 0;
+            for (let lvl = maxAllowedLvl; lvl >= minLvl; lvl--) {
+                if (tile.level >= lvl || calcCosts[lvl] === undefined) continue;
+                const cost = getEffCost(lvl);
+                if (currentMoney - cost < endgameReserve) continue;
+                const nextSettleVal = Math.round(tile.basePrice * (MULTIPLIERS.SETTLEMENT[lvl] + lvl));
+                const netGain = (nextSettleVal - curSettleVal) - cost;
+                if (netGain > bestEndGain) {
+                    bestEndGain = netGain;
+                    bestEndLvl = lvl;
+                }
+            }
+            if (bestEndLvl >= 0) {
+                return bestEndLvl;
+            }
+            // 최종 턴에 정산 순손실 지출은 강제 건설(활)이 아닌 한 차단
+            if (remainingTurns <= 0 && minLvl === 0) {
+                return -1;
+            }
+        }
 
         const isSootDiscount = RequiemState.isSootState && !player.isReincarnated;
         const hasReincarnatedRival = this.hasReincarnatedRival(player);
@@ -526,12 +616,12 @@ export const AIManager = {
         if (player.aiType === 'aggressive') {
             const isHaloKarmaEarly = RequiemState.isHaloState && player.hasKarmaState && !isLatePhase && !tile.isSpecialToll && tile.side < 2;
             const highValueSpot = !isHaloKarmaEarly && (tile.isSpecialToll || tile.side >= 2 || isSootDiscount || isHaloBenefit || isLatePhase);
-            const baseSootCap = isSootDiscount ? (hasReincarnatedRival ? 220000 : 150000) : (diffCfg.id === 'magma' ? 140000 : 200000);
+            const baseSootCap = isSootDiscount ? (hasReincarnatedRival ? 220000 : 150000) : (tier >= 2 ? 110000 : (tier >= 1 ? 140000 : 200000));
             const sootCap = Math.round(baseSootCap * (diffCfg.marginScale?.aggressive ?? 1.0));
             const effMargin = highValueSpot ? Math.min(safetyMargin, sootCap) : safetyMargin;
             const side0StatueCushion = isSootDiscount
                 ? 600000
-                : (diffCfg.id === 'magma' ? 850000 : 1200000);
+                : (tier >= 2 ? 700000 : (tier >= 1 ? 850000 : 1200000));
 
             for (let lvl = maxAllowedLvl; lvl >= minLvl; lvl--) {
                 if (tile.level >= lvl) continue;
@@ -554,7 +644,7 @@ export const AIManager = {
             let marginMult = isPriorityTile ? 0.72 : 0.90;
             if (isSootDiscount) marginMult = hasReincarnatedRival ? 0.72 : 0.55;
             else if (isLatePhase && tile.level >= 2) marginMult = 0.60;
-            if (diffCfg.id === 'magma' && isPriorityTile) marginMult *= 0.82;
+            if (tier >= 1 && isPriorityTile) marginMult *= (tier >= 2 ? 0.76 : 0.82);
             const baseReserve = Math.round(safetyMargin * marginMult);
 
             for (let lvl = maxAllowedLvl; lvl >= minLvl; lvl--) {
@@ -575,11 +665,11 @@ export const AIManager = {
             const isPriorityTile = isSootDiscount || tile.isSpecialToll || isTimeMatch || tile.level >= 2 || tile.side >= 2 || isHaloTarget || isKarmaSettlementTarget;
             let marginMult = isPriorityTile ? 0.85 : 1.0;
             if (isSootDiscount) marginMult = hasReincarnatedRival ? 0.82 : 0.65;
-            if (diffCfg.id === 'magma' && isPriorityTile) marginMult *= 0.80;
+            if (tier >= 1 && isPriorityTile) marginMult *= (tier >= 2 ? 0.74 : 0.80);
             const effMargin = Math.round(safetyMargin * marginMult);
 
-            // 이미 건물(Lv.2~3)이 있거나 고가치 구역·그을음 0.5배 할인 구간·마그맛 시간대 일치 타일이면 최고 허용 단계까지 적극 증축
-            if (isSootDiscount || tile.level >= 2 || tile.isSpecialToll || tile.side >= 2 || (diffCfg.id === 'magma' && isTimeMatch)) {
+            // 이미 건물(Lv.2~3)이 있거나 고가치 구역·그을음 0.5배 할인 구간·고난이도(핵불맛/마그맛) 시간대 일치 타일이면 최고 허용 단계까지 적극 증축
+            if (isSootDiscount || tile.level >= 2 || tile.isSpecialToll || tile.side >= 2 || (tier >= 1 && isTimeMatch)) {
                 for (let lvl = maxAllowedLvl; lvl >= minLvl; lvl--) {
                     if (tile.level >= lvl) continue;
                     if (currentMoney - getEffCost(lvl) >= effMargin) {
@@ -738,7 +828,8 @@ export const AIManager = {
             if (type === 'defensive' && tile.owner.isReincarnated) riskMult = 1.28;
             else if (type === 'defensive' && this.isHaloSpecialBeneficiary(tile.owner)) riskMult = 1.28;
             else if (type === 'defensive' && player.hasRegretState) riskMult = 1.25;
-            if (diffCfg.id === 'magma') riskMult += 0.08;
+            const tier = diffCfg.tacticalTier || 0;
+            if (tier >= 1) riskMult += (tier >= 2 ? 0.14 : 0.08);
             let penalty = -Math.round(toll * riskMult);
             if (money < toll) penalty -= 2000000;
             return penalty;
@@ -746,6 +837,7 @@ export const AIManager = {
 
         // 2. 본인 소유 타일 도착 시
         if (tile.owner === player) {
+            const tier = diffCfg.tacticalTier || 0;
             const isSootDiscount = RequiemState.isSootState && !player.isReincarnated;
             const isHaloBenefit = this.isHaloBeneficiary(player);
             if (tile.type === 'normal' && tile.level < 4) {
@@ -756,7 +848,7 @@ export const AIManager = {
                 const upgCost = isSootDiscount ? Math.round(rawUpgCost * 0.5) : rawUpgCost;
                 if (money >= upgCost + margin * 0.5) {
                     let bonus = 260000 + tile.side * 60000;
-                    if (tile.isSpecialToll) bonus += diffCfg.id === 'magma' ? 320000 : 200000;
+                    if (tile.isSpecialToll) bonus += (tier >= 2 ? 400000 : (tier >= 1 ? 320000 : 200000));
                     if (upcomingTime !== 'none' && tile.timeType === upcomingTime) bonus += 150000;
                     if (isSootDiscount) bonus += 180000;
                     if (isHaloBenefit) bonus += this.isHaloSpecialBeneficiary(player) ? 120000 : 60000;
@@ -773,6 +865,7 @@ export const AIManager = {
 
         // 3. 미소유 구매 가능 타일
         if (tile.type === 'normal') {
+            const tier = diffCfg.tacticalTier || 0;
             const isSootDiscount = RequiemState.isSootState && !player.isReincarnated;
             const rawMinCost = isBowVillageForced(player)
                 ? tile.basePrice + BUILDING_COSTS[tile.side][1]
@@ -780,7 +873,7 @@ export const AIManager = {
             const minCost = isSootDiscount ? Math.round(rawMinCost * 0.5) : rawMinCost;
             if (money >= minCost + margin * 0.4) {
                 let score = 200000 + tile.side * 80000;
-                if (tile.isSpecialToll) score += diffCfg.id === 'magma' ? 480000 : 350000;
+                if (tile.isSpecialToll) score += (tier >= 2 ? 560000 : (tier >= 1 ? 480000 : 350000));
                 if (upcomingTime !== 'none' && tile.timeType === upcomingTime) score += 120000;
                 if (isSootDiscount) {
                     score += this.hasReincarnatedRival(player) ? 200000 : 260000;
@@ -790,19 +883,20 @@ export const AIManager = {
             return 10000;
         }
 
-        if (tile.id === BOARD_TILES.DAYA && globalTurn <= 18 && money >= GAME_CONSTANTS.DAYA_BUY + 300000) {
+        const maxTurn = this.getMaxTurn();
+        if (tile.id === BOARD_TILES.DAYA && globalTurn <= maxTurn - 2 && money >= GAME_CONSTANTS.DAYA_BUY + 300000) {
             return type === 'defensive' ? 800000 : 950000;
         }
-        if (tile.id === BOARD_TILES.THEATER && globalTurn <= 18 && money >= GAME_CONSTANTS.THEATER_BUY + 250000) {
+        if (tile.id === BOARD_TILES.THEATER && globalTurn <= maxTurn - 2 && money >= GAME_CONSTANTS.THEATER_BUY + 250000) {
             return 550000;
         }
-        if (tile.id === BOARD_TILES.MONATIUM_25 && globalTurn <= 17 && money >= GAME_CONSTANTS.MONATIUM_BUY + 300000) {
+        if (tile.id === BOARD_TILES.MONATIUM_25 && globalTurn <= maxTurn - 3 && money >= GAME_CONSTANTS.MONATIUM_BUY + 300000) {
             return 450000;
         }
-        if (tile.id === BOARD_TILES.LIBRARY && globalTurn <= 16 && money >= GAME_CONSTANTS.LIBRARY_BUY + 350000) {
+        if (tile.id === BOARD_TILES.LIBRARY && globalTurn <= maxTurn - 4 && money >= GAME_CONSTANTS.LIBRARY_BUY + 350000) {
             return type === 'marathon' ? 700000 : 500000;
         }
-        if (tile.id === BOARD_TILES.LAKE && globalTurn <= 16 && money >= GAME_CONSTANTS.LAKE_BUY + 350000) {
+        if (tile.id === BOARD_TILES.LAKE && globalTurn <= maxTurn - 4 && money >= GAME_CONSTANTS.LAKE_BUY + 350000) {
             return 450000;
         }
 
@@ -826,7 +920,9 @@ export const AIManager = {
             if (modeCfg.altarWarpToRandomCardTile) {
                 return 320000 + Math.round(this.getExpectedStartBonus(player) / 3);
             }
-            if (!player.hasVisitedAltar && !RequiemState.hasSootEverTriggered) return 480000;
+            if (!player.hasVisitedAltar && !RequiemState.hasSootEverTriggered) {
+                return modeCfg.startWithTreasureUnlocked ? 320000 : 480000;
+            }
             if ((player.altarVisitCount || 0) >= 1 && !RequiemState.hasSootEverTriggered && !RequiemState.isSootState && getDrawnTreasures().size < 6) {
                 return 550000;
             }
@@ -845,7 +941,7 @@ export const AIManager = {
             return canPlayerUseBbangju(player) ? 320000 : 0;
         }
         if (tile.id === BOARD_TILES.VOLCANICA) {
-            return globalTurn >= 16 && type === 'defensive' ? -100000 : -600000;
+            return globalTurn >= Math.max(1, maxTurn - 4) && type === 'defensive' ? -100000 : -600000;
         }
         if (tile.id === BOARD_TILES.VOID) {
             const hasRim = player.buffs && ((player.buffs['hold_shaydi'] && player.buffs['hold_shaydi'].length > 0) || (player.buffs['todo_hold_shaydi'] && player.buffs['todo_hold_shaydi'].length > 0));
@@ -912,15 +1008,15 @@ export const AIManager = {
             if (tile.id < player.pos || tile.id === BOARD_TILES.START) {
                 score += startBonus;
             }
-            if (diffCfg.id === 'magma') {
+            if ((diffCfg.portalLookaheadRiskWeight || 0) > 0) {
                 let nextThreat;
                 try {
                     player.pos = tile.id;
-                    nextThreat = this.evaluateDangerAhead(player, tiles, 2, 7);
+                    nextThreat = this.evaluateDangerAhead(player, tiles, 2, diffCfg.portalLookaheadMaxStep || 7);
                 } finally {
                     player.pos = prevPos;
                 }
-                score -= Math.round((nextThreat?.maxToll || 0) * 0.14);
+                score -= Math.round((nextThreat?.maxToll || 0) * diffCfg.portalLookaheadRiskWeight);
             } else if ((diffCfg.landingScoreNoise || 0) > 0) {
                 score += Math.round((Math.random() * 2 - 1) * diffCfg.landingScoreNoise);
             }
@@ -1000,7 +1096,7 @@ export const AIManager = {
         const isBasic = modeCfg.id === 'basic';
         const marathonMin = isBasic ? 3000000 : 3800000;
         const defMin = isBasic ? 3450000 : 5100000;
-        const probScale = diffCfg.id === 'mild' ? 0.60 : (diffCfg.id === 'spicy' ? 0.85 : (diffCfg.id === 'magma' ? 1.45 : 1.0));
+        const probScale = diffCfg.bbangjuSupportProbScale ?? 1.0;
         if (player.aiType === 'marathon') return player.money >= marathonMin && Math.random() < Math.min(0.95, 0.60 * probScale);
         if (player.aiType === 'aggressive') return Math.random() < Math.min(0.90, 0.50 * probScale);
         return player.money >= defMin && Math.random() < Math.min(0.85, 0.30 * probScale);
@@ -1328,13 +1424,15 @@ export const AIManager = {
         if (inv.length === 0 && usableTreasures.length === 0) return null;
 
         const diffCfg = this.getDifficultyConfig(player);
+        const tier = diffCfg.tacticalTier || 0;
+        const maxTurn = this.getMaxTurn();
         const danger = this.evaluateDangerAhead(player, tiles, 1, 12);
 
         // 1. 볼케니카 탈출 카드 (수감 탈출은 난이도 확률 제한 없이 판단)
         if (player.islandTurns > 0) {
             const escapeCard = inv.find(c => c.id === CARD_IDS.NER_ESCAPE);
             if (escapeCard) {
-                if (globalTurn <= 15) return escapeCard;
+                if (globalTurn <= Math.max(1, maxTurn - 5)) return escapeCard;
                 if (danger.maxToll < (player.aiType === 'defensive' ? Math.max(1000000, player.money * 0.45) : 1200000)) return escapeCard;
             }
             // 볼케니카 수감 중에도 사용 가능한 견제/건설 카드만 제한적으로 판단
@@ -1351,7 +1449,7 @@ export const AIManager = {
             return null;
         }
 
-        // 1.5 [50: 골디의 부동산명함] (대출 보유 시 사용: 오두막 이하면 즉시 사용, 2단계 이상이면 순자산 손익 비교 후 사용)
+        // 1.5 [51: 골디의 부동산명함] (대출 보유 시 사용: 오두막 이하면 즉시 사용, 2단계 이상이면 순자산 손익 비교 후 사용)
         const goldieRealtyCard = inv.find(c => c.id === CARD_IDS.GOLDIE_REALTY);
         const currentDebt = player.getTotalLoanDebt ? player.getTotalLoanDebt() : ((player.loanPrincipal || 0) + (player.loanInterest || 0));
         if (goldieRealtyCard && currentDebt > 0) {
@@ -1366,7 +1464,7 @@ export const AIManager = {
                 const afterLvl = Math.max(0, t.level - 2);
                 const afterInvest = afterLvl === 0 ? t.basePrice : t.basePrice + BUILDING_COSTS[t.side][afterLvl - 1];
                 const beforeVal = beforeInvest * (MULTIPLIERS.SETTLEMENT[t.level] || 1);
-                const afterVal = afterInvest * (MULTIPLIERS.SETTLEMENT[afterLvl] || 0.5);
+                const afterVal = afterInvest * (MULTIPLIERS.SETTLEMENT[afterLvl] || 1.0);
                 return sum + Math.max(0, beforeVal - afterVal);
             }, 0) / Math.max(1, topTiles.length);
             const savedDebt = Math.round(currentDebt * 0.5);
@@ -1396,7 +1494,7 @@ export const AIManager = {
         const ropeCard = usableTreasures.find(tc => tc.id === CARD_IDS.TREASURE_ROPE);
         if (ropeCard) {
             const target = this.selectRopeTargetTile(player, tiles, allPlayers);
-            if (target && (target.level >= 2 || target.isSpecialToll || globalTurn >= 15)) {
+            if (target && (target.level >= 2 || target.isSpecialToll || globalTurn >= Math.max(1, maxTurn - 5))) {
                 return ropeCard;
             }
         }
@@ -1405,12 +1503,12 @@ export const AIManager = {
         const staffCard = usableTreasures.find(tc => tc.id === CARD_IDS.TREASURE_STAFF);
         if (staffCard) {
             const target = this.selectStaffTargetTile(player, tiles, allPlayers);
-            if (target && ((target.owner && (target.level >= 2 || target.isSpecialToll)) || globalTurn >= 15)) {
+            if (target && ((target.owner && (target.level >= 2 || target.isSpecialToll)) || globalTurn >= Math.max(1, maxTurn - 5))) {
                 return staffCard;
             }
         }
 
-        // 5. [45: 마요의 암거래] (후회·죄업 방어형과 그을음 0.5배 구간에서는 과지출 억제)
+        // 5. [47: 마요의 암거래] (후회·죄업 방어형과 그을음 0.5배 구간에서는 과지출 억제)
         const mayoCard = inv.find(c => c.id === CARD_IDS.MAYO_DEAL);
         const allowMayo = player.aiType !== 'defensive'
             ? !(RequiemState.isSootState && !player.isReincarnated && !this.hasReincarnatedRival(player))
@@ -1421,13 +1519,13 @@ export const AIManager = {
             }
         }
 
-        // 6. [46: 마리의 스위치]
+        // 6. [48: 마리의 스위치]
         const mariCard = inv.find(c => c.id === CARD_IDS.MARI_SWITCH);
         if (mariCard) {
             const targetEnemy = this.selectMariTargetPlayer(player, tiles, allPlayers);
             if (targetEnemy) {
                 const hasHighThreat = tiles.some(t => t.owner === targetEnemy && (t.level >= 2 || t.isSpecialToll));
-                if (player.aiType !== 'defensive' || hasHighThreat || globalTurn >= 10) {
+                if (player.aiType !== 'defensive' || hasHighThreat || globalTurn >= Math.ceil(maxTurn * 0.5)) {
                     return mariCard;
                 }
             }
@@ -1447,7 +1545,7 @@ export const AIManager = {
             return buildCard;
         }
 
-        // 8. [47: 주야역전]
+        // 8. [49: 주야역전]
         const revCard = inv.find(c => c.id === CARD_IDS.REVERSE_TIME);
         if (revCard && this.selectReverseTimeTile(player, tiles, globalTurn)) {
             return revCard;
@@ -1463,17 +1561,19 @@ export const AIManager = {
             if (passedStart) bestScore += this.getExpectedStartBonus(player);
 
             const dangerNear = this.evaluateDangerAhead(player, tiles, 2, 7);
-            const baseEvadeThreshold = (this.hasReincarnatedRival(player) || player.hasRegretState) ? 350000 : (diffCfg.id === 'magma' ? 380000 : 500000);
+            const evadeByTier = tier >= 2 ? 320000 : (tier >= 1 ? 380000 : 500000);
+            const baseEvadeThreshold = (this.hasReincarnatedRival(player) || player.hasRegretState) ? Math.min(350000, evadeByTier) : evadeByTier;
             if (bestScore >= 350000 || (dangerNear.maxToll >= baseEvadeThreshold && bestScore > -100000)) {
                 return shroudCard;
             }
         }
 
-        // 10. [48: 루포의 주사위] (전방 1~6칸 위험 회피 or 고효율 점프)
+        // 10. [50: 루포의 주사위] (전방 1~6칸 위험 회피 or 고효율 점프)
         const rufoCard = inv.find(c => c.id === CARD_IDS.RUFO_DICE);
         if (rufoCard && !player.hasRufoDiceBuff) {
             const dangerNear = this.evaluateDangerAhead(player, tiles, 2, 7);
-            const rufoTollThreshold = (this.hasReincarnatedRival(player) || player.hasRegretState) ? 320000 : (diffCfg.id === 'magma' ? 300000 : 400000);
+            const rufoByTier = tier >= 2 ? 250000 : (tier >= 1 ? 300000 : 400000);
+            const rufoTollThreshold = (this.hasReincarnatedRival(player) || player.hasRegretState) ? Math.min(320000, rufoByTier) : rufoByTier;
             if (dangerNear.dangerCount >= 1 && dangerNear.maxToll >= rufoTollThreshold) {
                 return rufoCard;
             }
@@ -1483,7 +1583,7 @@ export const AIManager = {
             if (farScore >= 550000) return rufoCard;
         }
 
-        // 11. [44: 골디의 제안] (초중반 현금 부족 시 저열/저단계 매각, 후반 19~20턴 절대 금지)
+        // 11. [46: 골디의 제안] (초중반 현금 부족 시 저열/저단계 매각, 후반 19~20턴 절대 금지)
         const goldieCard = inv.find(c => c.id === CARD_IDS.GOLDIE_PROPOSAL);
         if (goldieCard && globalTurn <= Math.max(1, this.getMaxTurn() - 2)) {
             const sellCandidate = this.selectGoldieSellTile(player, tiles);
@@ -1587,5 +1687,73 @@ export const AIManager = {
         ];
         candidates.sort((a, b) => b.score - a.score);
         return candidates[0].type;
+    },
+
+    // ==========================================
+    // 8. 게이지 주사위(Soft-Weighted 2d6) 기대값 최적화 (핵불맛 3단 / 마그맛 5단)
+    // ==========================================
+    decideDicePower(ctx) {
+        const {
+            player,
+            tiles = [],
+            allPlayers = [],
+            turnManager = null,
+            diceCount = 2,
+            hasRufoDiceBuff = false,
+            computeDiceTable = null
+        } = ctx || {};
+        const defaultPower = GAME_CONSTANTS.DICE_GAUGE_DEFAULT_POWER ?? 50;
+        const diffCfg = this.getDifficultyConfig(player);
+        const candidates = diffCfg?.diceGaugePowers;
+        if (!Array.isArray(candidates) || candidates.length === 0 || typeof computeDiceTable !== 'function') {
+            return defaultPower;
+        }
+        if (!player || player.restTurns > 0 || player.islandTurns > 0 || !Array.isArray(tiles) || tiles.length === 0) {
+            return defaultPower;
+        }
+
+        const globalTurn = turnManager ? turnManager.globalTurn : 1;
+        const startBonus = this.getExpectedStartBonus(player);
+        const d3Offset = hasRufoDiceBuff ? 6 : 0;
+        const tier = diffCfg.tacticalTier || 0;
+
+        const stepScoreCache = new Map();
+        const getStepScore = (steps) => {
+            if (stepScoreCache.has(steps)) return stepScoreCache.get(steps);
+            const { pos: targetIdx, passedStart } = stepActiveBoardPos(player.pos, steps, tiles);
+            const targetTile = tiles[targetIdx];
+            let score = targetTile ? this.scoreLandingTile(player, targetTile, tiles, allPlayers, globalTurn) : 0;
+            if (passedStart) score += startBonus;
+            // 마그맛(tacticalTier >= 2): 착지 후 다음 턴 2~12칸 전방 최대 통행료 위협까지 경량 선행 감점
+            if (tier >= 2 && targetTile) {
+                const prevPos = player.pos;
+                let nextThreat;
+                try {
+                    player.pos = targetTile.id;
+                    nextThreat = this.evaluateDangerAhead(player, tiles, 2, 12);
+                } finally {
+                    player.pos = prevPos;
+                }
+                score -= Math.round((nextThreat?.maxToll || 0) * 0.08);
+            }
+            stepScoreCache.set(steps, score);
+            return score;
+        };
+
+        let bestPower = defaultPower;
+        let bestEV = -Infinity;
+        for (const power of candidates) {
+            const table = computeDiceTable(diceCount, power);
+            if (!table?.stepProbs) continue;
+            let ev = 0;
+            for (const [sum, prob] of table.stepProbs.entries()) {
+                ev += prob * getStepScore(sum + d3Offset);
+            }
+            if (ev > bestEV) {
+                bestEV = ev;
+                bestPower = power;
+            }
+        }
+        return bestPower;
     }
 };

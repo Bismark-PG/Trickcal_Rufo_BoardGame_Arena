@@ -101,6 +101,10 @@ class ArenaNetworkClient {
         };
     }
 
+    getStoredNickname() {
+        return safeSessionGet(STORAGE_NICK_KEY) || this.nickname || '';
+    }
+
     setStoredNickname(nick) {
         if (nick) {
             this.nickname = nick;

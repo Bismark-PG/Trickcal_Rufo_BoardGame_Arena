@@ -4,17 +4,23 @@ import { initMarbleMain } from './Scenes/GameMain/MarbleMain.js';
 import { initUnosMain } from './Scenes/GameMain/UnosMain.js';
 import { initRoom } from './Scenes/GameRoom.js';
 import { initMarble } from './Scenes/GameMarble.js';
+import { initUnos } from './Scenes/GameUnos.js';
 import { RoomManager } from './Lobby/RoomManager.js';
 import { renderTabBlockedScreen } from './Lobby/LobbyUI.js';
-import { AudioManager } from './System/System.js';
+import { AudioManager, installResourceProtectionGuard } from './System/System.js';
 import { NetworkClient } from './System/NetworkClient.js';
 import { getGameMeta } from './System/GameRegistry.js';
 import { hasCompletedArenaPreload } from './System/AssetPreloader.js';
 import { SystemLogManager } from './System/Log/SystemLogManager.js';
 import { ErrorTracker } from './System/ErrorTracker.js';
+import { ensureGlobalToastLayer, showGlobalArenaToast } from './System/GlobalToast.js';
+import { OnboardingLang, ONBOARDING_LIMITS } from './System/Index/ArenaOnboardingIndex.js';
+import { LangState } from './System/LanguageManager.js';
+
+export { showGlobalArenaToast };
 
 const app = typeof document !== 'undefined' ? document.getElementById('app') : null;
-const VALID_SCENES = new Set(['loading', 'menu', 'marble_main', 'unos_main', 'room', 'marble', 'tab_blocked']);
+const VALID_SCENES = new Set(['loading', 'menu', 'marble_main', 'unos_main', 'room', 'marble', 'unos', 'tab_blocked']);
 
 let currentSceneName = null;
 let currentGameId = 'arena';
@@ -82,13 +88,17 @@ function main() {
     });
 
     ErrorTracker.inspectAndSanitizeInitialUrl();
+    installResourceProtectionGuard();
 
     resizeApp();
-    changeScene(hasCompletedArenaPreload() ? 'menu' : 'loading');
+    ensureGlobalToastLayer();
+    const hasSessionNick = Boolean(NetworkClient.getStoredNickname());
+    changeScene(hasCompletedArenaPreload() && hasSessionNick ? 'menu' : 'loading');
 
     // 브라우저 자동 재생 정책에 대응하기 위해, 
-    // 사용자의 첫 번째 클릭(화면 어디든) 발생 시 보류되었던 BGM을 강제 재생합니다.
+    // 로딩 화면이 아닐 때의 첫 번째 클릭(예: [아레나에 뛰어들기!]) 시 보류되었던 BGM을 재생합니다.
     const unlockAudio = () => {
+        if (currentSceneName === 'loading') return;
         AudioManager.bgmPlayer.play().catch(() => {});
         document.removeEventListener('click', unlockAudio);
     };
@@ -101,7 +111,7 @@ export function changeScene(sceneName, sceneParams = null) {
         return;
     }
 
-    if (sceneName === 'room' || sceneName === 'marble') {
+    if (sceneName === 'room' || sceneName === 'marble' || sceneName === 'unos') {
         const hasValidSession = Boolean(
             RoomManager.getCurrentRoom() ||
             sceneParams?.room ||
@@ -120,7 +130,7 @@ export function changeScene(sceneName, sceneParams = null) {
 
     if (sceneName === 'marble_main') {
         currentGameId = 'marble';
-    } else if (sceneName === 'unos_main') {
+    } else if (sceneName === 'unos_main' || sceneName === 'unos') {
         currentGameId = 'unos';
     } else if (sceneName === 'room' || sceneName === 'marble') {
         currentGameId = RoomManager.getCurrentRoom()?.gameId || sceneParams?.room?.gameId || currentGameId || 'marble';
@@ -138,13 +148,16 @@ export function changeScene(sceneName, sceneParams = null) {
 
     if (sceneName === 'loading') {
         ErrorTracker.clearTransitionWatchdog();
-        AudioManager.playBGM('./Resource/Audio/Main_Furry_Forest.mp3');
         if (app) initArenaLoading(app, sceneParams);
     } else if (sceneName === 'menu') {
         ErrorTracker.clearTransitionWatchdog();
         if (RoomManager.getCurrentRoom()) RoomManager.leaveCurrentRoom();
         NetworkClient.unregisterGameTab();
         AudioManager.playBGM('./Resource/Audio/Main_Furry_Forest.mp3');
+        if (sceneParams && sceneParams.showWelcomeToast) {
+            const onbText = OnboardingLang[LangState.current] || OnboardingLang.ko;
+            showGlobalArenaToast(onbText.WELCOME_TOAST, ONBOARDING_LIMITS.WELCOME_TOAST_MS, '#f1c40f');
+        }
         if (app) initMenu(app, sceneParams);
     } else if (sceneName === 'marble_main') {
         ErrorTracker.clearTransitionWatchdog();
@@ -162,6 +175,10 @@ export function changeScene(sceneName, sceneParams = null) {
         ErrorTracker.startTransitionWatchdog('marble', { timeoutMs: 9500, gameId: currentGameId || 'marble' });
         AudioManager.playBGM('./Resource/Audio/Game_Let\'s_Go.mp3');
         if (app) initMarble(app, sceneParams);
+    } else if (sceneName === 'unos') {
+        ErrorTracker.startTransitionWatchdog('unos', { timeoutMs: 9500, gameId: currentGameId || 'unos' });
+        AudioManager.playBGM('./Resource/Audio/Game_Let\'s_Go.mp3');
+        if (app) initUnos(app, sceneParams);
     } else if (sceneName === 'tab_blocked') {
         ErrorTracker.clearTransitionWatchdog();
         if (app) renderTabBlockedScreen(app, sceneParams);

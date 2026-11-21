@@ -6,7 +6,12 @@ import { getGameMeta } from '../System/GameRegistry.js';
 import { LangState } from '../System/LanguageManager.js';
 import { LobbyLang } from '../System/Index/LobbyIndex.js';
 import { MenuLang } from '../System/Index/MainMenuIndex.js';
-import { AudioManager, SettingsManager } from '../System/System.js';
+import { OnboardingLang } from '../System/Index/ArenaOnboardingIndex.js';
+import {
+    openInfoPopup,
+    renderArenaSettingsModalHtml,
+    bindArenaSettingsHandlers
+} from './InfoPopupUI.js';
 
 export function escapeHtml(str) {
     return String(str ?? '')
@@ -18,20 +23,22 @@ export function escapeHtml(str) {
 }
 
 export function showLobbyToast(container, msg, duration = 2400) {
-    const existing = container.querySelector('#lobby-toast');
+    if (!container) return;
+    const mountTarget = container.querySelector('.arena-stage') || container;
+    const existing = mountTarget.querySelector('#lobby-toast');
     if (existing) existing.remove();
 
     const toast = document.createElement('div');
     toast.id = 'lobby-toast';
     toast.style.cssText = `
-        position: absolute; bottom: 45px; left: 50%; transform: translateX(-50%);
-        background: rgba(15, 25, 35, 0.94); color: #fff; padding: 16px 34px;
-        border-radius: 14px; font-size: 22px; font-weight: bold; z-index: 9999;
-        border: 3px solid #f39c12; box-shadow: 0 10px 28px rgba(0,0,0,0.45);
-        pointer-events: none; text-align: center;
+        position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%);
+        background: rgba(68, 35, 16, 0.96); color: #FFF7DF; padding: 14px 30px;
+        border-radius: 16px; font-size: 20px; font-weight: bold; z-index: 13000;
+        border: 3px solid #F7C744; box-shadow: 0 12px 30px rgba(0,0,0,0.45);
+        pointer-events: none; text-align: center; font-family: inherit; white-space: nowrap;
     `;
     toast.innerText = msg;
-    container.appendChild(toast);
+    mountTarget.appendChild(toast);
 
     setTimeout(() => {
         if (toast.parentNode) toast.remove();
@@ -44,24 +51,26 @@ function openDuplicateTabModal(container) {
             resolve(false);
             return;
         }
+        const mountTarget = container.querySelector('.arena-stage') || container;
         const existing = container.querySelector('#modal-duplicate-tab');
         if (existing) existing.remove();
 
         const text = LobbyLang[LangState.current] || LobbyLang.ko;
         const modal = document.createElement('div');
         modal.id = 'modal-duplicate-tab';
-        modal.style.cssText = 'position: absolute; inset: 0; background: rgba(0,0,0,0.68); display: flex; align-items: center; justify-content: center; z-index: 11500; padding: 20px;';
+        modal.className = 'arena-modal-backdrop open';
+        modal.style.zIndex = '11500';
         modal.innerHTML = `
-            <div style="width: 560px; max-width: 92vw; background: #165b7a; border: 4px solid #f39c12; border-radius: 24px; padding: 36px 38px; color: #fff; box-shadow: 0 20px 48px rgba(0,0,0,0.5); text-align: center; font-family: inherit;">
-                <h2 style="margin: 0 0 16px 0; font-size: 30px; color: #f1c40f;">⚠️ ${escapeHtml(text.DUP_TAB_TITLE || '중복 접속 확인')}</h2>
-                <p style="margin: 0 0 28px 0; font-size: 20px; line-height: 1.65; color: #ecf0f1; white-space: pre-line;">${escapeHtml(text.DUP_TAB_DESC || '이미 다른 경로로 접속중입니다.\n현재 페이지로 재접속하시겠습니까?')}</p>
-                <div style="display: flex; justify-content: center; gap: 16px;">
-                    <button id="btn-dup-tab-no" type="button" style="font-family: inherit; min-width: 140px; padding: 13px 26px; font-size: 20px; font-weight: bold; background: #7f8c8d; color: #fff; border: none; border-radius: 12px; cursor: pointer;">${escapeHtml(text.DUP_TAB_NO || '아니요')}</button>
-                    <button id="btn-dup-tab-yes" type="button" style="font-family: inherit; min-width: 140px; padding: 13px 26px; font-size: 20px; font-weight: bold; background: #f39c12; color: #fff; border: none; border-radius: 12px; cursor: pointer;">${escapeHtml(text.DUP_TAB_YES || '예')}</button>
+            <div class="arena-modal-box" style="width: 560px; text-align: center;">
+                <h2 style="margin: 0 0 16px 0; font-size: 30px; font-weight: 900; color: #9E4412;">⚠️ ${escapeHtml(text.DUP_TAB_TITLE || '중복 접속 확인')}</h2>
+                <p style="margin: 0 0 28px 0; font-size: 19px; font-weight: bold; line-height: 1.65; color: #4E2812; white-space: pre-line;">${escapeHtml(text.DUP_TAB_DESC || '이미 다른 경로로 접속중입니다.\n현재 페이지로 재접속하시겠습니까?')}</p>
+                <div style="display: flex; justify-content: center; gap: 14px;">
+                    <button id="btn-dup-tab-no" type="button" class="btn-wood" style="min-width: 140px; padding: 13px 26px; font-size: 20px;">${escapeHtml(text.DUP_TAB_NO || '아니요')}</button>
+                    <button id="btn-dup-tab-yes" type="button" class="btn-orange" style="min-width: 140px; padding: 13px 26px; font-size: 20px;">${escapeHtml(text.DUP_TAB_YES || '예')}</button>
                 </div>
             </div>
         `;
-        container.appendChild(modal);
+        mountTarget.appendChild(modal);
 
         const cleanup = (answer) => {
             if (modal.parentNode) modal.remove();
@@ -118,12 +127,12 @@ export function renderTabBlockedScreen(container, sceneParams = null) {
         const btnLabel = text.TAB_BLOCKED_BTN_MENU || '아레나 메인으로 이동';
 
         container.innerHTML = `
-            <div style="width: 100%; height: 100%; background: linear-gradient(135deg, #103a4f, #1c5875); display: flex; align-items: center; justify-content: center; padding: 40px; box-sizing: border-box;">
-                <div style="width: 680px; max-width: 92vw; background: #165b7a; border: 4px solid #f39c12; border-radius: 28px; padding: 48px 44px; text-align: center; color: #fff; box-shadow: 0 24px 60px rgba(0,0,0,0.45);">
+            <div class="arena-stage" style="display: flex; align-items: center; justify-content: center; padding: 40px;">
+                <div class="wood-panel" style="width: 680px; max-width: 92vw; padding: 48px 44px; text-align: center;">
                     <div style="font-size: 64px; margin-bottom: 16px;">🚫</div>
-                    <h1 style="margin: 0 0 18px 0; font-size: 36px; color: #f1c40f;">${escapeHtml(title)}</h1>
-                    <p style="margin: 0 0 36px 0; font-size: 22px; line-height: 1.65; color: #ecf0f1; white-space: pre-line;">${escapeHtml(desc)}</p>
-                    <button id="btn-tab-blocked-menu" type="button" style="font-family: inherit; padding: 16px 38px; font-size: 22px; font-weight: bold; background: #f39c12; color: #fff; border: none; border-radius: 14px; cursor: pointer; box-shadow: 0 6px 18px rgba(0,0,0,0.28);">${escapeHtml(btnLabel)}</button>
+                    <h1 style="margin: 0 0 18px 0; font-size: 36px; font-weight: 900; color: #FFE68B;">${escapeHtml(title)}</h1>
+                    <p style="margin: 0 0 36px 0; font-size: 21px; font-weight: bold; line-height: 1.65; color: #FFF4DC; white-space: pre-line;">${escapeHtml(desc)}</p>
+                    <button id="btn-tab-blocked-menu" type="button" class="btn-orange" style="padding: 16px 38px; font-size: 22px;">${escapeHtml(btnLabel)}</button>
                 </div>
             </div>
         `;
@@ -159,35 +168,72 @@ export function renderGameMainPage(container, config) {
     );
     let afkPenaltyFaded = false;
 
+    const pickRandomCreateTitle = (text, fallback) => {
+        const presets = Array.isArray(text?.ROOM_TITLE_PRESETS) && text.ROOM_TITLE_PRESETS.length > 0
+            ? text.ROOM_TITLE_PRESETS
+            : [fallback].filter(Boolean);
+        return presets[Math.floor(Math.random() * presets.length)] || fallback || '';
+    };
+
     const render = () => {
-        const text = LobbyLang[LangState.current] || LobbyLang.ko;
-        const menuText = MenuLang[LangState.current] || MenuLang.ko;
+        const lang = LangState.current || 'ko';
+        const text = LobbyLang[lang] || LobbyLang.ko;
+        const menuText = MenuLang[lang] || MenuLang.ko;
         const rooms = RoomManager.getPublicRooms(gameId);
         const gameTitle = text[titleKey] || gameId;
         const gameBadge = text[badgeKey] || '';
         const rulesList = Array.isArray(text[rulesKey]) ? text[rulesKey] : [];
-        const defaultTitle = text[defaultRoomTitleKey] || gameTitle;
+        const defaultTitle = pickRandomCreateTitle(text, text[defaultRoomTitleKey] || gameTitle);
+
+        const isUnos = gameId === 'unos';
+        const badgeBg = isUnos ? '#5E72E4' : '#76C140';
+        const badgeColor = isUnos ? '#ffffff' : '#16330A';
+        const badgeBorder = isUnos ? '#C5CEFF' : '#D6F5B3';
+        const bannerBg = isUnos ? './Resource/Texture/BG/BG_Broken_Altar_Special.png' : './Resource/Texture/BG/BG_Throne_room.png';
+        const bannerChar = isUnos ? './Resource/Texture/Char/Char_Erpin_Unos.png' : './Resource/Texture/Char/Char_Erpin_Marble.png';
+        const bannerVerText = isUnos
+            ? (lang === 'en' ? 'Alpha' : (lang === 'ja' ? 'アルファ' : '알파'))
+            : (lang === 'en' ? 'Version 1.0' : (lang === 'ja' ? 'バージョン 1.0' : '버전 1.0'));
+
+        const netStatus = RoomManager.getNetworkStatus().status;
+        const isOnline = RoomManager.isOnline();
+        const netPillStyle = isOnline
+            ? 'background: #FFFBF0; border: 3px solid #77C242; color: #2B6213;'
+            : (netStatus === 'reconnecting'
+                ? 'background: #FFF7DF; border: 3px solid #F38221; color: #9E4412;'
+                : 'background: #FFF7DF; border: 3px solid #C9965B; color: #724929;');
+        const netPillText = isOnline
+            ? (text.NET_ONLINE || '🟢 온라인')
+            : (netStatus === 'reconnecting'
+                ? (text.NET_RECONNECTING || '🟡 재연결 중')
+                : (text.NET_OFFLINE || '🟠 오프라인 AI 모드'));
 
         const roomRowsHtml = rooms.length === 0
-            ? `<div style="height: 360px; display:flex; align-items:center; justify-content:center; font-size: 24px; color: rgba(255,255,255,0.75);">${escapeHtml(text.EMPTY_ROOM_LIST)}</div>`
+            ? `<div style="flex: 1; min-height: 360px; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: bold; color: #FDEAC8; text-align: center; padding: 24px;">${escapeHtml(text.EMPTY_ROOM_LIST)}</div>`
             : rooms.map(room => {
                 const occ = RoomManager.getOccupiedCount(room);
                 const isFull = occ >= room.maxPlayers;
-                const statusText = room.status === 'playing'
+                const isPlaying = room.status === 'playing';
+                const statusText = isPlaying
                     ? text.STATUS_PLAYING
                     : (room.status === 'starting' ? text.STATUS_STARTING : text.STATUS_WAITING);
-                const statusColor = room.status === 'playing' ? '#e74c3c' : '#2ecc71';
-                const joinDisabled = isFull || room.status === 'playing';
+                const statusPill = isPlaying
+                    ? `<span class="pill-badge" style="background: #5E72E4; color: #fff; border: 2px solid #C7D0FF;">${escapeHtml(statusText)}</span>`
+                    : (room.status === 'starting'
+                        ? `<span class="pill-badge" style="background: #F38221; color: #fff; border: 2px solid #FFE4AC;">${escapeHtml(statusText)}</span>`
+                        : `<span class="pill-badge" style="background: #77C242; color: #16330A; border: 2px solid #DFF5BE;">${escapeHtml(statusText)}</span>`);
+                const joinDisabled = isFull || isPlaying;
 
                 return `
-                    <div style="display: grid; grid-template-columns: 140px 1fr 160px 110px 120px 140px; align-items: center; background: #165b7a; border-radius: 16px; padding: 18px 24px; margin-bottom: 14px; color: #fff; font-size: 21px; border: 2px solid rgba(255,255,255,0.12);">
-                        <div style="font-family: monospace; font-size: 22px; font-weight: bold; color: #f1c40f; letter-spacing: 1px;">${escapeHtml(room.code)}</div>
-                        <div style="font-weight: bold; padding-right: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(room.title)}</div>
-                        <div style="color: #dceefb; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">👑 ${escapeHtml(RoomManager.getHostName(room))}</div>
-                        <div style="font-weight: bold;">${occ} / ${room.maxPlayers}${escapeHtml(text.PLAYERS_UNIT)}</div>
-                        <div><span style="display: inline-block; padding: 5px 12px; border-radius: 8px; background: ${statusColor}; color: #fff; font-size: 16px; font-weight: bold;">${escapeHtml(statusText)}</span></div>
+                    <div class="room-row-card">
+                        <div style="font-size: 21px; font-weight: 900; padding-right: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                            ${room.isPrivate ? '🔒 ' : ''}${escapeHtml(room.title)}
+                        </div>
+                        <div style="font-size: 18px; font-weight: bold; color: #6E3D1E; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">👑 ${escapeHtml(RoomManager.getHostName(room))}</div>
+                        <div style="font-size: 19px; font-weight: 900; color: #4E2812;">${occ} / ${room.maxPlayers}${escapeHtml(text.PLAYERS_UNIT)}</div>
+                        <div>${statusPill}</div>
                         <div style="text-align: right;">
-                            <button class="btn-join-room-row" data-room-id="${escapeHtml(room.id)}" ${joinDisabled ? 'disabled' : ''} style="font-family: inherit; padding: 10px 24px; font-size: 19px; font-weight: bold; border: none; border-radius: 10px; cursor: ${joinDisabled ? 'not-allowed' : 'pointer'}; background: ${joinDisabled ? '#7f8c8d' : '#f39c12'}; color: #fff;">
+                            <button type="button" class="btn-join-room-row ${joinDisabled ? 'btn-wood' : 'btn-orange'}" data-room-id="${escapeHtml(room.id)}" ${joinDisabled ? 'disabled' : ''} style="padding: 10px 24px; font-size: 17px; border-radius: 12px;">
                                 ${escapeHtml(isFull ? text.BTN_ROOM_FULL : text.BTN_JOIN_ROOM)}
                             </button>
                         </div>
@@ -195,181 +241,177 @@ export function renderGameMainPage(container, config) {
                 `;
             }).join('');
 
-        const playerCountOptions = [];
+        let selectedCreateMax = meta.maxPlayers;
+        const playerCountButtons = [];
         for (let n = meta.minPlayers; n <= meta.maxPlayers; n++) {
-            playerCountOptions.push(`<option value="${n}" ${n === meta.maxPlayers ? 'selected' : ''}>${n}${escapeHtml(text.PLAYERS_UNIT)}</option>`);
+            const isSel = n === selectedCreateMax;
+            playerCountButtons.push(`
+                <button type="button" class="btn-create-max-players ${isSel ? 'btn-orange' : 'btn-wood'}" data-max="${n}" style="flex: 1; padding: 12px; font-size: 19px;">
+                    ${n}${escapeHtml(text.PLAYERS_UNIT)}
+                </button>
+            `);
         }
 
         container.innerHTML = `
-            <div style="width: 100%; height: 100%; box-sizing: border-box; padding: 42px 60px; display: flex; flex-direction: column; position: relative;">
-                <!-- 상단 헤더 -->
-                <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 28px; flex-wrap: nowrap;">
-                    <div style="display: flex; align-items: center; gap: 20px; min-width: 0; flex: 1;">
-                        <button id="btn-back-arena" style="font-family: inherit; padding: 14px 24px; font-size: 21px; font-weight: bold; background: #165b7a; color: #fff; border: none; border-radius: 12px; cursor: pointer; white-space: nowrap; flex-shrink: 0;">${escapeHtml(text.BACK_TO_ARENA)}</button>
-                        <div style="min-width: 0;">
-                            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: nowrap;">
-                                <h1 style="margin: 0; font-size: 42px; color: #165b7a; white-space: nowrap;">${escapeHtml(gameTitle)}</h1>
-                                <span style="padding: 6px 14px; border-radius: 20px; background: ${meta.accentColor}; color: #fff; font-size: 18px; font-weight: bold; white-space: nowrap; flex-shrink: 0;">${escapeHtml(gameBadge)}</span>
-                            </div>
-                            <p style="margin: 6px 0 0 0; font-size: 20px; color: #4a5568; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(text.GAME_MAIN_SUBTITLE)}</p>
-                        </div>
-                    </div>
-
-                    <!-- 닉네임 설정 & 네트워크 상태 바 -->
-                    <div style="display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; flex-shrink: 0;">
-                        <div id="net-status-badge" style="padding: 12px 16px; border-radius: 14px; font-size: 17px; font-weight: bold; color: #fff; white-space: nowrap; flex-shrink: 0; background: ${RoomManager.isOnline() ? '#27ae60' : (RoomManager.getNetworkStatus().status === 'reconnecting' ? '#d35400' : '#7f8c8d')};">
-                            ${escapeHtml(RoomManager.isOnline() ? (text.NET_ONLINE || '🟢 온라인') : (RoomManager.getNetworkStatus().status === 'reconnecting' ? (text.NET_RECONNECTING || '🟡 재연결 중') : (text.NET_OFFLINE || '🟠 오프라인 AI 모드')))}
-                        </div>
-                        <div style="display: flex; align-items: center; gap: 10px; background: #216a8c; padding: 11px 16px; border-radius: 14px; color: #fff; flex-shrink: 0;">
-                            <span style="font-size: 17px; font-weight: bold; white-space: nowrap;">${escapeHtml(text.NICKNAME_LABEL)}:</span>
-                            <input id="input-nickname" type="text" maxlength="16" value="${escapeHtml(RoomManager.localPlayer.name)}" style="font-family: inherit; width: 150px; padding: 7px 10px; font-size: 18px; border-radius: 8px; border: none; outline: none;">
-                            <button id="btn-save-nick" style="font-family: inherit; padding: 7px 14px; font-size: 17px; font-weight: bold; background: #f39c12; color: #fff; border: none; border-radius: 8px; cursor: pointer; white-space: nowrap; flex-shrink: 0;">${escapeHtml(text.BTN_CHANGE_NICK)}</button>
-                        </div>
-                        <button id="btn-lobby-settings" style="font-family: inherit; padding: 13px 20px; font-size: 19px; font-weight: bold; background: #165b7a; color: #fff; border: none; border-radius: 14px; cursor: pointer; white-space: nowrap; flex-shrink: 0;">${escapeHtml(text.BTN_ROOM_SETTINGS || menuText.SETTINGS)}</button>
-                    </div>
-                </div>
-
-                <!-- 메인 컨텐츠 2열 -->
-                <div style="flex: 1; display: grid; grid-template-columns: 1fr 440px; gap: 32px; min-height: 0;">
-                    <!-- 좌측: 대기실 목록 + 방 생성/참가 액션 -->
-                    <div style="background: #216a8c; border-radius: 26px; padding: 30px; display: flex; flex-direction: column; min-height: 0; box-shadow: 0 12px 26px rgba(0,0,0,0.16);">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                            <h2 style="margin: 0; font-size: 32px; color: #fff;">${escapeHtml(text.ROOM_LIST_TITLE)} (${rooms.length})</h2>
-                            <div style="display: flex; gap: 12px;">
-                                <button id="btn-refresh-rooms" style="font-family: inherit; padding: 12px 20px; font-size: 20px; font-weight: bold; background: #165b7a; color: #fff; border: 2px solid rgba(255,255,255,0.25); border-radius: 12px; cursor: pointer;">${escapeHtml(text.BTN_REFRESH)}</button>
-                                <button id="btn-open-join-code" style="font-family: inherit; padding: 12px 22px; font-size: 20px; font-weight: bold; background: #3498db; color: #fff; border: none; border-radius: 12px; cursor: pointer;">${escapeHtml(text.BTN_JOIN_BY_CODE)}</button>
-                                <button id="btn-open-create-room" style="font-family: inherit; padding: 12px 26px; font-size: 20px; font-weight: bold; background: #27ae60; color: #fff; border: none; border-radius: 12px; cursor: pointer;">${escapeHtml(text.BTN_CREATE_ROOM)}</button>
+            <div class="arena-stage">
+                <div class="page-shell">
+                    <!-- 상단 헤더 -->
+                    <div class="top-bar">
+                        <div class="top-bar-left">
+                            <button id="btn-back-arena" type="button" class="btn-wood" style="padding: 14px 24px; font-size: 21px; flex-shrink: 0;">${escapeHtml(text.BACK_TO_ARENA)}</button>
+                            <div class="top-bar-titles" style="min-width: 0;">
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <span class="pill-badge" style="background: ${badgeBg}; color: ${badgeColor}; border: 2px solid ${badgeBorder};">${escapeHtml(gameBadge)}</span>
+                                </div>
+                                <h1>${escapeHtml(gameTitle)}</h1>
+                                <p>${escapeHtml(text.GAME_MAIN_SUBTITLE)}</p>
                             </div>
                         </div>
 
-                        <!-- 테이블 헤더 -->
-                        <div style="display: grid; grid-template-columns: 140px 1fr 160px 110px 120px 140px; padding: 0 24px 12px 24px; color: rgba(255,255,255,0.75); font-size: 18px; font-weight: bold;">
-                            <div>${escapeHtml(text.COL_CODE)}</div>
-                            <div>${escapeHtml(text.COL_TITLE)}</div>
-                            <div>${escapeHtml(text.COL_HOST)}</div>
-                            <div>${escapeHtml(text.COL_PLAYERS)}</div>
-                            <div>${escapeHtml(text.COL_STATUS)}</div>
-                            <div style="text-align: right;">${escapeHtml(text.COL_ACTION)}</div>
-                        </div>
-
-                        <!-- 목록 스크롤 영역 -->
-                        <div style="flex: 1; overflow-y: auto; padding-right: 4px;">
-                            ${roomRowsHtml}
+                        <div class="top-bar-right">
+                            <span id="net-status-badge" class="pill-badge" style="height: 44px; padding: 0 18px; font-size: 16px; ${netPillStyle}">${escapeHtml(netPillText)}</span>
+                            <button id="btn-lobby-settings" type="button" class="btn-green" style="padding: 14px 22px; font-size: 20px;">${escapeHtml(text.BTN_ROOM_SETTINGS || menuText.SETTINGS)}</button>
+                            <button id="btn-lobby-info" type="button" class="btn-green" style="padding: 14px 22px; font-size: 20px;">${escapeHtml((OnboardingLang[lang] || OnboardingLang.ko).BTN_INFO || menuText.INFO)}</button>
                         </div>
                     </div>
 
-                    <!-- 우측: 게임 소개 및 규칙 요약 -->
-                    <div style="background: #165b7a; border-radius: 26px; padding: 32px; color: #fff; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 12px 26px rgba(0,0,0,0.16);">
-                        <div>
-                            <h2 style="margin: 0 0 18px 0; font-size: 30px; color: #f1c40f;">${escapeHtml(text.RULE_SUMMARY_TITLE)}</h2>
-                            <div style="display: flex; flex-direction: column; gap: 14px; font-size: 21px; line-height: 1.55; color: #ecf0f1;">
-                                ${rulesList.map(line => `<div>${escapeHtml(line)}</div>`).join('')}
+                    <!-- 메인 컨텐츠 2열 -->
+                    <div class="lobby-grid">
+                        <section class="wood-panel lobby-list-panel">
+                            <div class="lobby-list-toolbar">
+                                <h2>${escapeHtml(text.ROOM_LIST_TITLE)} (${rooms.length})</h2>
+                                <div style="display: flex; gap: 10px;">
+                                    <button id="btn-refresh-rooms" type="button" class="btn-wood" style="padding: 11px 18px; font-size: 18px;">${escapeHtml(text.BTN_REFRESH)}</button>
+                                    <button id="btn-open-join-code" type="button" class="btn-blue" style="padding: 11px 20px; font-size: 18px;">${escapeHtml(text.BTN_JOIN_BY_CODE)}</button>
+                                    <button id="btn-open-create-room" type="button" class="btn-green" style="padding: 11px 24px; font-size: 18px;">${escapeHtml(text.BTN_CREATE_ROOM)}</button>
+                                </div>
+                            </div>
+
+                            <div class="lobby-table-head">
+                                <div>${escapeHtml(text.COL_TITLE)}</div>
+                                <div>${escapeHtml(text.COL_HOST)}</div>
+                                <div>${escapeHtml(text.COL_PLAYERS)}</div>
+                                <div>${escapeHtml(text.COL_STATUS)}</div>
+                                <div style="text-align: right;">${escapeHtml(text.COL_ACTION)}</div>
+                            </div>
+
+                            <div class="lobby-rows-scroll">
+                                ${roomRowsHtml}
+                            </div>
+                        </section>
+
+                        <aside class="wood-panel-deep lobby-rule-panel">
+                            <div class="lobby-rule-banner">
+                                <img class="rule-bg" src="${escapeHtml(bannerBg)}" alt="">
+                                <div class="rule-scrim"></div>
+                                <img class="rule-char" src="${escapeHtml(bannerChar)}" alt="${escapeHtml(gameTitle)}">
+                                <div class="lobby-rule-banner-text">
+                                    <span class="pill-badge" style="width: fit-content; background: ${badgeBg}; color: ${badgeColor}; border: 2px solid ${badgeBorder};">${escapeHtml(bannerVerText)}</span>
+                                    <div style="font-size: 26px; font-weight: 900; color: #FFF8EE; text-shadow: 0 2px 8px rgba(0,0,0,0.7);">${escapeHtml(gameTitle)}</div>
+                                </div>
+                            </div>
+
+                            <div class="parchment-card lobby-rule-card">
+                                <h2>📜 ${escapeHtml(text.RULE_SUMMARY_TITLE)}</h2>
+                                ${rulesList.map(line => `<div class="rule-line">${escapeHtml(line)}</div>`).join('')}
+                            </div>
+                        </aside>
+                    </div>
+
+                    <!-- 모달: 새로운 게임룸 생성 -->
+                    <div id="modal-create-room" class="arena-modal-backdrop" style="z-index: 500;">
+                        <div class="arena-modal-box">
+                            <h2 style="margin: 0 0 22px; font-size: 32px; font-weight: 900; text-align: center; color: #4E2812;">${escapeHtml(text.CREATE_MODAL_TITLE)}</h2>
+
+                            <div style="margin-bottom: 18px;">
+                                <label style="display: block; font-size: 18px; font-weight: 800; margin-bottom: 8px;">${escapeHtml(text.ROOM_TITLE_LABEL)}</label>
+                                <input id="create-room-title" class="modal-input" type="text" maxlength="20" value="${escapeHtml(defaultTitle)}">
+                            </div>
+
+                            <div style="margin-bottom: 18px;">
+                                <label style="display: block; font-size: 18px; font-weight: 800; margin-bottom: 8px;">${escapeHtml(text.MAX_PLAYERS_LABEL)}</label>
+                                <div id="create-room-max-group" style="display: flex; gap: 10px;">
+                                    ${playerCountButtons.join('')}
+                                </div>
+                            </div>
+
+                            <div style="margin-bottom: 24px;">
+                                <label style="display: block; font-size: 18px; font-weight: 800; margin-bottom: 8px;">${escapeHtml(text.VISIBILITY_LABEL)}</label>
+                                <div style="display: flex; gap: 20px; font-size: 18px; font-weight: bold;">
+                                    <label style="cursor: pointer;"><input type="radio" name="room-visibility" value="public" checked> ${escapeHtml(text.PUBLIC_ROOM)}</label>
+                                    <label style="cursor: pointer;"><input type="radio" name="room-visibility" value="private"> ${escapeHtml(text.PRIVATE_ROOM)}</label>
+                                </div>
+                                <input id="create-room-password" class="modal-input" type="password" maxlength="16" placeholder="${escapeHtml(text.JOIN_PASSWORD_OPTIONAL || '비밀번호 (비공개 시 선택)')}" style="margin-top: 10px; padding: 10px 14px; font-size: 17px;">
+                            </div>
+
+                            <div style="display: flex; gap: 14px;">
+                                <button id="btn-cancel-create" type="button" class="btn-wood" style="flex: 1; padding: 14px; font-size: 20px;">${escapeHtml(text.BTN_CANCEL)}</button>
+                                <button id="btn-confirm-create" type="button" class="btn-orange" style="flex: 1.4; padding: 14px; font-size: 20px;">${escapeHtml(text.BTN_CONFIRM_CREATE)}</button>
                             </div>
                         </div>
-
-                        <div style="background: rgba(0,0,0,0.22); border-radius: 16px; padding: 20px; font-size: 18px; line-height: 1.5; color: #dceefb;">
-                            ${escapeHtml(text.CUSTOM_PREVIEW_NOTE)}
-                        </div>
                     </div>
-                </div>
 
-                <!-- 모달: 방 생성 -->
-                <div id="modal-create-room" style="display: none; position: absolute; inset: 0; background: rgba(0,0,0,0.58); z-index: 500; justify-content: center; align-items: center;">
-                    <div style="width: 580px; background: #fff; border-radius: 22px; padding: 38px; border: 5px solid #165b7a; box-shadow: 0 15px 40px rgba(0,0,0,0.45); color: #1a202c;">
-                        <h2 style="margin: 0 0 26px 0; font-size: 34px; text-align: center; color: #165b7a;">${escapeHtml(text.CREATE_MODAL_TITLE)}</h2>
+                    <!-- 모달: 방 코드로 참가 -->
+                    <div id="modal-join-code" class="arena-modal-backdrop" style="z-index: 500;">
+                        <div class="arena-modal-box">
+                            <h2 style="margin: 0 0 18px; font-size: 32px; font-weight: 900; text-align: center; color: #4E2812;">${escapeHtml(text.JOIN_MODAL_TITLE)}</h2>
 
-                        <div style="margin-bottom: 20px;">
-                            <label style="display: block; font-size: 20px; font-weight: bold; margin-bottom: 8px;">${escapeHtml(text.ROOM_TITLE_LABEL)}</label>
-                            <input id="create-room-title" type="text" maxlength="32" value="${escapeHtml(defaultTitle)}" style="font-family: inherit; width: 100%; box-sizing: border-box; padding: 12px 16px; font-size: 22px; border: 2px solid #cbd5e0; border-radius: 10px;">
-                        </div>
-
-                        <div style="margin-bottom: 20px;">
-                            <label style="display: block; font-size: 20px; font-weight: bold; margin-bottom: 8px;">${escapeHtml(text.MAX_PLAYERS_LABEL)}</label>
-                            <select id="create-room-max" style="font-family: inherit; width: 100%; padding: 12px 16px; font-size: 22px; border: 2px solid #cbd5e0; border-radius: 10px;">
-                                ${playerCountOptions.join('')}
-                            </select>
-                        </div>
-
-                        <div style="margin-bottom: 28px;">
-                            <label style="display: block; font-size: 20px; font-weight: bold; margin-bottom: 10px;">${escapeHtml(text.VISIBILITY_LABEL)}</label>
-                            <div style="display: flex; flex-direction: column; gap: 10px; font-size: 20px;">
-                                <label style="cursor: pointer;"><input type="radio" name="room-visibility" value="public" checked> ${escapeHtml(text.PUBLIC_ROOM)}</label>
-                                <label style="cursor: pointer;"><input type="radio" name="room-visibility" value="private"> ${escapeHtml(text.PRIVATE_ROOM)}</label>
+                            <div style="margin-bottom: 12px;">
+                                <label style="display: block; font-size: 18px; font-weight: 800; margin-bottom: 8px;">${escapeHtml(text.JOIN_CODE_LABEL)}</label>
+                                <input id="input-join-code" class="modal-input" type="text" maxlength="16" placeholder="${escapeHtml(text.JOIN_CODE_PLACEHOLDER)}" style="font-family: monospace; text-align: center; letter-spacing: 3px; font-size: 26px; text-transform: uppercase;">
                             </div>
-                            <input id="create-room-password" type="password" maxlength="16" placeholder="${escapeHtml(text.JOIN_PASSWORD_OPTIONAL || '비밀번호 (비공개 시 선택)')}" style="font-family: inherit; width: 100%; box-sizing: border-box; margin-top: 10px; padding: 10px 14px; font-size: 18px; border: 2px solid #cbd5e0; border-radius: 10px;">
-                        </div>
 
-                        <div style="display: flex; gap: 16px;">
-                            <button id="btn-cancel-create" style="font-family: inherit; flex: 1; padding: 16px; font-size: 22px; font-weight: bold; background: #95a5a6; color: #fff; border: none; border-radius: 12px; cursor: pointer;">${escapeHtml(text.BTN_CANCEL)}</button>
-                            <button id="btn-confirm-create" style="font-family: inherit; flex: 1.4; padding: 16px; font-size: 22px; font-weight: bold; background: #27ae60; color: #fff; border: none; border-radius: 12px; cursor: pointer;">${escapeHtml(text.BTN_CONFIRM_CREATE)}</button>
+                            <div style="margin-bottom: 12px;">
+                                <input id="input-join-password" class="modal-input" type="password" maxlength="16" placeholder="${escapeHtml(text.JOIN_PASSWORD_OPTIONAL || '비밀번호 (설정된 경우)')}" style="padding: 10px 14px; font-size: 17px;">
+                            </div>
+
+                            <p style="margin: 0 0 24px; font-size: 15px; color: #724929; text-align: center; font-weight: bold;">${escapeHtml(text.JOIN_CODE_HINT)}</p>
+
+                            <div style="display: flex; gap: 14px;">
+                                <button id="btn-cancel-join" type="button" class="btn-wood" style="flex: 1; padding: 14px; font-size: 20px;">${escapeHtml(text.BTN_CANCEL)}</button>
+                                <button id="btn-confirm-join" type="button" class="btn-blue" style="flex: 1.4; padding: 14px; font-size: 20px;">${escapeHtml(text.BTN_CONFIRM_JOIN)}</button>
+                            </div>
                         </div>
                     </div>
+
+                    ${renderArenaSettingsModalHtml({
+                        popupId: 'popup-lobby-settings',
+                        idPrefix: 'lobby-settings',
+                        bgmSliderId: 'lobby-bgm-slider',
+                        sfxSliderId: 'lobby-sfx-slider',
+                        fontGothicId: 'lobby-font-gothic',
+                        fontGulimId: 'lobby-font-gulim',
+                        langKoId: 'lobby-lang-ko',
+                        langEnId: 'lobby-lang-en',
+                        langJaId: 'lobby-lang-ja',
+                        closeBtnId: 'close-lobby-settings',
+                        lang,
+                        menuText,
+                        currentNickname: RoomManager.localPlayer?.name || ''
+                    })}
+
+                    ${showAfkPenalty ? (() => {
+                        const penaltyTitle = kickReason === 'HOST_IDLE_BANNED'
+                            ? (text.HOST_IDLE_BAN_TITLE || text.AFK_PENALTY_TITLE)
+                            : (kickReason === 'HOST_IDLE_KICKED'
+                                ? (text.HOST_IDLE_KICK_TITLE || text.AFK_PENALTY_TITLE)
+                                : text.AFK_PENALTY_TITLE);
+                        const penaltyDesc = kickReason === 'HOST_IDLE_BANNED'
+                            ? (text.HOST_IDLE_BAN_DESC || text.AFK_PENALTY_DESC)
+                            : (kickReason === 'HOST_IDLE_KICKED'
+                                ? (text.HOST_IDLE_KICK_DESC || text.AFK_PENALTY_DESC)
+                                : text.AFK_PENALTY_DESC);
+                        return `
+                    <div id="modal-afk-penalty" class="arena-modal-backdrop open" style="z-index: 9600; opacity: ${afkPenaltyFaded ? 1 : 0}; transition: opacity 0.35s ease;">
+                        <div class="arena-modal-box" style="width: 580px; text-align: center; border-color: #D9483B;">
+                            <h2 style="margin: 0 0 18px 0; font-size: 32px; font-weight: 900; color: #B02E24;">⚠️ ${escapeHtml(penaltyTitle)}</h2>
+                            <p style="margin: 0 0 28px 0; font-size: 19px; font-weight: bold; line-height: 1.65; color: #4E2812; white-space: pre-line;">${escapeHtml(penaltyDesc)}</p>
+                            <button id="btn-afk-penalty-confirm" type="button" class="btn-danger" style="padding: 14px 44px; font-size: 21px;">${escapeHtml(text.AFK_PENALTY_BTN)}</button>
+                        </div>
+                    </div>
+                    `;
+                    })() : ''}
                 </div>
-
-                <!-- 모달: 방 코드로 참가 -->
-                <div id="modal-join-code" style="display: none; position: absolute; inset: 0; background: rgba(0,0,0,0.58); z-index: 500; justify-content: center; align-items: center;">
-                    <div style="width: 540px; background: #fff; border-radius: 22px; padding: 38px; border: 5px solid #165b7a; box-shadow: 0 15px 40px rgba(0,0,0,0.45); color: #1a202c;">
-                        <h2 style="margin: 0 0 22px 0; font-size: 34px; text-align: center; color: #165b7a;">${escapeHtml(text.JOIN_MODAL_TITLE)}</h2>
-
-                        <div style="margin-bottom: 14px;">
-                            <label style="display: block; font-size: 20px; font-weight: bold; margin-bottom: 10px;">${escapeHtml(text.JOIN_CODE_LABEL)}</label>
-                            <input id="input-join-code" type="text" maxlength="16" placeholder="${escapeHtml(text.JOIN_CODE_PLACEHOLDER)}" style="font-family: monospace; width: 100%; box-sizing: border-box; padding: 14px 18px; font-size: 28px; text-transform: uppercase; text-align: center; letter-spacing: 3px; border: 2px solid #cbd5e0; border-radius: 12px;">
-                        </div>
-
-                        <div style="margin-bottom: 14px;">
-                            <input id="input-join-password" type="password" maxlength="16" placeholder="${escapeHtml(text.JOIN_PASSWORD_OPTIONAL || '비밀번호 (설정된 경우)')}" style="font-family: inherit; width: 100%; box-sizing: border-box; padding: 10px 14px; font-size: 18px; border: 2px solid #cbd5e0; border-radius: 10px;">
-                        </div>
-
-                        <p style="margin: 0 0 26px 0; font-size: 16px; color: #555; text-align: center;">${escapeHtml(text.JOIN_CODE_HINT)}</p>
-
-                        <div style="display: flex; gap: 16px;">
-                            <button id="btn-cancel-join" style="font-family: inherit; flex: 1; padding: 16px; font-size: 22px; font-weight: bold; background: #95a5a6; color: #fff; border: none; border-radius: 12px; cursor: pointer;">${escapeHtml(text.BTN_CANCEL)}</button>
-                            <button id="btn-confirm-join" style="font-family: inherit; flex: 1.4; padding: 16px; font-size: 22px; font-weight: bold; background: #3498db; color: #fff; border: none; border-radius: 12px; cursor: pointer;">${escapeHtml(text.BTN_CONFIRM_JOIN)}</button>
-                        </div>
-                    </div>
-                </div>
-                <!-- 로비 설정 팝업 (메인 메뉴 설정과 동일) -->
-                <div id="popup-lobby-settings" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; padding: 50px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 1000; width: 500px; border: 5px solid #165b7a; color: #1a202c;">
-                    <h2 style="margin-top:0; font-size: 36px; text-align: center; color: #165b7a;">${escapeHtml(menuText.SETTINGS)}</h2>
-                    <div style="font-size: 24px; margin-bottom: 20px;"><label>${escapeHtml(menuText.BGM)}: <input type="range" id="lobby-bgm-slider" min="0" max="1" step="0.1" value="${AudioManager.bgmPlayer.volume}" style="width:100%;"></label></div>
-                    <div style="font-size: 24px; margin-bottom: 30px;"><label>${escapeHtml(menuText.SFX)}: <input type="range" id="lobby-sfx-slider" min="0" max="1" step="0.1" value="${AudioManager.sfxVolume}" style="width:100%;"></label></div>
-
-                    <div style="font-size: 24px; margin-bottom: 30px; text-align: center;">
-                        <p style="margin:0 0 10px 0;">${escapeHtml(menuText.FONT)}</p>
-                        <button id="lobby-font-gothic" type="button" style="font-family: 'Malgun Gothic', sans-serif; padding: 10px 20px; font-size: 20px; cursor: pointer;">${escapeHtml(menuText.FONT_GOTHIC)}</button>
-                        <button id="lobby-font-gulim" type="button" style="font-family: 'Gulim', 'Dotum', sans-serif; padding: 10px 20px; font-size: 20px; cursor: pointer;">${escapeHtml(menuText.FONT_GULIM)}</button>
-                    </div>
-
-                    <div style="font-size: 24px; margin-bottom: 30px; text-align: center;">
-                        <p style="margin:0 0 10px 0;">${escapeHtml(menuText.LANG)}</p>
-                        <button id="lobby-lang-ko" type="button" style="padding: 10px; font-size: 18px; font-family: inherit; cursor: pointer;">한글</button>
-                        <button id="lobby-lang-en" type="button" style="padding: 10px; font-size: 18px; font-family: inherit; cursor: pointer;">Eng</button>
-                        <button id="lobby-lang-ja" type="button" style="padding: 10px; font-size: 18px; font-family: inherit; cursor: pointer;">日本語</button>
-                    </div>
-
-                    <button id="close-lobby-settings" type="button" style="font-family: inherit; width: 100%; padding: 15px; font-size: 24px; background: #e74c3c; color: white; border: none; border-radius: 10px; cursor: pointer;">${escapeHtml(menuText.CLOSE)}</button>
-                </div>
-                ${showAfkPenalty ? (() => {
-                    const penaltyTitle = kickReason === 'HOST_IDLE_BANNED'
-                        ? (text.HOST_IDLE_BAN_TITLE || text.AFK_PENALTY_TITLE)
-                        : (kickReason === 'HOST_IDLE_KICKED'
-                            ? (text.HOST_IDLE_KICK_TITLE || text.AFK_PENALTY_TITLE)
-                            : text.AFK_PENALTY_TITLE);
-                    const penaltyDesc = kickReason === 'HOST_IDLE_BANNED'
-                        ? (text.HOST_IDLE_BAN_DESC || text.AFK_PENALTY_DESC)
-                        : (kickReason === 'HOST_IDLE_KICKED'
-                            ? (text.HOST_IDLE_KICK_DESC || text.AFK_PENALTY_DESC)
-                            : text.AFK_PENALTY_DESC);
-                    return `
-                <div id="modal-afk-penalty" style="position: absolute; inset: 0; background: rgba(0,0,0,0.58); z-index: 9600; display: flex; align-items: center; justify-content: center; opacity: ${afkPenaltyFaded ? 1 : 0}; transition: opacity 0.35s ease;">
-                    <div style="width: 580px; max-width: 90vw; background: #165b7a; border: 4px solid #e74c3c; border-radius: 24px; padding: 38px 40px; box-shadow: 0 20px 50px rgba(0,0,0,0.55); color: #fff; text-align: center;">
-                        <h2 style="margin: 0 0 18px 0; font-size: 32px; color: #ff7675;">⚠️ ${escapeHtml(penaltyTitle)}</h2>
-                        <p style="margin: 0 0 28px 0; font-size: 20px; line-height: 1.65; color: #ecf0f1; white-space: pre-line;">${escapeHtml(penaltyDesc)}</p>
-                        <button id="btn-afk-penalty-confirm" type="button" style="font-family: inherit; padding: 14px 44px; font-size: 21px; font-weight: bold; background: #e74c3c; color: #fff; border: none; border-radius: 12px; cursor: pointer;">${escapeHtml(text.AFK_PENALTY_BTN)}</button>
-                    </div>
-                </div>
-                `;
-                })() : ''}
             </div>
         `;
 
@@ -399,41 +441,27 @@ export function renderGameMainPage(container, config) {
             render();
         };
 
-        const saveNick = async () => {
-            const val = container.querySelector('#input-nickname').value;
-            if (!(await RoomManager.setNickname(val))) {
-                showLobbyToast(container, text.NICK_EMPTY_ERR);
-                return;
-            }
-            showLobbyToast(container, `${text.NICK_UPDATED} ${RoomManager.localPlayer.name}`);
-        };
-        container.querySelector('#btn-save-nick').onclick = saveNick;
-
-        const lobbySettingsPopup = container.querySelector('#popup-lobby-settings');
-        const openLobbySettingsBtn = container.querySelector('#btn-lobby-settings');
-        const closeLobbySettingsBtn = container.querySelector('#close-lobby-settings');
-        if (openLobbySettingsBtn && lobbySettingsPopup) {
-            openLobbySettingsBtn.onclick = () => { lobbySettingsPopup.style.display = 'block'; };
+        const openLobbyInfoBtn = container.querySelector('#btn-lobby-info');
+        if (openLobbyInfoBtn) {
+            openLobbyInfoBtn.onclick = () => openInfoPopup(container, { gameId });
         }
-        if (closeLobbySettingsBtn && lobbySettingsPopup) {
-            closeLobbySettingsBtn.onclick = () => { lobbySettingsPopup.style.display = 'none'; };
-        }
-        const lobbyBgmSlider = container.querySelector('#lobby-bgm-slider');
-        if (lobbyBgmSlider) lobbyBgmSlider.oninput = (e) => AudioManager.setBGMVolume(e.target.value);
-        const lobbySfxSlider = container.querySelector('#lobby-sfx-slider');
-        if (lobbySfxSlider) lobbySfxSlider.oninput = (e) => AudioManager.setSFXVolume(e.target.value);
-        const lobbyFontGothic = container.querySelector('#lobby-font-gothic');
-        if (lobbyFontGothic) lobbyFontGothic.onclick = () => SettingsManager.toggleFont(false);
-        const lobbyFontGulim = container.querySelector('#lobby-font-gulim');
-        if (lobbyFontGulim) lobbyFontGulim.onclick = () => SettingsManager.toggleFont(true);
-        const lobbyLangKo = container.querySelector('#lobby-lang-ko');
-        if (lobbyLangKo) lobbyLangKo.onclick = () => LangState.set('ko');
-        const lobbyLangEn = container.querySelector('#lobby-lang-en');
-        if (lobbyLangEn) lobbyLangEn.onclick = () => LangState.set('en');
-        const lobbyLangJa = container.querySelector('#lobby-lang-ja');
-        if (lobbyLangJa) lobbyLangJa.onclick = () => LangState.set('ja');
 
-        // 모달 제어
+        bindArenaSettingsHandlers({
+            container,
+            popupId: 'popup-lobby-settings',
+            openBtnId: 'btn-lobby-settings',
+            idPrefix: 'lobby-settings',
+            bgmSliderId: 'lobby-bgm-slider',
+            sfxSliderId: 'lobby-sfx-slider',
+            fontGothicId: 'lobby-font-gothic',
+            fontGulimId: 'lobby-font-gulim',
+            langKoId: 'lobby-lang-ko',
+            langEnId: 'lobby-lang-en',
+            langJaId: 'lobby-lang-ja',
+            closeBtnId: 'close-lobby-settings'
+        });
+
+        // 방 생성 / 코드 참가 모달 제어
         const createModal = container.querySelector('#modal-create-room');
         const joinModal = container.querySelector('#modal-join-code');
         const joinInput = container.querySelector('#input-join-code');
@@ -441,17 +469,36 @@ export function renderGameMainPage(container, config) {
         const createPassInput = container.querySelector('#create-room-password');
         const titleInput = container.querySelector('#create-room-title');
 
+        const maxBtns = container.querySelectorAll('.btn-create-max-players');
+        const syncCreateMaxBtnStyles = () => {
+            maxBtns.forEach(btn => {
+                const isSel = Number(btn.dataset.max) === selectedCreateMax;
+                btn.classList.toggle('btn-orange', isSel);
+                btn.classList.toggle('btn-wood', !isSel);
+            });
+        };
+        maxBtns.forEach(btn => {
+            btn.onclick = () => {
+                selectedCreateMax = Number(btn.dataset.max) || meta.maxPlayers;
+                syncCreateMaxBtnStyles();
+            };
+        });
+
         container.querySelector('#btn-open-create-room').onclick = () => {
-            createModal.style.display = 'flex';
+            titleInput.value = pickRandomCreateTitle(text, text[defaultRoomTitleKey] || gameTitle);
+            selectedCreateMax = meta.maxPlayers;
+            syncCreateMaxBtnStyles();
+            createModal.classList.add('open');
             titleInput.focus();
         };
         container.querySelector('#btn-cancel-create').onclick = () => {
-            createModal.style.display = 'none';
+            createModal.classList.remove('open');
         };
+        if (createModal) createModal.onclick = (e) => { if (e.target === createModal) createModal.classList.remove('open'); };
 
         const submitCreate = async () => {
             const title = titleInput.value;
-            const maxPlayers = Number(container.querySelector('#create-room-max').value);
+            const maxPlayers = selectedCreateMax || meta.maxPlayers;
             const vis = container.querySelector('input[name="room-visibility"]:checked')?.value;
             const res = await RoomManager.createRoom({
                 gameId,
@@ -480,14 +527,15 @@ export function renderGameMainPage(container, config) {
         };
 
         container.querySelector('#btn-open-join-code').onclick = () => {
-            joinModal.style.display = 'flex';
+            joinModal.classList.add('open');
             joinInput.value = '';
             if (joinPassInput) joinPassInput.value = '';
             joinInput.focus();
         };
         container.querySelector('#btn-cancel-join').onclick = () => {
-            joinModal.style.display = 'none';
+            joinModal.classList.remove('open');
         };
+        if (joinModal) joinModal.onclick = (e) => { if (e.target === joinModal) joinModal.classList.remove('open'); };
 
         const submitJoinByCode = async () => {
             const res = await RoomManager.joinRoomByCode(
@@ -524,10 +572,8 @@ export function renderGameMainPage(container, config) {
     const langHandler = () => render();
     const escHandler = (e) => {
         if (e.key === 'Escape') {
-            const cm = container.querySelector('#modal-create-room');
-            const jm = container.querySelector('#modal-join-code');
-            if (cm) cm.style.display = 'none';
-            if (jm) jm.style.display = 'none';
+            container.querySelector('#modal-create-room')?.classList.remove('open');
+            container.querySelector('#modal-join-code')?.classList.remove('open');
         }
     };
     document.addEventListener('languageChanged', langHandler);
@@ -578,7 +624,7 @@ export function renderGameMainPage(container, config) {
         const activeRoom = netRes?.helloAck?.room;
         if (activeRoom && activeRoom.gameId === gameId) {
             if (activeRoom.status === 'playing' && netRes.helloAck.gameSnapshot) {
-                changeScene(gameMeta.sceneGame, {
+                changeScene(meta.sceneGame, {
                     room: activeRoom,
                     initialSnapshot: netRes.helloAck.gameSnapshot
                 });

@@ -30,7 +30,7 @@ export class Player {
         this._handAcquireCounter = 0;
         
         this.aiType = aiType;
-        this.aiDifficulty = aiType ? normalizeAiDifficulty(aiDifficulty, 'nuclear') : null;
+        this.aiDifficulty = aiType ? normalizeAiDifficulty(aiDifficulty, 'spicy') : null;
         this.marathonSkipNext = false;
         this.afkWarningCount = 0;         // 누적 잠수 경고 횟수 (1회 경고 후 재발 시 강제 퇴장)
         this.consecutiveTimeouts = 0;     // 연속 무응답 턴 수 (3턴 이상 시 AI 대체 판정)
@@ -172,13 +172,13 @@ export class Player {
                 tile.owner = this;
                 if (tile.type === 'normal') this.territoryCount++;
 
-                // 이면세계(35) 보유 중 신규 영토 획득 시 해당 영토 시간대 역전
+                // 이면세계(37) 보유 중 신규 영토 획득 시 해당 영토 시간대 역전
                 if (this.buffs['hold_reverse'] && this.buffs['hold_reverse'].length > 0) {
                     if (tile.timeType === 'day') tile.timeType = 'night';
                     else if (tile.timeType === 'night') tile.timeType = 'day';
                 }
 
-                // 다야의 궁전 소유자가 되면 '서열 2위의 특권(32)' 즉시 파괴 (기획서 33p)
+                // 다야의 궁전 소유자가 되면 '서열 2위의 특권(34)' 즉시 파괴 (기획서 33p)
                 if (tile.id === BOARD_TILES.DAYA && this.buffs['hold_immune']) {
                     const idx = this.buffs['hold_immune'].findIndex(c => c.id === CARD_IDS.RANK_2_PRIVILEGE);
                     if (idx > -1) {
@@ -425,6 +425,31 @@ export class Player {
             reducedTotal: Math.max(0, prevDebt - nextDebt),
             reducedPrincipal: Math.max(0, prevPrincipal - this.loanPrincipal),
             reducedInterest: Math.max(0, prevInterest - this.loanInterest)
+        };
+    }
+
+    /**
+     * [28: 교단의 비상금] 발동 시 보유한 모든 대출(원금 + 확정 이자)을 전액 즉시 청산한다.
+     */
+    clearAllLoans() {
+        this._syncLoanAggregates();
+        const prevPrincipal = Math.max(0, Math.round(Number(this.loanPrincipal) || 0));
+        const prevInterest = Math.max(0, Math.round(Number(this.loanInterest) || 0));
+        const prevDebt = prevPrincipal + prevInterest;
+
+        this.loanRecords = [];
+        this.loanPrincipal = 0;
+        this.loanInterest = 0;
+        this.loanInterestPrincipal = 0;
+
+        if (prevDebt > 0 && this.tracker) {
+            this.tracker.loanFullClearedCount = (this.tracker.loanFullClearedCount || 0) + 1;
+        }
+        return {
+            prevPrincipal,
+            prevInterest,
+            prevDebt,
+            clearedTotal: prevDebt
         };
     }
 
