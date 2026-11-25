@@ -42,62 +42,106 @@ function injectUnosStyles() {
         .unos-root {
             width: 1920px;
             height: 1080px;
+            padding: 20px 24px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
             position: relative;
             overflow: hidden;
-            background: radial-gradient(circle at 50% 35%, #232a3e 0%, #121622 100%);
-            color: #ecf0f1;
+            background: radial-gradient(circle at 50% 35%, #FCECC9 0%, #EBC888 100%);
+            color: #3D2010;
             font-family: inherit;
             user-select: none;
             box-sizing: border-box;
         }
-        .unos-main-grid {
-            display: grid;
-            grid-template-columns: 980px 940px;
-            width: 1920px;
-            height: 770px;
-            padding: 20px 28px 0 28px;
+        .td-wood-panel {
+            background: linear-gradient(180deg, #8F542B 0%, #6E3D1E 100%);
+            border: 5px solid #4E2812;
+            border-radius: 26px;
+            padding: 12px;
+            box-shadow: 0 18px 40px rgba(74, 38, 18, 0.3);
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            min-height: 0;
             box-sizing: border-box;
-            gap: 24px;
         }
-        .unos-chess-panel {
-            background: rgba(18, 24, 38, 0.88);
-            border: 3px solid rgba(255, 255, 255, 0.16);
-            border-radius: 22px;
-            padding: 18px 24px;
+        .td-parchment-body {
+            flex: 1;
+            min-height: 0;
+            background: linear-gradient(180deg, #FFF9EB 0%, #F7E7C4 100%);
+            border: 3px solid #C9965B;
+            border-radius: 18px;
+            padding: 16px 20px;
+            box-shadow: inset 0 2px 8px rgba(105, 57, 29, 0.12);
             display: flex;
             flex-direction: column;
+            min-width: 0;
+            box-sizing: border-box;
+        }
+        .td-btn {
+            font-family: inherit;
+            font-weight: 900;
+            color: #FFFFFF;
+            border-radius: 13px;
+            cursor: pointer;
+            transition: transform 0.14s ease, filter 0.14s ease;
+            border: 2px solid #FFE4AC;
+            white-space: nowrap;
+        }
+        .td-btn:hover:not(:disabled) {
+            transform: scale(1.045);
+            filter: brightness(1.06);
+        }
+        .td-btn:disabled {
+            opacity: 0.48;
+            cursor: not-allowed;
+        }
+        .td-btn-green {
+            background: linear-gradient(135deg, #77C242, #4E8F26);
+            border-color: #DFF5BE;
+            box-shadow: 0 5px 12px rgba(45, 95, 16, 0.28);
+        }
+        .td-btn-orange {
+            background: linear-gradient(135deg, #F38221, #D95318);
+            border-color: #FFE4AC;
+            box-shadow: 0 5px 12px rgba(145, 52, 12, 0.3);
+        }
+        .td-btn-blue {
+            background: linear-gradient(135deg, #5E72E4, #4959C9);
+            border-color: #C7D0FF;
+        }
+        .td-btn-purple {
+            background: linear-gradient(135deg, #9B59B6, #733A91);
+            border-color: #E8C7FF;
+        }
+        .td-btn-red {
+            background: linear-gradient(135deg, #E25B45, #B83724);
+            border-color: #FFD1C9;
+        }
+        .td-btn-wood {
+            background: linear-gradient(135deg, #8B5733, #66381A);
+            border-color: #D9AD79;
+        }
+        .unos-chess-body {
+            justify-content: space-between;
             align-items: center;
-            justify-content: space-between;
-            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
-            position: relative;
-        }
-        .unos-table-panel {
-            width: 880px;
-            background: rgba(18, 24, 38, 0.88);
-            border: 3px solid rgba(255, 255, 255, 0.16);
-            border-radius: 22px;
-            padding: 18px 24px;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
-            position: relative;
         }
         .unos-board-frame {
             display: grid;
-            grid-template-columns: repeat(6, 94px);
-            grid-template-rows: repeat(6, 94px);
-            gap: 5px;
-            padding: 12px;
-            background: #0d111a;
-            border: 4px solid #3c486b;
-            border-radius: 18px;
-            box-shadow: inset 0 0 24px rgba(0,0,0,0.7), 0 10px 28px rgba(0,0,0,0.5);
+            grid-template-columns: repeat(6, 120px);
+            grid-template-rows: repeat(6, 120px);
+            gap: 6px;
+            padding: 14px;
+            background: linear-gradient(180deg, #5E3217 0%, #42210D 100%);
+            border: 5px solid #2E1507;
+            border-radius: 22px;
+            box-shadow: inset 0 4px 18px rgba(0, 0, 0, 0.55), 0 12px 28px rgba(61, 32, 16, 0.3);
         }
         .unos-cell {
-            width: 94px;
-            height: 94px;
-            border-radius: 11px;
+            width: 120px;
+            height: 120px;
+            border-radius: 14px;
             position: relative;
             display: flex;
             align-items: center;
@@ -107,135 +151,185 @@ function injectUnosStyles() {
             box-sizing: border-box;
         }
         .unos-cell:hover {
-            filter: brightness(1.08);
-        }
-        .unos-cell.selected-from {
-            outline: 4px solid #ffffff;
-            box-shadow: 0 0 18px rgba(255, 255, 255, 0.9);
+            transform: scale(1.035);
+            filter: brightness(1.06);
             z-index: 2;
         }
-        .unos-cell.legal-target {
-            outline: 3px dashed rgba(255, 255, 255, 0.92);
-            box-shadow: inset 0 0 18px rgba(255, 255, 255, 0.45);
-        }
-        .unos-cell.preview-to {
-            outline: 4px solid #00e5ff;
-            box-shadow: 0 0 22px rgba(0, 229, 255, 0.95);
+        .unos-cell.selected-from {
+            outline: 4px solid #FFF9EB;
+            box-shadow: 0 0 20px rgba(255, 249, 235, 0.95);
             z-index: 3;
         }
+        .unos-cell.legal-target {
+            outline: 3.5px dashed #FFFDF5;
+            box-shadow: inset 0 0 20px rgba(255, 255, 255, 0.45);
+        }
+        .unos-cell.preview-to {
+            outline: 4px solid #00E5FF;
+            box-shadow: 0 0 22px rgba(0, 229, 255, 0.9);
+            z-index: 4;
+        }
         .unos-cell.king-in-check {
-            animation: unosCheckPulse 1s infinite alternate;
+            animation: unosCheckPulse 0.95s infinite alternate;
         }
         @keyframes unosCheckPulse {
-            from { box-shadow: inset 0 0 12px #ff1744, 0 0 12px #ff1744; }
-            to { box-shadow: inset 0 0 28px #ff5252, 0 0 24px #ff1744; }
+            from { box-shadow: inset 0 0 14px #FF1744, 0 0 12px #FF1744; }
+            to { box-shadow: inset 0 0 30px #FF5252, 0 0 24px #FF1744; }
         }
         .unos-piece-token {
-            width: 74px;
-            height: 74px;
+            width: 88px;
+            height: 88px;
             border-radius: 50%;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             position: relative;
-            box-shadow: 0 6px 14px rgba(0, 0, 0, 0.55);
+            box-shadow: 0 7px 14px rgba(34, 15, 5, 0.45);
             transition: transform 0.14s ease;
         }
         .unos-piece-token.mine {
-            background: radial-gradient(circle at 30% 25%, #ffffff 0%, #dfe6e9 75%, #b2bec3 100%);
-            border: 4px solid #2980b9;
-            color: #132238;
+            background: radial-gradient(circle at 30% 25%, #FFFDF8 0%, #F7E8C7 75%, #DEC08C 100%);
+            border: 4px solid #2B6BB8;
+            color: #2A160B;
         }
         .unos-piece-token.opponent {
-            background: radial-gradient(circle at 30% 25%, #3d3d5c 0%, #1e1e2f 80%, #11111a 100%);
-            border: 4px solid #e74c3c;
-            color: #f5f6fa;
+            background: radial-gradient(circle at 30% 25%, #6A3D22 0%, #442210 80%, #2C1408 100%);
+            border: 4px solid #E25B45;
+            color: #FFF7DF;
         }
         .unos-piece-token.ghost-origin {
-            opacity: 0.35;
+            opacity: 0.36;
             border-style: dashed;
         }
         .unos-safety-badge {
             position: absolute;
             top: -10px;
             right: -10px;
-            width: 34px;
-            height: 34px;
-            border-radius: 8px;
+            width: 36px;
+            height: 36px;
+            border-radius: 9px;
             display: flex;
             align-items: center;
             justify-content: center;
             font-weight: 900;
-            font-size: 19px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.65);
+            font-size: 18px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.55);
             z-index: 6;
             pointer-events: none;
         }
         .unos-safety-badge.red {
-            background: #e74c3c;
-            border: 2px solid #ffffff;
-            color: #ffffff;
+            background: #E25B45;
+            border: 2px solid #FFFFFF;
+            color: #FFFFFF;
         }
         .unos-safety-badge.yellow {
-            background: #f1c40f;
-            border: 2px solid #1e272e;
-            color: #1e272e;
+            background: #F7C744;
+            border: 2px solid #3D2010;
+            color: #3D2010;
         }
-        .unos-hand-zone {
-            width: 1920px;
-            height: 290px;
-            position: absolute;
-            bottom: 0;
-            left: 0;
+        .unos-right-col {
             display: flex;
             flex-direction: column;
+            gap: 14px;
+            min-width: 0;
+            min-height: 0;
+        }
+        .unos-table-shell {
+            flex: 7;
+            min-height: 0;
+        }
+        .unos-hand-shell {
+            flex: 3;
+            min-height: 0;
+        }
+        .unos-table-body {
+            gap: 12px;
+            justify-content: space-between;
+            padding: 14px 18px;
+        }
+        .unos-hand-body {
             align-items: center;
-            justify-content: flex-end;
-            padding-bottom: 18px;
-            pointer-events: none;
+            justify-content: space-between;
+            padding: 10px 16px 12px 16px;
+            position: relative;
+            overflow: visible;
+        }
+        .unos-scroll::-webkit-scrollbar {
+            width: 6px;
+        }
+        .unos-scroll::-webkit-scrollbar-thumb {
+            background: rgba(143, 84, 43, 0.5);
+            border-radius: 999px;
         }
         .unos-fan-container {
             position: relative;
-            width: 1360px;
-            height: 230px;
+            width: 100%;
+            height: 204px;
             display: flex;
             align-items: flex-end;
             justify-content: center;
+            padding-bottom: 6px;
             pointer-events: auto;
         }
         .unos-card-item {
-            width: 146px;
-            height: 208px;
+            width: 134px;
+            height: 188px;
             border-radius: 16px;
-            padding: 12px 10px;
+            padding: 10px 9px;
             box-sizing: border-box;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
             position: relative;
-            margin: 0 -18px;
-            box-shadow: 0 10px 24px rgba(0, 0, 0, 0.55);
-            transition: transform 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.1), box-shadow 0.18s ease, filter 0.15s ease;
+            box-shadow: 0 10px 22px rgba(45, 22, 9, 0.38);
+            transition: transform 0.16s cubic-bezier(0.2, 0.9, 0.3, 1.1), box-shadow 0.16s ease, filter 0.14s ease;
             transform: var(--fan-transform, none);
-            transform-origin: 50% 120%;
+            transform-origin: 50% 115%;
             cursor: grab;
+            flex-shrink: 0;
             user-select: none;
             touch-action: none;
         }
         .unos-card-item:hover {
-            transform: translateY(-54px) scale(1.22) rotate(0deg) !important;
-            z-index: 80 !important;
-            box-shadow: 0 20px 42px rgba(0, 0, 0, 0.8), 0 0 18px rgba(255, 255, 255, 0.45);
+            transform: translateY(-30px) scale(1.18) rotate(0deg) !important;
+            z-index: 90 !important;
+            box-shadow: 0 20px 38px rgba(45, 22, 9, 0.58), 0 0 16px rgba(247, 199, 68, 0.85);
         }
         .unos-card-item.disabled-card {
-            filter: grayscale(0.45) brightness(0.68);
+            filter: grayscale(0.45) brightness(0.75);
             cursor: not-allowed;
         }
         .unos-card-item.chain-blocked {
-            filter: grayscale(0.6) brightness(0.6);
+            filter: grayscale(0.55) brightness(0.68);
             cursor: not-allowed;
-            border-color: #ff5252 !important;
+            border-color: #E25B45 !important;
+        }
+        .unos-modal-backdrop {
+            width: 100%;
+            height: 100%;
+            background: rgba(34, 16, 6, 0.64);
+            backdrop-filter: blur(4px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .td-modal-shell {
+            background: linear-gradient(180deg, #8F542B 0%, #6E3D1E 100%);
+            border: 5px solid #4E2812;
+            border-radius: 26px;
+            padding: 12px;
+            box-shadow: 0 24px 64px rgba(32, 14, 5, 0.7);
+            box-sizing: border-box;
+        }
+        .td-modal-inner {
+            background: linear-gradient(180deg, #FFF9EB 0%, #F7E7C4 100%);
+            border: 3px solid #C9965B;
+            border-radius: 18px;
+            padding: 26px 32px;
+            color: #3D2010;
+            text-align: center;
+            box-sizing: border-box;
         }
         .unos-card-surface {
             position: relative;
@@ -328,13 +422,19 @@ export class UnosUIController {
     _buildBaseLayout() {
         this.container.innerHTML = `
             <div class="unos-root" id="unos-root">
-                <div class="unos-main-grid">
-                    <div class="unos-chess-panel" id="unos-chess-zone"></div>
-                    <div class="unos-table-panel" id="unos-table-zone"></div>
+                <div class="td-wood-panel">
+                    <div class="td-parchment-body unos-chess-body" id="unos-chess-zone"></div>
                 </div>
-                <div class="unos-hand-zone" id="unos-hand-zone"></div>
+                <div class="unos-right-col">
+                    <div class="td-wood-panel unos-table-shell">
+                        <div class="td-parchment-body unos-table-body" id="unos-table-zone"></div>
+                    </div>
+                    <div class="td-wood-panel unos-hand-shell">
+                        <div class="td-parchment-body unos-hand-body" id="unos-hand-zone"></div>
+                    </div>
+                </div>
                 <div id="unos-modal-layer" style="position: absolute; inset: 0; pointer-events: none; z-index: 200;"></div>
-                <div id="unos-toast-banner" style="display: none; position: absolute; top: 24px; left: 50%; transform: translateX(-50%); background: rgba(15, 23, 42, 0.95); border: 2px solid #f1c40f; color: #fff; padding: 12px 28px; border-radius: 999px; font-size: 20px; font-weight: bold; box-shadow: 0 12px 28px rgba(0,0,0,0.6); z-index: 350; pointer-events: none;"></div>
+                <div id="unos-toast-banner" style="display: none; position: absolute; top: 24px; left: 50%; transform: translateX(-50%); background: rgba(68, 35, 16, 0.96); border: 2.5px solid #F7C744; color: #FFF7DF; padding: 12px 28px; border-radius: 999px; font-size: 20px; font-weight: 900; box-shadow: 0 12px 28px rgba(32, 14, 5, 0.5); z-index: 350; pointer-events: none;"></div>
             </div>
         `;
     }
@@ -468,15 +568,15 @@ export class UnosUIController {
 
                     pieceHtml = `
                         <div class="unos-piece-token ${isMine ? 'mine' : 'opponent'} ${isGhostOrigin ? 'ghost-origin' : ''}" style="${promotedBorderStyle}">
-                            <span style="font-size: 32px; line-height: 1;">${pieceIcon}</span>
-                            <span style="font-size: 12px; font-weight: 800; margin-top: 1px;">${escapeHtml(pieceName)}</span>
+                            <span style="font-size: 38px; line-height: 1;">${pieceIcon}</span>
+                            <span style="font-size: 12px; font-weight: 900; margin-top: 1px;">${escapeHtml(pieceName)}</span>
                             ${promotedBadgeHtml}
                             ${safetyBadgeHtml}
                             ${cooldownBadgeHtml}
                         </div>
                     `;
                 } else if (legalTarget) {
-                    pieceHtml = `<div style="width: 24px; height: 24px; border-radius: 50%; background: rgba(255, 255, 255, 0.82); box-shadow: 0 0 10px rgba(0,0,0,0.4);"></div>`;
+                    pieceHtml = `<div style="width: 26px; height: 26px; border-radius: 50%; background: rgba(255, 249, 235, 0.88); box-shadow: 0 0 10px rgba(61, 32, 16, 0.45);"></div>`;
                 }
 
                 const classes = [
@@ -489,9 +589,9 @@ export class UnosUIController {
 
                 cellsHtml += `
                     <div class="${classes}" data-r="${r}" data-c="${c}"
-                         style="background: ${palette.bgTile}; border: 2px solid ${palette.border};">
-                        <span style="position: absolute; top: 4px; left: 6px; font-size: 11px; font-weight: bold; color: ${palette.text}; opacity: 0.85;">${escapeHtml(coordLabel)}</span>
-                        <span style="position: absolute; bottom: 3px; right: 5px; font-size: 11px; font-weight: bold; color: ${palette.text}; opacity: 0.9;">${palette.icon}${escapeHtml(colorLabel)}</span>
+                         style="background: ${palette.bgTile}; border: 2.5px solid ${palette.border};">
+                        <span style="position: absolute; top: 5px; left: 7px; font-size: 12px; font-weight: 800; color: ${palette.text}; opacity: 0.88;">${escapeHtml(coordLabel)}</span>
+                        <span style="position: absolute; bottom: 4px; right: 6px; font-size: 11px; font-weight: 800; color: ${palette.text}; opacity: 0.92;">${palette.icon}${escapeHtml(colorLabel)}</span>
                         ${pieceHtml}
                     </div>
                 `;
@@ -501,18 +601,18 @@ export class UnosUIController {
         // 체크 경고 배지
         const anyCheck = snapshot.checkStatus?.bottom || snapshot.checkStatus?.top;
         const checkBannerHtml = anyCheck
-            ? `<span style="background: #e74c3c; color: #fff; font-weight: 900; font-size: 16px; padding: 5px 14px; border-radius: 999px; border: 2px solid #fff; margin-left: 10px;">${escapeHtml(dict.CHECK_BADGE)}</span>`
+            ? `<span style="background: #E25B45; color: #FFF; font-weight: 900; font-size: 14px; padding: 4px 12px; border-radius: 999px; border: 2px solid #FFF; margin-left: 10px;">${escapeHtml(dict.CHECK_BADGE)}</span>`
             : '';
 
         // 프리뷰 안전도 상세 안내
-        let previewNoticeHtml = `<span style="color: #95a5a6; font-size: 15px;">${isMyTurn && isChessPhase ? '이동할 내 기물을 클릭한 뒤 목표 칸을 선택하고 [이동 종료]를 누르세요.' : '카드 제출 후 활성 성격에 맞춰 기물을 이동합니다.'}</span>`;
+        let previewNoticeHtml = `<span style="color: #724929; font-size: 15px; font-weight: 700;">${isMyTurn && isChessPhase ? '이동할 내 기물을 클릭한 뒤 목표 칸을 선택하고 [이동 종료]를 누르세요.' : '카드 제출 후 활성 성격에 맞춰 기물을 이동합니다.'}</span>`;
         if (this.previewMove) {
             if (this.previewMove.safety === UNOS_SAFETY_LEVELS.RED) {
-                previewNoticeHtml = `<span style="color: #ff6b6b; font-weight: bold; font-size: 16px;">🔺! ${escapeHtml(dict.SAFETY_RED_DESC)}</span>`;
+                previewNoticeHtml = `<span style="color: #B83724; font-weight: 900; font-size: 15px;">🔺! ${escapeHtml(dict.SAFETY_RED_DESC)}</span>`;
             } else if (this.previewMove.safety === UNOS_SAFETY_LEVELS.YELLOW) {
-                previewNoticeHtml = `<span style="color: #f1c40f; font-weight: bold; font-size: 16px;">⚠! ${escapeHtml(dict.SAFETY_YELLOW_DESC)}</span>`;
+                previewNoticeHtml = `<span style="color: #A66200; font-weight: 900; font-size: 15px;">⚠! ${escapeHtml(dict.SAFETY_YELLOW_DESC)}</span>`;
             } else {
-                previewNoticeHtml = `<span style="color: #2ecc71; font-weight: bold; font-size: 16px;">✔ 안전한 이동 칸입니다. [${escapeHtml(dict.BTN_END_MOVE)}] 버튼으로 확정하세요.</span>`;
+                previewNoticeHtml = `<span style="color: #2E7D32; font-weight: 900; font-size: 15px;">✔ 안전한 이동 칸입니다. [${escapeHtml(dict.BTN_END_MOVE)}] 버튼으로 확정하세요.</span>`;
             }
         }
 
@@ -522,13 +622,13 @@ export class UnosUIController {
         const canConfirmMove = Boolean(isMyTurn && isChessPhase && this.previewMove);
 
         const leftCastleBtnHtml = (isMyTurn && isChessPhase && leftCastle?.available)
-            ? `<button type="button" id="btn-unos-castle-left" style="font-family: inherit; padding: 11px 18px; font-size: 17px; font-weight: bold; background: ${leftCastle.isKingDestThreatened ? '#d35400' : '#8e44ad'}; color: #fff; border: 2px solid #f39c12; border-radius: 12px; cursor: pointer;">
+            ? `<button type="button" id="btn-unos-castle-left" class="td-btn ${leftCastle.isKingDestThreatened ? 'td-btn-orange' : 'td-btn-purple'}" style="padding: 10px 14px; font-size: 15px;">
                 ${escapeHtml(dict.BTN_CASTLE_LEFT)}${leftCastle.isKingDestThreatened ? ' 🔺!' : ''}
                </button>`
             : '';
 
         const rightCastleBtnHtml = (isMyTurn && isChessPhase && rightCastle?.available)
-            ? `<button type="button" id="btn-unos-castle-right" style="font-family: inherit; padding: 11px 18px; font-size: 17px; font-weight: bold; background: ${rightCastle.isKingDestThreatened ? '#d35400' : '#8e44ad'}; color: #fff; border: 2px solid #f39c12; border-radius: 12px; cursor: pointer;">
+            ? `<button type="button" id="btn-unos-castle-right" class="td-btn ${rightCastle.isKingDestThreatened ? 'td-btn-orange' : 'td-btn-purple'}" style="padding: 10px 14px; font-size: 15px;">
                 ${escapeHtml(dict.BTN_CASTLE_RIGHT)}${rightCastle.isKingDestThreatened ? ' 🔺!' : ''}
                </button>`
             : '';
@@ -536,23 +636,22 @@ export class UnosUIController {
         zone.innerHTML = `
             <div style="width: 100%; display: flex; align-items: center; justify-content: space-between;">
                 <div style="display: flex; align-items: center;">
-                    <span style="font-size: 23px; font-weight: 900; color: #f1c40f;">♟️ 6×6 성격 체스 보드</span>
+                    <span style="font-size: 24px; font-weight: 900; color: #4E2812;">♟️ 6×6 성격 체스 보드</span>
                     ${checkBannerHtml}
                 </div>
-                <span style="font-size: 14px; color: #bdc3c7;">프리셋: ${escapeHtml(snapshot.boardPresetId || 'P0')} (4색 각 9칸 비인접)</span>
+                <span style="font-size: 13px; font-weight: 800; color: #724929; background: rgba(201, 150, 91, 0.22); padding: 4px 12px; border-radius: 999px; border: 1px solid #C9965B;">프리셋: ${escapeHtml(snapshot.boardPresetId || 'P0')} · 4색 각 9칸 비인접</span>
             </div>
 
             <div class="unos-board-frame" id="unos-board-grid">
                 ${cellsHtml}
             </div>
 
-            <div style="width: 100%; display: flex; align-items: center; justify-content: space-between; min-height: 52px; gap: 12px;">
-                <div style="flex: 1;">${previewNoticeHtml}</div>
-                <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="width: 100%; display: flex; align-items: center; justify-content: space-between; min-height: 56px; gap: 12px;">
+                <div style="flex: 1; background: rgba(255, 255, 255, 0.62); border: 2px solid #D4A46A; border-radius: 12px; padding: 9px 14px;">${previewNoticeHtml}</div>
+                <div style="display: flex; align-items: center; gap: 8px;">
                     ${leftCastleBtnHtml}
                     ${rightCastleBtnHtml}
-                    <button type="button" id="btn-unos-commit-move" ${canConfirmMove ? '' : 'disabled'}
-                        style="font-family: inherit; padding: 12px 26px; font-size: 19px; font-weight: 900; background: ${canConfirmMove ? '#27ae60' : '#34495e'}; color: #fff; border: 2px solid ${canConfirmMove ? '#a3e4d7' : 'rgba(255,255,255,0.2)'}; border-radius: 12px; cursor: ${canConfirmMove ? 'pointer' : 'not-allowed'}; opacity: ${canConfirmMove ? '1' : '0.55'};">
+                    <button type="button" id="btn-unos-commit-move" class="td-btn td-btn-green" ${canConfirmMove ? '' : 'disabled'} style="padding: 11px 22px; font-size: 18px;">
                         ✅ ${escapeHtml(dict.BTN_END_MOVE)}
                     </button>
                 </div>
@@ -673,7 +772,7 @@ export class UnosUIController {
             const resBadgeHtml = resTex?.badge
                 ? `<img src="${escapeHtml(resTex.badge)}" alt="" class="unos-personality-emblem" style="width: 20px; height: 20px;">`
                 : `<span>🌈</span>`;
-            turnMoveBadgesHtml = `<span style="display: inline-flex; align-items: center; gap: 6px; background: linear-gradient(90deg, #e74c3c, #f1c40f, #2ecc71, #3498db); color: #fff; font-weight: 900; padding: 6px 14px; border-radius: 999px; font-size: 15px; text-shadow: 0 1px 3px rgba(0,0,0,0.8);">${resBadgeHtml}${escapeHtml(dict.COLOR_FREE_MOVE_LABEL)}</span>`;
+            turnMoveBadgesHtml = `<span style="display: inline-flex; align-items: center; gap: 6px; background: linear-gradient(90deg, #E25B45, #F7C744, #5EB540, #4A90E2); color: #FFF; font-weight: 900; padding: 5px 14px; border-radius: 999px; font-size: 14px; border: 2px solid #4E2812;">${resBadgeHtml}${escapeHtml(dict.COLOR_FREE_MOVE_LABEL)}</span>`;
         } else {
             const activeList = Array.isArray(snapshot.turnActiveColors) && snapshot.turnActiveColors.length > 0
                 ? snapshot.turnActiveColors
@@ -685,7 +784,7 @@ export class UnosUIController {
                 const cBadgeHtml = cTex?.badge
                     ? `<img src="${escapeHtml(cTex.badge)}" alt="" class="unos-personality-emblem" style="width: 20px; height: 20px;">`
                     : `<span>${pal.icon}</span>`;
-                return `<span style="display: inline-flex; align-items: center; gap: 6px; background: ${pal.hex}; color: ${pal.text}; font-weight: 900; padding: 5px 14px; border-radius: 999px; font-size: 15px; border: 2px solid ${pal.border};">${cBadgeHtml}${escapeHtml(cName)}</span>`;
+                return `<span style="display: inline-flex; align-items: center; gap: 6px; background: ${pal.hex}; color: ${pal.text}; font-weight: 900; padding: 5px 14px; border-radius: 999px; font-size: 14px; border: 2px solid #4E2812;">${cBadgeHtml}${escapeHtml(cName)}</span>`;
             }).join(' ');
         }
 
@@ -697,15 +796,15 @@ export class UnosUIController {
         const visibleBackCards = Math.min(10, oppHandCount);
         let oppBacksHtml = '';
         for (let i = 0; i < visibleBackCards; i++) {
-            oppBacksHtml += `<img src="${escapeHtml(UNOS_COMMON_TEXTURES.CARD_BACK)}" alt="카드 뒷면" style="width: 34px; height: 50px; border-radius: 7px; object-fit: cover; border: 2px solid #f1c40f; margin-left: ${i === 0 ? '0' : '-14px'}; box-shadow: 0 3px 8px rgba(0,0,0,0.5);">`;
+            oppBacksHtml += `<img src="${escapeHtml(UNOS_COMMON_TEXTURES.CARD_BACK)}" alt="카드 뒷면" style="width: 32px; height: 46px; border-radius: 6px; object-fit: cover; border: 2px solid #F7C744; margin-left: ${i === 0 ? '0' : '-11px'}; box-shadow: 0 3px 8px rgba(45, 22, 9, 0.4);">`;
         }
 
         const oppBurstBadge = opponent?.burst?.active
-            ? `<span style="background: #e67e22; color: #fff; font-weight: 900; font-size: 14px; padding: 4px 10px; border-radius: 999px; border: 2px solid #fff;">${escapeHtml(dict.BURST_BADGE)} (${opponent.burst.turnsLeft}T / Δ${opponent.burst.pendingRedrawDelta >= 0 ? `+${opponent.burst.pendingRedrawDelta}` : opponent.burst.pendingRedrawDelta})</span>`
+            ? `<span style="background: #D95318; color: #FFF; font-weight: 900; font-size: 12px; padding: 3px 9px; border-radius: 999px;">${escapeHtml(dict.BURST_BADGE)} (${opponent.burst.turnsLeft}T / Δ${opponent.burst.pendingRedrawDelta >= 0 ? `+${opponent.burst.pendingRedrawDelta}` : opponent.burst.pendingRedrawDelta})</span>`
             : '';
 
         const myBurstBadge = myPlayer?.burst?.active
-            ? `<span style="background: #e67e22; color: #fff; font-weight: 900; font-size: 14px; padding: 4px 10px; border-radius: 999px; border: 2px solid #fff;">${escapeHtml(dict.BURST_BADGE)} (${myPlayer.burst.turnsLeft}T / Δ${myPlayer.burst.pendingRedrawDelta >= 0 ? `+${myPlayer.burst.pendingRedrawDelta}` : myPlayer.burst.pendingRedrawDelta})</span>`
+            ? `<span style="background: #D95318; color: #FFF; font-weight: 900; font-size: 12px; padding: 3px 9px; border-radius: 999px;">${escapeHtml(dict.BURST_BADGE)} (${myPlayer.burst.turnsLeft}T / Δ${myPlayer.burst.pendingRedrawDelta >= 0 ? `+${myPlayer.burst.pendingRedrawDelta}` : myPlayer.burst.pendingRedrawDelta})</span>`
             : '';
 
         const canDrawCard = Boolean(
@@ -726,89 +825,91 @@ export class UnosUIController {
         const timerLeftVal = Math.max(0, Number(snapshot.timerLeft ?? snapshot.turnTimeLimitSec ?? 0));
         const isWarnTime = timerLeftVal <= UNOS_TURN_TIMER_CONFIG.WARN_THRESHOLD_SECONDS;
         const timerBadgeHtml = showTurnTimer
-            ? `<span id="unos-turn-timer-badge" style="padding: 4px 12px; border-radius: 999px; font-size: 15px; font-weight: 900; background: ${isWarnTime ? '#e74c3c' : 'rgba(241, 196, 15, 0.2)'}; color: ${isWarnTime ? '#ffffff' : '#f1c40f'}; border: 2px solid ${isWarnTime ? '#ffffff' : '#f1c40f'};">⏱ ${timerLeftVal}s</span>`
+            ? `<span id="unos-turn-timer-badge" style="padding: 4px 13px; border-radius: 999px; font-size: 15px; font-weight: 900; background: ${isWarnTime ? '#D93829' : '#6E3D1E'}; color: #FFF7DF; border: 2px solid ${isWarnTime ? '#FFE4AC' : '#F7C744'};">⏱ ${timerLeftVal}s</span>`
             : `<span id="unos-turn-timer-badge" style="display: none;"></span>`;
 
-        const logsHtml = (snapshot.actionLogs || []).slice(-7).map(item =>
-            `<div style="padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.07); font-size: 14px; color: #dfe6e9;">
-                <span style="color: #f1c40f; font-weight: bold;">[T${item.turn}]</span> ${escapeHtml(item.text)}
+        const recentLogs = (snapshot.actionLogs || []).slice(-10);
+        const logsHtml = recentLogs.map((item, idx) =>
+            `<div style="${idx < recentLogs.length - 1 ? 'border-bottom: 1px dashed #D8AF7A; ' : ''}padding: 3px 0; font-size: 13.5px; color: #3D2010;">
+                <b style="color: #B84214;">[T${item.turn}]</b> ${escapeHtml(item.text)}
             </div>`
         ).join('');
 
         zone.innerHTML = `
             <!-- 상단 헤더: 상대방 프로필 & 기권/나가기 버튼 -->
-            <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(0,0,0,0.32); padding: 12px 16px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.12);">
-                <div style="display: flex; align-items: center; gap: 14px;">
-                    <div style="width: 14px; height: 42px; border-radius: 6px; background: ${escapeHtml(opponent?.color || '#e74c3c')};"></div>
+            <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(255, 255, 255, 0.68); border: 2px solid #D4A46A; padding: 10px 14px; border-radius: 16px;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <div style="width: 52px; height: 52px; border-radius: 50%; background: #FFE9C2; border: 3px solid ${escapeHtml(opponent?.color || '#E25B45')}; overflow: hidden; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                        <img src="./Resource/Texture/Char/Char_Erpin_Unos.webp" alt="" style="width: 94%; height: 94%; object-fit: contain;">
+                    </div>
                     <div>
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <span style="font-size: 20px; font-weight: 900;">${escapeHtml(opponent?.name || '상대방')}</span>
-                            <span style="font-size: 12px; padding: 2px 8px; border-radius: 999px; background: rgba(255,255,255,0.14);">${opponent?.type === 'ai' ? 'AI' : 'PLAYER'}</span>
+                        <div style="display: flex; align-items: center; gap: 7px;">
+                            <span style="font-size: 19px; font-weight: 900; color: #3D2010;">${escapeHtml(opponent?.name || '상대방')}</span>
+                            <span style="font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #6E3D1E; color: #FFF7DF; font-weight: 800;">${opponent?.type === 'ai' ? 'AI' : 'PLAYER'}</span>
                             ${oppBurstBadge}
                         </div>
-                        <div style="font-size: 14px; color: #bdc3c7; margin-top: 3px;">
-                            손패: <strong style="color: #f1c40f;">${oppHandCount}${escapeHtml(dict.HAND_COUNT_UNIT)}</strong>
-                            ${opponent?.skipNextCardPhase ? ' · <span style="color: #ff7675; font-weight: bold;">🚫 다음 카드 스킵</span>' : ''}
+                        <div style="font-size: 13px; color: #724929; font-weight: 700; margin-top: 2px;">
+                            보유 손패: <b style="color: #B84214;">${oppHandCount}${escapeHtml(dict.HAND_COUNT_UNIT)}</b>
+                            ${opponent?.skipNextCardPhase ? ' · <span style="color: #B83724; font-weight: 900;">🚫 다음 카드 스킵</span>' : ''}
                         </div>
                     </div>
                 </div>
-                <div style="display: flex; align-items: center; gap: 14px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
                     <div style="display: flex; align-items: center;">${oppBacksHtml}</div>
-                    <button type="button" id="btn-unos-surrender" style="font-family: inherit; padding: 8px 14px; font-size: 14px; font-weight: bold; background: rgba(127, 140, 141, 0.35); color: #ecf0f1; border: 1px solid rgba(255,255,255,0.3); border-radius: 10px; cursor: pointer;">🏳️ ${escapeHtml(dict.BTN_SURRENDER)}</button>
-                    <button type="button" id="btn-unos-exit" style="font-family: inherit; padding: 8px 16px; font-size: 14px; font-weight: bold; background: rgba(192, 57, 43, 0.85); color: #fff; border: 1px solid rgba(255,255,255,0.4); border-radius: 10px; cursor: pointer;">🚪 ${escapeHtml(this.exitConfirmPending ? dict.BTN_EXIT_CONFIRM : dict.BTN_EXIT)}</button>
-                </div>
-            </div>
-
-            <!-- 중앙: 덱 & 중앙 버림 더미 & 현재 활성 성격 배지 -->
-            <div style="display: flex; align-items: center; justify-content: space-around; background: rgba(10, 15, 28, 0.65); border: 2px solid rgba(255,255,255,0.12); border-radius: 18px; padding: 20px 18px; my: 10px;">
-                <!-- 드로우 덱 -->
-                <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
-                    <div id="btn-unos-deck-draw" style="position: relative; width: 132px; height: 188px; border-radius: 16px; overflow: hidden; border: 3px solid ${canDrawCard ? '#00e5ff' : '#f1c40f'}; box-shadow: ${canDrawCard ? '0 0 24px rgba(0,229,255,0.8)' : '0 8px 20px rgba(0,0,0,0.6)'}; cursor: ${canDrawCard ? 'pointer' : 'default'};">
-                        <img src="${escapeHtml(UNOS_COMMON_TEXTURES.CARD_BACK)}" alt="우노스 카드 뒷면" style="width: 100%; height: 100%; object-fit: cover; display: block;">
-                    </div>
-                    <span style="font-size: 13px; color: #f8fafc; font-weight: 800;">${escapeHtml(dict.DECK_REMAINING)} : <strong style="color: #f1c40f;">${snapshot.deckCount}${escapeHtml(dict.HAND_COUNT_UNIT || '장')}</strong></span>
-                    <button type="button" id="btn-unos-draw-action" ${canDrawCard ? '' : 'disabled'}
-                        style="font-family: inherit; padding: 8px 16px; font-size: 14px; font-weight: bold; background: ${canDrawCard ? '#00acc1' : '#34495e'}; color: #fff; border: none; border-radius: 10px; cursor: ${canDrawCard ? 'pointer' : 'not-allowed'}; opacity: ${canDrawCard ? '1' : '0.45'};">
-                        🃏 ${escapeHtml(dict.BTN_DRAW_CARD)}
-                    </button>
-                </div>
-
-                <!-- 중앙 최상단 카드 -->
-                <div style="display: flex; flex-direction: column; align-items: center; gap: 10px;">
-                    ${centerCardHtml}
-                    <span style="font-size: 14px; color: #bdc3c7;">${escapeHtml(dict.DISCARD_PILE)} (${snapshot.discardCount})</span>
-                </div>
-
-                <!-- 현재 활성 성격(색상) 강조 배지 -->
-                <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; min-width: 240px; background: rgba(255,255,255,0.05); padding: 16px; border-radius: 16px; border: 2px solid ${matchPalette.border};">
-                    <span style="font-size: 14px; color: #bdc3c7; font-weight: bold;">${escapeHtml(dict.ACTIVE_COLOR_LABEL)}</span>
-                    <div style="display: inline-flex; align-items: center; gap: 10px; padding: 12px 24px; border-radius: 14px; background: ${matchPalette.hex}; color: ${matchPalette.text}; font-size: 24px; font-weight: 900; border: 3px solid #fff; box-shadow: 0 0 20px ${matchPalette.hex};">
-                        ${matchEmblemHtml}
-                        <span>${escapeHtml(matchColorName)}</span>
-                    </div>
-                    <span style="font-size: 13px; color: #bdc3c7; margin-top: 4px;">${escapeHtml(dict.TURN_MOVE_COLOR_LABEL)}</span>
-                    <div style="display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;">
-                        ${turnMoveBadgesHtml}
-                    </div>
+                    <button type="button" id="btn-unos-surrender" class="td-btn td-btn-wood" style="padding: 8px 12px; font-size: 13px;">🏳️ ${escapeHtml(dict.BTN_SURRENDER)}</button>
+                    <button type="button" id="btn-unos-exit" class="td-btn td-btn-red" style="padding: 8px 14px; font-size: 13px;">🚪 ${escapeHtml(this.exitConfirmPending ? dict.BTN_EXIT_CONFIRM : dict.BTN_EXIT)}</button>
                 </div>
             </div>
 
             <!-- 턴/페이즈 상태 안내 배너 -->
-            <div style="display: flex; align-items: center; justify-content: space-between; background: ${isMyTurn ? 'rgba(39, 174, 96, 0.22)' : 'rgba(52, 73, 94, 0.35)'}; border: 2px solid ${isMyTurn ? '#2ecc71' : 'rgba(255,255,255,0.15)'}; padding: 12px 18px; border-radius: 14px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; background: ${isMyTurn ? '#E5F7DC' : '#F2E5C9'}; border: 2.5px solid ${isMyTurn ? '#4E8F26' : '#C9965B'}; padding: 10px 16px; border-radius: 14px;">
                 <div style="display: flex; align-items: center; gap: 10px;">
-                    <span style="font-size: 19px; font-weight: 900; color: ${isMyTurn ? '#2ecc71' : '#f1c40f'};">
+                    <span style="font-size: 18px; font-weight: 900; color: ${isMyTurn ? '#2E7D32' : '#724929'};">
                         ${isMyTurn ? '🟢 내 턴' : `⏳ ${escapeHtml(opponent?.name || '상대')}의 턴`} — ${escapeHtml(phaseLabel)}
                     </span>
                     ${myBurstBadge}
                 </div>
                 <div style="display: flex; align-items: center; gap: 10px;">
                     ${timerBadgeHtml}
-                    <span style="font-size: 15px; font-weight: bold; color: #ecf0f1;">Turn ${snapshot.turnNumber}</span>
+                    <span style="font-size: 15px; font-weight: 900; color: #4E2812;">Turn ${snapshot.turnNumber}</span>
+                </div>
+            </div>
+
+            <!-- 중앙: 덱 & 중앙 버림 더미 & 현재 활성 성격 배지 -->
+            <div style="display: flex; align-items: center; justify-content: space-around; background: radial-gradient(circle at 50% 45%, #F6E2B3 0%, #E7C687 100%); border: 3px solid #B57B40; border-radius: 18px; padding: 16px 14px; box-shadow: inset 0 2px 12px rgba(78, 40, 18, 0.14);">
+                <!-- 드로우 덱 -->
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                    <div id="btn-unos-deck-draw" style="position: relative; width: 132px; height: 188px; border-radius: 16px; overflow: hidden; border: 4px solid ${canDrawCard ? '#5EB540' : '#F7C744'}; box-shadow: ${canDrawCard ? '0 0 20px rgba(94, 181, 64, 0.7)' : '0 10px 22px rgba(45, 22, 9, 0.4)'}; cursor: ${canDrawCard ? 'pointer' : 'default'};">
+                        <img src="${escapeHtml(UNOS_COMMON_TEXTURES.CARD_BACK)}" alt="우노스 카드 뒷면" style="width: 100%; height: 100%; object-fit: cover; display: block;">
+                    </div>
+                    <span style="font-size: 13px; color: #5B3318; font-weight: 800;">${escapeHtml(dict.DECK_REMAINING)} : <b style="color: #B84214;">${snapshot.deckCount}${escapeHtml(dict.HAND_COUNT_UNIT || '장')}</b></span>
+                    <button type="button" id="btn-unos-draw-action" class="td-btn ${canDrawCard ? 'td-btn-green' : 'td-btn-wood'}" ${canDrawCard ? '' : 'disabled'} style="padding: 7px 15px; font-size: 13px;">
+                        🃏 ${escapeHtml(dict.BTN_DRAW_CARD)}
+                    </button>
+                </div>
+
+                <!-- 중앙 최상단 카드 -->
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                    ${centerCardHtml}
+                    <span style="font-size: 13px; font-weight: 800; color: #5B3318;">${escapeHtml(dict.DISCARD_PILE)} (${snapshot.discardCount})</span>
+                </div>
+
+                <!-- 현재 활성 성격(색상) 강조 배지 -->
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 10px; min-width: 224px; background: rgba(255, 255, 255, 0.72); padding: 14px 16px; border-radius: 16px; border: 2.5px solid #C9965B;">
+                    <span style="font-size: 13px; color: #724929; font-weight: 900;">${escapeHtml(dict.ACTIVE_COLOR_LABEL)}</span>
+                    <div style="display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px; border-radius: 14px; background: ${matchPalette.hex}; color: ${matchPalette.text}; font-size: 22px; font-weight: 900; border: 3px solid #4E2812; box-shadow: 0 6px 14px rgba(45, 22, 9, 0.22);">
+                        ${matchEmblemHtml}
+                        <span>${escapeHtml(matchColorName)}</span>
+                    </div>
+                    <span style="font-size: 12px; font-weight: 800; color: #724929;">${escapeHtml(dict.TURN_MOVE_COLOR_LABEL)}</span>
+                    <div style="display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;">
+                        ${turnMoveBadgesHtml}
+                    </div>
                 </div>
             </div>
 
             <!-- 하단 액션 로그 -->
-            <div style="background: rgba(0,0,0,0.38); border-radius: 14px; padding: 10px 14px; height: 155px; overflow-y: auto; border: 1px solid rgba(255,255,255,0.1);">
+            <div id="unos-action-log-feed" class="unos-scroll" style="flex: 1; min-height: 92px; overflow-y: auto; background: rgba(255, 255, 255, 0.68); border: 2px solid #D4A46A; border-radius: 14px; padding: 9px 14px; line-height: 1.55;">
                 ${logsHtml}
             </div>
         `;
@@ -900,8 +1001,8 @@ export class UnosUIController {
 
         if (isCenterPile) {
             const centerStyle = hasBgTexture
-                ? `width: 136px; height: 192px; border-radius: 16px; background: transparent; box-shadow: 0 10px 26px rgba(0,0,0,0.65); box-sizing: border-box;`
-                : `width: 136px; height: 192px; border-radius: 16px; background: ${bgStyle}; color: ${pal.text}; border: 4px solid #ffffff; box-shadow: 0 10px 26px rgba(0,0,0,0.65); box-sizing: border-box;`;
+                ? `width: 136px; height: 192px; border-radius: 16px; border: 4px solid #FFF9EB; outline: 3px solid #4E2812; background: #2F180B; box-shadow: 0 10px 24px rgba(45, 22, 9, 0.45); box-sizing: border-box;`
+                : `width: 136px; height: 192px; border-radius: 16px; background: ${bgStyle}; color: ${pal.text}; border: 4px solid #FFF9EB; outline: 3px solid #4E2812; box-shadow: 0 10px 24px rgba(45, 22, 9, 0.45); box-sizing: border-box;`;
             return `
                 <div class="unos-card-surface" style="${centerStyle}" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">
                     ${bgLayerHtml}
@@ -915,14 +1016,14 @@ export class UnosUIController {
         const stateClass = isChainBlocked ? 'chain-blocked' : (!isPlayable ? 'disabled-card' : '');
 
         const chainBlockedOverlayHtml = isChainBlocked
-            ? `<div style="position: absolute; inset: 0; background: rgba(18, 22, 34, 0.84); border-radius: 14px; display: flex; align-items: center; justify-content: center; padding: 10px; text-align: center; z-index: 5;">
-                <span style="color: #ff5252; font-size: 13px; font-weight: 900; line-height: 1.35;">🚫 ${escapeHtml(dict.ACTION_CHAIN_LIMIT_MSG)}</span>
+            ? `<div style="position: absolute; inset: 0; background: rgba(46, 20, 9, 0.84); border-radius: 13px; display: flex; align-items: center; justify-content: center; padding: 8px; text-align: center; z-index: 5;">
+                <span style="color: #FFB8AE; font-size: 12px; font-weight: 900; line-height: 1.3;">🚫 ${escapeHtml(dict.ACTION_CHAIN_LIMIT_MSG)}</span>
                </div>`
             : '';
 
         const handCardStyle = hasBgTexture
-            ? `background: transparent; border: none; box-shadow: ${isPlayable ? '0 10px 24px rgba(0,0,0,0.55), 0 0 0 2px rgba(255,255,255,0.88)' : '0 10px 24px rgba(0,0,0,0.55)'}; --fan-transform: ${fanTransform}; z-index: ${10 + index};`
-            : `background: ${bgStyle}; color: ${pal.text}; border: 3px solid ${isPlayable ? '#ffffff' : 'rgba(255,255,255,0.35)'}; --fan-transform: ${fanTransform}; z-index: ${10 + index};`;
+            ? `background: #2F180B; border: 3px solid ${isPlayable ? '#FFF9EB' : 'rgba(255,255,255,0.45)'}; outline: 2px solid #4E2812; --fan-transform: ${fanTransform}; z-index: ${10 + index};`
+            : `background: ${bgStyle}; color: ${pal.text}; border: 3px solid ${isPlayable ? '#FFF9EB' : 'rgba(255,255,255,0.45)'}; outline: 2px solid #4E2812; --fan-transform: ${fanTransform}; z-index: ${10 + index};`;
 
         return `
             <div class="unos-card-item unos-card-surface ${stateClass}"
@@ -952,12 +1053,15 @@ export class UnosUIController {
 
         const n = hand.length;
         const mid = (n - 1) / 2;
-        const maxAngleStep = n > 9 ? 3.2 : 4.8;
+        const maxAngleStep = n >= 9 ? 2.4 : (n >= 7 ? 3.4 : 4.5);
+        const maxFanWidth = 800;
+        const cardW = 134;
+        const marginOverlap = n <= 1 ? 0 : Math.min(-6, Math.floor((maxFanWidth - n * cardW) / (2 * (n - 1))));
 
         const cardsHtml = hand.map((card, idx) => {
             const offset = idx - mid;
             const angle = offset * maxAngleStep;
-            const arcY = Math.abs(offset) * Math.abs(offset) * 2.2;
+            const arcY = Math.abs(offset) * Math.abs(offset) * (n >= 9 ? 1.1 : 1.7);
             const fanTransform = `translateY(${arcY.toFixed(1)}px) rotate(${angle.toFixed(1)}deg)`;
             const effectiveCard = isPromotionMode
                 ? { ...card, playable: true, disabledReason: null, disabledMessage: null }
@@ -975,7 +1079,7 @@ export class UnosUIController {
         }
 
         zone.innerHTML = `
-            <div style="background: rgba(15, 23, 42, 0.88); border: 1px solid rgba(255,255,255,0.2); padding: 6px 22px; border-radius: 999px; font-size: 15px; font-weight: bold; color: #f1c40f; margin-bottom: 8px; pointer-events: auto;">
+            <div style="background: #5E3217; color: #FFE68B; border: 2px solid #F7C744; padding: 5px 18px; border-radius: 999px; font-size: 14px; font-weight: 900; box-shadow: 0 4px 10px rgba(45, 22, 9, 0.25); pointer-events: auto;">
                 ${escapeHtml(guideText)}
             </div>
             <div class="unos-fan-container" id="unos-fan-cards">
@@ -985,6 +1089,7 @@ export class UnosUIController {
 
         const cardEls = zone.querySelectorAll('.unos-card-item');
         cardEls.forEach(cardEl => {
+            cardEl.style.margin = `0 ${marginOverlap}px`;
             cardEl.addEventListener('pointerdown', (e) => this._onCardPointerDown(e, cardEl));
         });
     }
@@ -1108,34 +1213,34 @@ export class UnosUIController {
                 let rankBadgeHtml = '';
                 if (toState.stage === 'RESULT') {
                     if (entry.rank === 1) {
-                        rankBadgeHtml = `<span style="background: #f1c40f; color: #1e272e; font-weight: 900; font-size: 14px; padding: 4px 12px; border-radius: 999px;">${escapeHtml(dict.TURN_ORDER_FIRST_BADGE)}</span>`;
+                        rankBadgeHtml = `<span style="background: #F7C744; color: #3D2010; font-weight: 900; font-size: 12px; padding: 3px 12px; border-radius: 999px;">${escapeHtml(dict.TURN_ORDER_FIRST_BADGE)}</span>`;
                     } else if (entry.rank === 2) {
-                        rankBadgeHtml = `<span style="background: #95a5a6; color: #1e272e; font-weight: 900; font-size: 14px; padding: 4px 12px; border-radius: 999px;">${escapeHtml(dict.TURN_ORDER_SECOND_BADGE)}</span>`;
+                        rankBadgeHtml = `<span style="background: #6E3D1E; color: #FFF7DF; font-weight: 900; font-size: 12px; padding: 3px 12px; border-radius: 999px;">${escapeHtml(dict.TURN_ORDER_SECOND_BADGE)}</span>`;
                     }
                 } else if (toState.stage === 'TIE_REDRAW' && entry.tied) {
-                    rankBadgeHtml = `<span style="background: #e67e22; color: #fff; font-weight: 900; font-size: 13px; padding: 3px 10px; border-radius: 999px;">⚡ TIE (${entry.number})</span>`;
+                    rankBadgeHtml = `<span style="background: #D95318; color: #FFF; font-weight: 900; font-size: 12px; padding: 3px 10px; border-radius: 999px;">⚡ TIE (${entry.number})</span>`;
                 }
 
                 const cardSlotHtml = (entry.drawn && entry.drawnCard)
                     ? this._buildCardVisualHtml(entry.drawnCard, { isCenterPile: true, lang })
-                    : `<div style="position: relative; width: 136px; height: 192px; border-radius: 16px; overflow: hidden; border: 3px dashed ${isMe && canClickDraw ? '#00e5ff' : '#f1c40f'}; box-shadow: 0 8px 22px rgba(0,0,0,0.6);">
+                    : `<div style="position: relative; width: 136px; height: 192px; border-radius: 16px; overflow: hidden; border: 3px dashed ${isMe && canClickDraw ? '#5EB540' : '#F7C744'}; box-shadow: 0 10px 24px rgba(45, 22, 9, 0.45);">
                         <img src="${escapeHtml(UNOS_COMMON_TEXTURES.CARD_BACK)}" alt="추첨 대기 카드 뒷면" style="width: 100%; height: 100%; object-fit: cover; display: block;">
-                        <div style="position: absolute; inset: 0; background: rgba(15, 23, 42, 0.45); display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                            <span style="font-size: 46px; font-weight: 900; color: #f1c40f; text-shadow: 0 3px 10px rgba(0,0,0,0.85);">?</span>
-                            <span style="font-size: 11px; color: #f8fafc; margin-top: 6px; background: rgba(15, 23, 42, 0.88); padding: 3px 10px; border-radius: 999px; border: 1px solid #f1c40f;">${escapeHtml(dict.TURN_ORDER_WAITING_DRAW)}</span>
+                        <div style="position: absolute; inset: 0; background: rgba(46, 20, 8, 0.42); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;">
+                            <span style="font-size: 42px; font-weight: 900; color: #FFE68B; text-shadow: 0 3px 10px rgba(0,0,0,0.75);">?</span>
+                            <span style="font-size: 11px; color: #FFF7DF; font-weight: 900; background: rgba(46, 20, 8, 0.88); padding: 3px 10px; border-radius: 999px; border: 1px solid #F7C744;">${escapeHtml(dict.TURN_ORDER_WAITING_DRAW)}</span>
                         </div>
                        </div>`;
 
                 return `
-                    <div style="width: 250px; background: rgba(15, 23, 42, 0.78); border: 2px solid ${entry.rank === 1 ? '#f1c40f' : (isMe ? '#00e5ff' : 'rgba(255,255,255,0.18)')}; border-radius: 18px; padding: 18px; display: flex; flex-direction: column; align-items: center; gap: 12px;">
+                    <div style="width: 240px; background: rgba(255, 255, 255, 0.72); border: 3px solid ${entry.rank === 1 ? '#F7C744' : (isMe ? '#4A90E2' : '#E25B45')}; border-radius: 18px; padding: 14px; display: flex; flex-direction: column; align-items: center; gap: 10px;">
                         <div style="display: flex; align-items: center; gap: 8px;">
-                            <span style="width: 12px; height: 12px; border-radius: 50%; background: ${escapeHtml(entry.color || '#3498db')};"></span>
-                            <span style="font-size: 19px; font-weight: 900; color: #fff;">${escapeHtml(entry.name || '')}</span>
-                            <span style="font-size: 11px; padding: 2px 7px; border-radius: 999px; background: rgba(255,255,255,0.15);">${entry.isAi ? 'AI' : (isMe ? 'ME' : 'PLAYER')}</span>
+                            <span style="width: 12px; height: 12px; border-radius: 50%; background: ${escapeHtml(entry.color || '#4A90E2')};"></span>
+                            <span style="font-size: 18px; font-weight: 900; color: #3D2010;">${escapeHtml(entry.name || '')}</span>
+                            <span style="font-size: 11px; padding: 2px 7px; border-radius: 999px; background: #6E3D1E; color: #FFF7DF; font-weight: 800;">${entry.isAi ? 'AI' : (isMe ? 'ME' : 'PLAYER')}</span>
                         </div>
-                        <div style="min-height: 26px; display: flex; align-items: center;">${rankBadgeHtml}</div>
+                        <div style="min-height: 24px; display: flex; align-items: center;">${rankBadgeHtml}</div>
                         ${cardSlotHtml}
-                        <div style="font-size: 16px; font-weight: 900; color: ${entry.drawn ? '#f1c40f' : '#95a5a6'};">
+                        <div style="font-size: 15px; font-weight: 900; color: ${entry.drawn ? '#B84214' : '#724929'};">
                             ${entry.drawn ? `숫자: ${entry.number}` : escapeHtml(dict.TURN_ORDER_WAITING_DRAW)}
                         </div>
                     </div>
@@ -1145,7 +1250,7 @@ export class UnosUIController {
             let bottomStatusHtml = '';
             if (toState.stage === 'TIE_REDRAW' && toState.tieNotice) {
                 bottomStatusHtml = `
-                    <div style="background: rgba(230, 126, 34, 0.25); border: 2px solid #f39c12; color: #f1c40f; padding: 12px 24px; border-radius: 14px; font-size: 18px; font-weight: 900;">
+                    <div style="background: #FFE3DD; border: 2px solid #D95318; color: #9E2710; padding: 10px 18px; border-radius: 12px; font-size: 16px; font-weight: 900;">
                         ${escapeHtml(toState.tieNotice)}
                     </div>
                 `;
@@ -1153,20 +1258,19 @@ export class UnosUIController {
                 const firstEntry = entries.find(e => e.rank === 1) || entries[0];
                 const secondEntry = entries.find(e => e.rank === 2) || entries[1];
                 bottomStatusHtml = `
-                    <div style="background: rgba(39, 174, 96, 0.25); border: 2px solid #2ecc71; color: #2ecc71; padding: 12px 24px; border-radius: 14px; font-size: 18px; font-weight: 900;">
+                    <div style="background: #E5F7DC; border: 2px solid #4E8F26; color: #2E7D32; padding: 10px 22px; border-radius: 12px; font-size: 17px; font-weight: 900;">
                         🎉 ${escapeHtml(firstEntry?.name || '')} 선공(1st) vs ${escapeHtml(secondEntry?.name || '')} 후공(2nd) 확정!
                     </div>
                 `;
             } else if (canClickDraw) {
                 bottomStatusHtml = `
-                    <button type="button" id="btn-unos-turn-order-draw"
-                        style="font-family: inherit; padding: 14px 38px; font-size: 21px; font-weight: 900; background: linear-gradient(135deg, #27ae60, #16a085); color: #fff; border: 3px solid #a3e4d7; border-radius: 14px; cursor: pointer; box-shadow: 0 8px 24px rgba(39, 174, 96, 0.55);">
+                    <button type="button" id="btn-unos-turn-order-draw" class="td-btn td-btn-green" style="padding: 12px 34px; font-size: 19px;">
                         🎴 ${escapeHtml(dict.TURN_ORDER_BTN_DRAW)} (${toState.secondsLeft})
                     </button>
                 `;
             } else {
                 bottomStatusHtml = `
-                    <div style="color: #00e5ff; font-size: 17px; font-weight: bold;">
+                    <div style="color: #724929; font-size: 16px; font-weight: 900;">
                         ⏳ ${escapeHtml(dict.TURN_ORDER_WAITING_OPP)} (${toState.secondsLeft}s)
                     </div>
                 `;
@@ -1174,21 +1278,23 @@ export class UnosUIController {
 
             layer.style.pointerEvents = 'auto';
             layer.innerHTML = `
-                <div style="width: 100%; height: 100%; background: rgba(0, 0, 0, 0.74); display: flex; align-items: center; justify-content: center;">
-                    <div style="width: 720px; background: #1a2238; border: 4px solid #f1c40f; border-radius: 26px; padding: 32px 38px; text-align: center; box-shadow: 0 26px 64px rgba(0,0,0,0.85); display: flex; flex-direction: column; align-items: center; gap: 18px;">
-                        <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
-                            <span style="background: rgba(241, 196, 15, 0.2); border: 1px solid #f1c40f; color: #f1c40f; font-size: 14px; font-weight: 900; padding: 4px 14px; border-radius: 999px;">Round ${toState.round || 1}</span>
-                            <h2 style="margin: 0; font-size: 28px; color: #f1c40f;">${escapeHtml(dict.TURN_ORDER_TITLE)}</h2>
-                            <span style="font-size: 14px; color: #bdc3c7;">0 ~ 9</span>
-                        </div>
-                        <p style="margin: 0; font-size: 15px; line-height: 1.5; color: #dfe6e9; white-space: pre-line;">
-                            ${escapeHtml(dict.TURN_ORDER_SUBTITLE)}
-                        </p>
-                        <div style="display: flex; align-items: center; justify-content: center; gap: 28px; margin: 6px 0;">
-                            ${entriesHtml}
-                        </div>
-                        <div style="min-height: 56px; display: flex; align-items: center; justify-content: center;">
-                            ${bottomStatusHtml}
+                <div class="unos-modal-backdrop">
+                    <div class="td-modal-shell" style="width: 740px;">
+                        <div class="td-modal-inner" style="display: flex; flex-direction: column; align-items: center; gap: 14px;">
+                            <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                                <span style="background: #6E3D1E; color: #FFE68B; font-size: 13px; font-weight: 900; padding: 4px 12px; border-radius: 999px;">Round ${toState.round || 1}</span>
+                                <h2 style="margin: 0; font-size: 28px; color: #4E2812;">${escapeHtml(dict.TURN_ORDER_TITLE)}</h2>
+                                <span style="font-size: 14px; font-weight: 900; color: #724929;">0 ~ 9</span>
+                            </div>
+                            <p style="margin: 0; font-size: 15px; line-height: 1.5; color: #5B3318; white-space: pre-line;">
+                                ${escapeHtml(dict.TURN_ORDER_SUBTITLE)}
+                            </p>
+                            <div style="display: flex; align-items: center; justify-content: center; gap: 24px; margin: 4px 0;">
+                                ${entriesHtml}
+                            </div>
+                            <div style="min-height: 52px; display: flex; align-items: center; justify-content: center;">
+                                ${bottomStatusHtml}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1208,24 +1314,26 @@ export class UnosUIController {
 
             layer.style.pointerEvents = 'auto';
             layer.innerHTML = `
-                <div style="width: 100%; height: 100%; background: rgba(0,0,0,0.72); display: flex; align-items: center; justify-content: center;">
-                    <div style="width: 580px; background: #1a2238; border: 4px solid #f1c40f; border-radius: 24px; padding: 36px 40px; text-align: center; box-shadow: 0 24px 60px rgba(0,0,0,0.8);">
-                        <h2 style="margin: 0 0 12px 0; font-size: 38px; color: ${isWinner ? '#f1c40f' : '#e74c3c'};">
-                            ${escapeHtml(dict.CHECKMATE_TITLE)}
-                        </h2>
-                        <p style="font-size: 24px; font-weight: bold; margin: 0 0 10px 0;">
-                            🏆 승자: ${escapeHtml(res.winnerName || '')}
-                        </p>
-                        <p style="font-size: 17px; color: #bdc3c7; margin: 0 0 28px 0;">
-                            ${escapeHtml(reasonText)} · 총 ${res.totalTurns}턴 진행
-                        </p>
-                        <div style="display: flex; justify-content: center; gap: 16px;">
-                            <button type="button" id="btn-unos-over-room" style="font-family: inherit; padding: 14px 28px; font-size: 19px; font-weight: bold; background: #27ae60; color: #fff; border: none; border-radius: 12px; cursor: pointer;">
-                                ${escapeHtml(dict.BTN_RETURN_ROOM)}
-                            </button>
-                            <button type="button" id="btn-unos-over-exit" style="font-family: inherit; padding: 14px 28px; font-size: 19px; font-weight: bold; background: #c0392b; color: #fff; border: none; border-radius: 12px; cursor: pointer;">
-                                ${escapeHtml(dict.BTN_EXIT)}
-                            </button>
+                <div class="unos-modal-backdrop">
+                    <div class="td-modal-shell" style="width: 580px;">
+                        <div class="td-modal-inner">
+                            <h2 style="margin: 0 0 12px 0; font-size: 36px; color: ${isWinner ? '#B84214' : '#B83724'};">
+                                ${escapeHtml(dict.CHECKMATE_TITLE)}
+                            </h2>
+                            <p style="font-size: 24px; font-weight: 900; color: #3D2010; margin: 0 0 10px 0;">
+                                🏆 승자: ${escapeHtml(res.winnerName || '')}
+                            </p>
+                            <p style="font-size: 16px; color: #724929; font-weight: 700; margin: 0 0 26px 0;">
+                                ${escapeHtml(reasonText)} · 총 ${res.totalTurns}턴 진행
+                            </p>
+                            <div style="display: flex; justify-content: center; gap: 14px;">
+                                <button type="button" id="btn-unos-over-room" class="td-btn td-btn-green" style="padding: 13px 26px; font-size: 18px;">
+                                    ${escapeHtml(dict.BTN_RETURN_ROOM)}
+                                </button>
+                                <button type="button" id="btn-unos-over-exit" class="td-btn td-btn-red" style="padding: 13px 26px; font-size: 18px;">
+                                    ${escapeHtml(dict.BTN_EXIT)}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1249,8 +1357,8 @@ export class UnosUIController {
                     ? `<img src="${escapeHtml(cTex.badge)}" alt="" class="unos-personality-emblem" style="width: 28px; height: 28px;">`
                     : `<span>${pal.icon}</span>`;
                 return `
-                    <button type="button" class="btn-unos-pick-color" data-color="${escapeHtml(cKey)}"
-                        style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-family: inherit; padding: 18px 24px; font-size: 20px; font-weight: 900; background: ${pal.hex}; color: ${pal.text}; border: 3px solid #fff; border-radius: 14px; cursor: pointer; min-width: 130px;">
+                    <button type="button" class="btn-unos-pick-color td-btn" data-color="${escapeHtml(cKey)}"
+                        style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 16px 22px; font-size: 19px; background: ${pal.hex}; color: ${pal.text}; border: 3px solid #4E2812; border-radius: 14px; min-width: 130px;">
                         ${cBadgeHtml}<span>${escapeHtml(cName)}</span>
                     </button>
                 `;
@@ -1258,15 +1366,17 @@ export class UnosUIController {
 
             layer.style.pointerEvents = 'auto';
             layer.innerHTML = `
-                <div style="width: 100%; height: 100%; background: rgba(0,0,0,0.65); display: flex; align-items: center; justify-content: center;">
-                    <div style="width: 640px; background: #1a2238; border: 4px solid #f1c40f; border-radius: 24px; padding: 32px; text-align: center;">
-                        <h3 style="margin: 0 0 22px 0; font-size: 26px; color: #f1c40f;">${escapeHtml(dict.RESONANCE_PICK_TITLE)}</h3>
-                        <div style="display: flex; justify-content: center; gap: 14px; flex-wrap: wrap; margin-bottom: 22px;">
-                            ${colorBtnsHtml}
+                <div class="unos-modal-backdrop">
+                    <div class="td-modal-shell" style="width: 640px;">
+                        <div class="td-modal-inner">
+                            <h3 style="margin: 0 0 20px 0; font-size: 26px; color: #4E2812;">${escapeHtml(dict.RESONANCE_PICK_TITLE)}</h3>
+                            <div style="display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; margin-bottom: 22px;">
+                                ${colorBtnsHtml}
+                            </div>
+                            <button type="button" id="btn-unos-cancel-resonance" class="td-btn td-btn-wood" style="padding: 10px 26px; font-size: 16px;">
+                                ${escapeHtml(dict.BTN_CANCEL)}
+                            </button>
                         </div>
-                        <button type="button" id="btn-unos-cancel-resonance" style="font-family: inherit; padding: 10px 26px; font-size: 16px; font-weight: bold; background: #7f8c8d; color: #fff; border: none; border-radius: 10px; cursor: pointer;">
-                            ${escapeHtml(dict.BTN_CANCEL)}
-                        </button>
                     </div>
                 </div>
             `;
@@ -1304,19 +1414,21 @@ export class UnosUIController {
             const sideToForce = this.pendingUnsafeCastleSide;
             layer.style.pointerEvents = 'auto';
             layer.innerHTML = `
-                <div style="width: 100%; height: 100%; background: rgba(0,0,0,0.68); display: flex; align-items: center; justify-content: center;">
-                    <div style="width: 580px; background: #1a2238; border: 4px solid #e74c3c; border-radius: 24px; padding: 32px 36px; text-align: center;">
-                        <h3 style="margin: 0 0 16px 0; font-size: 26px; color: #ff6b6b;">${escapeHtml(dict.CASTLING_WARN_TITLE)}</h3>
-                        <p style="font-size: 20px; line-height: 1.55; margin: 0 0 28px 0; color: #ecf0f1;">
-                            ${escapeHtml(dict.CASTLING_UNSAFE_CONFIRM_MSG)}
-                        </p>
-                        <div style="display: flex; justify-content: center; gap: 18px;">
-                            <button type="button" id="btn-castle-warn-cancel" style="font-family: inherit; padding: 12px 32px; font-size: 19px; font-weight: bold; background: #7f8c8d; color: #fff; border: none; border-radius: 12px; cursor: pointer;">
-                                ${escapeHtml(dict.BTN_CANCEL)}
-                            </button>
-                            <button type="button" id="btn-castle-warn-force" style="font-family: inherit; padding: 12px 32px; font-size: 19px; font-weight: bold; background: #e74c3c; color: #fff; border: 2px solid #fff; border-radius: 12px; cursor: pointer;">
-                                🔺 ${escapeHtml(dict.BTN_FORCE_CASTLE)}
-                            </button>
+                <div class="unos-modal-backdrop">
+                    <div class="td-modal-shell" style="width: 580px;">
+                        <div class="td-modal-inner">
+                            <h3 style="margin: 0 0 14px 0; font-size: 26px; color: #B83724;">${escapeHtml(dict.CASTLING_WARN_TITLE)}</h3>
+                            <p style="font-size: 19px; line-height: 1.55; margin: 0 0 26px 0; color: #4E2812; font-weight: 700;">
+                                ${escapeHtml(dict.CASTLING_UNSAFE_CONFIRM_MSG)}
+                            </p>
+                            <div style="display: flex; justify-content: center; gap: 14px;">
+                                <button type="button" id="btn-castle-warn-cancel" class="td-btn td-btn-wood" style="padding: 12px 28px; font-size: 18px;">
+                                    ${escapeHtml(dict.BTN_CANCEL)}
+                                </button>
+                                <button type="button" id="btn-castle-warn-force" class="td-btn td-btn-red" style="padding: 12px 28px; font-size: 18px;">
+                                    🔺 ${escapeHtml(dict.BTN_FORCE_CASTLE)}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1344,17 +1456,19 @@ export class UnosUIController {
 
             layer.style.pointerEvents = 'auto';
             layer.innerHTML = `
-                <div style="width: 100%; height: 100%; background: rgba(0,0,0,0.65); display: flex; align-items: center; justify-content: center;">
-                    <div style="width: 540px; background: #1a2238; border: 4px solid #00e5ff; border-radius: 24px; padding: 30px; text-align: center; display: flex; flex-direction: column; align-items: center;">
-                        <h3 style="margin: 0 0 18px 0; font-size: 24px; color: #00e5ff;">${escapeHtml(dict.DRAWN_PROMPT_TITLE)}</h3>
-                        <div style="margin-bottom: 22px;">${cardVisual}</div>
-                        <div style="display: flex; gap: 16px;">
-                            <button type="button" id="btn-drawn-play" style="font-family: inherit; padding: 12px 28px; font-size: 19px; font-weight: bold; background: #27ae60; color: #fff; border: none; border-radius: 12px; cursor: pointer;">
-                                ⚡ ${escapeHtml(dict.BTN_PLAY_DRAWN)}
-                            </button>
-                            <button type="button" id="btn-drawn-keep" style="font-family: inherit; padding: 12px 28px; font-size: 19px; font-weight: bold; background: #34495e; color: #fff; border: none; border-radius: 12px; cursor: pointer;">
-                                📥 ${escapeHtml(dict.BTN_KEEP_DRAWN)}
-                            </button>
+                <div class="unos-modal-backdrop">
+                    <div class="td-modal-shell" style="width: 540px;">
+                        <div class="td-modal-inner" style="display: flex; flex-direction: column; align-items: center;">
+                            <h3 style="margin: 0 0 18px 0; font-size: 24px; color: #4E2812;">${escapeHtml(dict.DRAWN_PROMPT_TITLE)}</h3>
+                            <div style="margin-bottom: 22px;">${cardVisual}</div>
+                            <div style="display: flex; gap: 14px;">
+                                <button type="button" id="btn-drawn-play" class="td-btn td-btn-green" style="padding: 12px 26px; font-size: 18px;">
+                                    ⚡ ${escapeHtml(dict.BTN_PLAY_DRAWN)}
+                                </button>
+                                <button type="button" id="btn-drawn-keep" class="td-btn td-btn-wood" style="padding: 12px 26px; font-size: 18px;">
+                                    📥 ${escapeHtml(dict.BTN_KEEP_DRAWN)}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1399,9 +1513,9 @@ export class UnosUIController {
         const isWarn = sec <= UNOS_TURN_TIMER_CONFIG.WARN_THRESHOLD_SECONDS;
         badge.style.display = 'inline-block';
         badge.textContent = `⏱ ${sec}s`;
-        badge.style.background = isWarn ? '#e74c3c' : 'rgba(241, 196, 15, 0.2)';
-        badge.style.color = isWarn ? '#ffffff' : '#f1c40f';
-        badge.style.border = isWarn ? '2px solid #ffffff' : '2px solid #f1c40f';
+        badge.style.background = isWarn ? '#D93829' : '#6E3D1E';
+        badge.style.color = '#FFF7DF';
+        badge.style.border = isWarn ? '2px solid #FFE4AC' : '2px solid #F7C744';
     }
 
     destroy() {

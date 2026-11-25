@@ -25,12 +25,12 @@ export const ONBOARDING_LIMITS = {
 };
 
 export const ARENA_PROJECT_INFO = {
-    VERSION_LABEL: '알파 1.0'
+    VERSION_LABEL: '베타 1.0.3'
 };
 
 export const ARENA_LEGAL_NOTICE_LINES = [
-    '본 게임은 (주)에피드게임즈의 「트릭컬 리바이브」 IP를 기반으로 제작된 비공식 2차 창작 창작물입니다.',
-    '원작의 지적재산권 대한 모든 저작권 및 권리는 원저작권자 (주)에피드게임즈 에게 귀속되며, 사용된 리소스의 무단 추출 및 재배포를 금합니다.',
+    '본 게임은 (주)에피드게임즈의 「트릭컬 리바이브」 IP를 기반으로 제작된 비공식 2차 창작물입니다.',
+    '본 프로젝트 및 원작의 지적재산권에 대한 모든 저작권 및 권리는 원저작권자 (주)에피드게임즈 에게 귀속되며, 사용된 리소스의 무단 추출 및 재배포를 금합니다.',
     '본 게임은 상업적 목적 없이 비영리로 운영되며, 게임 및 제작자는 어떠한 수익 창출 / 광고 / 후원을 받지 않습니다.',
     '또한, 원저작권자의 권리 침해 우려, 중단 요청이 있을 경우 즉시 서비스를 종료하며, 운영자 사정에 따라 사전 공지 없이 주말농장에 갈 수도 있습니다.'
 ];
@@ -150,10 +150,10 @@ export const OnboardingLang = {
         INFO_SECTION_PROJECT: '🎲 루포의 보드게임 아레나',
         INFO_PROJECT_NAME: '루포의 보드게임 아레나',
         INFO_PROJECT_VERSION_LABEL: '현재 버전',
-        INFO_PROJECT_VERSION_VALUE: '알파 1.0',
-        INFO_PROJECT_DESC: '현재 버전 : 알파 1.0\n「트릭컬 리바이브」의 비공식 팬메이드 2차 창작 게임프로젝트입니다.\n비정기적으로 업데이트되며, 사정에의해 중단될수도 있습니다.',
+        INFO_PROJECT_VERSION_VALUE: '베타 1.0.3',
+        INFO_PROJECT_DESC: '현재 버전 : 베타 1.0.3\n「트릭컬 리바이브」의 비공식 팬메이드 2차 창작 게임프로젝트입니다.\n비정기적으로 업데이트되며, 사정에의해 중단될수도 있습니다.',
         INFO_PROJECT_DESC_LINES: [
-            '현재 버전 : 알파 1.0',
+            '현재 버전 : 베타 1.0.3',
             '「트릭컬 리바이브」의 비공식 팬메이드 2차 창작 게임프로젝트입니다.',
             '비정기적으로 업데이트되며, 사정에의해 중단될수도 있습니다.'
         ],
@@ -215,10 +215,10 @@ export const OnboardingLang = {
         INFO_SECTION_PROJECT: '🎲 Rufo\'s Board Game Arena',
         INFO_PROJECT_NAME: 'Rufo\'s Board Game Arena',
         INFO_PROJECT_VERSION_LABEL: 'Version',
-        INFO_PROJECT_VERSION_VALUE: 'Alpha 1.0',
-        INFO_PROJECT_DESC: 'Current Version : Alpha 1.0\nAn unofficial fan-made derivative game project based on Trickcal: Revive.\nUpdated irregularly and may be discontinued depending on circumstances.',
+        INFO_PROJECT_VERSION_VALUE: 'Beta 1.0.3',
+        INFO_PROJECT_DESC: 'Current Version : Beta 1.0.3\nAn unofficial fan-made derivative game project based on Trickcal: Revive.\nUpdated irregularly and may be discontinued depending on circumstances.',
         INFO_PROJECT_DESC_LINES: [
-            'Current Version : Alpha 1.0',
+            'Current Version : Beta 1.0.3',
             'An unofficial fan-made derivative game project based on Trickcal: Revive.',
             'Updated irregularly and may be discontinued depending on circumstances.'
         ],
@@ -280,10 +280,10 @@ export const OnboardingLang = {
         INFO_SECTION_PROJECT: '🎲 ルポのボードゲームアリーナ',
         INFO_PROJECT_NAME: 'ルポのボードゲームアリーナ',
         INFO_PROJECT_VERSION_LABEL: 'バージョン',
-        INFO_PROJECT_VERSION_VALUE: 'Alpha 1.0',
-        INFO_PROJECT_DESC: '現在バージョン : Alpha 1.0\n『トリッカル・もちもちほっペ大作戦』の非公式ファンメイド二次創作ゲームプロジェクトです。\n不定期でアップデートされ、事情により中断される場合があります。',
+        INFO_PROJECT_VERSION_VALUE: 'ベータ 1.0.3',
+        INFO_PROJECT_DESC: '現在バージョン : ベータ 1.0.3\n『トリッカル・もちもちほっペ大作戦』の非公式ファンメイド二次創作ゲームプロジェクトです。\n不定期でアップデートされ、事情により中断される場合があります。',
         INFO_PROJECT_DESC_LINES: [
-            '現在バージョン : Alpha 1.0',
+            '現在バージョン : ベータ 1.0.3',
             '『トリッカル・もちもちほっペ大作戦』の非公式ファンメイド二次創作ゲームプロジェクトです。',
             '不定期でアップデートされ、事情により中断される場合があります。'
         ],
