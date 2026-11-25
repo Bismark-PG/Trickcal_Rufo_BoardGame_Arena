@@ -1,4 +1,4 @@
-// ProgramFiles/Marble/MarbleCardTreasure.js
+// ProgramFiles/Game/Marble/MarbleCardTreasure.js
 import {
     RuntimePopup,
     formatMoney,
@@ -7,12 +7,13 @@ import {
     getCardUIText,
     getActiveWorld
 } from './MarbleRuntime.js';
-import { CARD_IDS } from '../System/Index/Marble/MarbleCardIndex.js';
-import { GAME_CONSTANTS, stepActiveBoardPos } from '../System/Index/Marble/MarblePriceIndex.js';
+import { CARD_IDS } from '../../System/Index/Marble/MarbleCardIndex.js';
+import { GAME_CONSTANTS, stepActiveBoardPos } from '../../System/Index/Marble/MarblePriceIndex.js';
 import { getDrawnTreasures } from './MarbleOdyssey.js';
 import { checkAndTriggerClimax, RequiemState } from './MarbleRequiem.js';
 import { getTileFullInvestedValue, applyLapPassBonus } from './MarbleCardNormal.js';
 import { AIManager } from './MarbleAI.js';
+import { buildCardActivationToast } from '../../System/Index/Marble/MarbleCardToastIndex.js';
 
 // ==========================================
 // 보물 카드 다수 보유 시 부작용 상쇄 매핑 (기획서 36p)
@@ -242,15 +243,23 @@ export function useTreasureActiveCard(ctx, treasureCard, onComplete = null, onCa
                 if (wmShroud) wmShroud.treasureActiveUseCount = (wmShroud.treasureActiveUseCount || 0) + 1;
                 if (onComplete) onComplete(true);
 
+                const fromPos = p.pos;
                 const { pos: nextPos, passedStart } = stepActiveBoardPos(p.pos, step, ctx.tiles);
                 p.pos = nextPos;
+                const tp = buildCardActivationToast({ card: treasureCard, actorName: p.name, step });
                 RuntimePopup.showToast(
-                    `[${p.name}] [${treasureCard.name}] ${cText.MOVE_FORWARD_PREFIX}${step}${cText.MOVE_SPACE_SUFFIX}`,
-                    3200
+                    tp.otherMessage,
+                    3200,
+                    null,
+                    {
+                        actorId: p.id,
+                        selfMessage: `${cText.TREASURE_SHROUD_MOVE_SELF_TOAST || '🧣 [???의 수의]의 권능으로 앞으로 '}${step}칸 이동합니다.`,
+                        otherMessage: tp.otherMessage,
+                        logMessage: tp.logMessage
+                    }
                 );
-                if (passedStart) {
-                    applyLapPassBonus(p, { showBlockedToast: true });
-                }
+                const lapBonus = passedStart ? applyLapPassBonus(p, { showBlockedToast: true }) : 0;
+                ctx.emitMoveEvent?.(p, fromPos, nextPos, 'card', { steps: step, passedStart, lapBonus });
                 ctx.updateRender();
                 ctx.refreshUI();
                 scheduleGameTask(() => ctx.handleTileArrival(p), 1200);
@@ -265,6 +274,7 @@ export function useTreasureActiveCard(ctx, treasureCard, onComplete = null, onCa
             }
             resetTargetTimer();
             const btnConfigs = [1, 2, 3, 4, 5, 6].map(step => ({
+                row: 1,
                 text: `${cText.MOVE_FORWARD_PREFIX}${step}${cText.MOVE_SPACE_SUFFIX}`,
                 color: '#2ecc71',
                 action: () => {
@@ -302,9 +312,23 @@ export function useTreasureActiveCard(ctx, treasureCard, onComplete = null, onCa
                 ctx.updateRender();
                 ctx.refreshUI();
                 if (onComplete) onComplete(false);
+                const tp = buildCardActivationToast({
+                    card: treasureCard,
+                    actorName: p.name,
+                    targetPlayerName: targetEnemy?.name || '상대',
+                    targetTileName: getTileName(targetTile),
+                    amountStr: formatMoney(forcedSellAmount)
+                });
                 RuntimePopup.showToast(
-                    `[${p.name} → ${targetEnemy.name}] ${cText.TREASURE_ROPE_DONE} ${getTileName(targetTile)} (+${formatMoney(forcedSellAmount)})`,
-                    3600
+                    tp.otherMessage,
+                    3600,
+                    null,
+                    {
+                        actorId: p.id,
+                        selfMessage: `🎯 ${getTileName(targetTile)}에 효과 발동! (${cText.TREASURE_ROPE_DONE} +${formatMoney(forcedSellAmount)})`,
+                        otherMessage: tp.otherMessage,
+                        logMessage: tp.logMessage
+                    }
                 );
             };
             if (p.isAi()) {
@@ -363,7 +387,17 @@ export function useTreasureActiveCard(ctx, treasureCard, onComplete = null, onCa
                 ctx.updateRender();
                 ctx.refreshUI();
                 if (onComplete) onComplete(false);
-                RuntimePopup.showToast(`[${p.name}] ${cText.TREASURE_STAFF_DONE} ${getTileName(targetTile)}`, 3600);
+                const tp = buildCardActivationToast({
+                    card: treasureCard,
+                    actorName: p.name,
+                    targetTileName: getTileName(targetTile)
+                });
+                RuntimePopup.showToast(tp.otherMessage, 3600, null, {
+                    actorId: p.id,
+                    selfMessage: `🎯 ${getTileName(targetTile)}에 효과 발동! (${cText.TREASURE_STAFF_DONE})`,
+                    otherMessage: tp.otherMessage,
+                    logMessage: tp.logMessage
+                });
             };
             if (p.isAi()) {
                 const targetTile = AIManager.selectStaffTargetTile(p, ctx.tiles);

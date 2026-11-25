@@ -31,9 +31,9 @@ import {
     getPositiveEffectMultiplier,
     recordHaloPositiveGain
 } from './MarbleRequiem.js';
-import { GAME_CONSTANTS, BUILDING_COSTS, MULTIPLIERS, getModeConfig } from '../System/Index/Marble/MarblePriceIndex.js';
-import { BOARD_TILES, CARD_TILE_IDS } from '../System/Index/Marble/MarbleBoardIndex.js';
-import { CARD_IDS } from '../System/Index/Marble/MarbleCardIndex.js';
+import { GAME_CONSTANTS, BUILDING_COSTS, MULTIPLIERS, getModeConfig } from '../../System/Index/Marble/MarblePriceIndex.js';
+import { BOARD_TILES, CARD_TILE_IDS } from '../../System/Index/Marble/MarbleBoardIndex.js';
+import { CARD_IDS } from '../../System/Index/Marble/MarbleCardIndex.js';
 
 function acquireMountainBuffWithMetrics(ctx, p) {
     const globalTurn = ctx.turnManager ? ctx.turnManager.globalTurn : 1;
@@ -86,11 +86,12 @@ export const BoardGimmickHandlers = {
             }
             if (worldMetrics) worldMetrics.altarPortalUses++;
             const targetId = CARD_TILE_IDS[Math.floor(Math.random() * CARD_TILE_IDS.length)];
-            if ((targetId < player.pos || targetId === BOARD_TILES.START) && targetId !== player.pos) {
-                applyLapPassBonus(player, { showBlockedToast: true });
-            }
+            const fromPos = player.pos;
+            const passedStart = (targetId < player.pos || targetId === BOARD_TILES.START) && targetId !== player.pos;
+            const lapBonus = passedStart ? applyLapPassBonus(player, { showBlockedToast: true }) : 0;
             player.pos = targetId;
             player._altarGuaranteedTreasure = false;
+            ctx.emitMoveEvent?.(player, fromPos, targetId, 'card', { passedStart, lapBonus });
             RuntimePopup.showToast(`[${player.name}] ${gText.ALTAR_PORTAL_MOVE_TOAST}`, 3200);
             ctx.updateRender();
             refreshUI();
@@ -113,11 +114,12 @@ export const BoardGimmickHandlers = {
         // 2회차 이상 방문 시 차원 열쇠 카드 칸 중 한 곳으로 이동하며 시계방향 알현실 통과 시 순회 보상 지급 (도착 시 보물 카드 확정 획득)
         const executeAltarTeleportMove = (targetId) => {
             if (worldMetrics) worldMetrics.altarPortalUses++;
-            if ((targetId < player.pos || targetId === BOARD_TILES.START) && targetId !== player.pos) {
-                applyLapPassBonus(player, { showBlockedToast: true });
-            }
+            const fromPos = player.pos;
+            const passedStart = (targetId < player.pos || targetId === BOARD_TILES.START) && targetId !== player.pos;
+            const lapBonus = passedStart ? applyLapPassBonus(player, { showBlockedToast: true }) : 0;
             player.pos = targetId;
             player._altarGuaranteedTreasure = true;
+            ctx.emitMoveEvent?.(player, fromPos, targetId, 'card', { passedStart, lapBonus });
             RuntimePopup.showToast(`[${player.name}] ${gText.ALTAR_PORTAL_MOVE_TOAST}`, 3200);
             ctx.updateRender();
             refreshUI();
@@ -129,36 +131,23 @@ export const BoardGimmickHandlers = {
                 proceedEndTurn();
                 return;
             }
+            const pickedCardTileId = CARD_TILE_IDS[Math.floor(Math.random() * CARD_TILE_IDS.length)];
             if (player.isAi()) {
-                const pickedCardTileId = AIManager.decideAltarCardPortal(player, ctx.tiles, ctx.allPlayers, globalTurn);
                 executeAltarTeleportMove(pickedCardTileId);
                 return;
             }
-            const cardTargets = CARD_TILE_IDS.map((tid) => {
-                const tile = ctx.tiles[tid];
-                const passesStart = (tid < player.pos || tid === BOARD_TILES.START) && tid !== player.pos;
-                const rowTag = `${(tile ? tile.side : 0) + 1}열`;
-                const suffix = passesStart ? gText.ALTAR_PORTAL_LAP_TAG : rowTag;
-                return {
-                    id: tid,
-                    name: `${tid}번 · ${getTileName(tile)} (${suffix})`,
-                    color: passesStart ? '#27ae60' : '#8e44ad'
-                };
-            });
-            turnTimer.start(thinkTime, () => {
+            const confirmWarp = () => {
+                turnTimer.stop();
                 RuntimePopup.closeAll();
-                executeAltarTeleportMove(CARD_TILE_IDS[0]);
-            });
-            RuntimePopup.showTargetPopup(
+                executeAltarTeleportMove(pickedCardTileId);
+            };
+            turnTimer.start(thinkTime, confirmWarp);
+            RuntimePopup.showNormalPopup(
                 gText.ALTAR_PORTAL_TITLE,
                 gText.ALTAR_PORTAL_DESC,
-                cardTargets,
-                (selectedId) => {
-                    turnTimer.stop();
-                    RuntimePopup.closeAll();
-                    executeAltarTeleportMove(Number(selectedId));
-                },
-                null
+                true,
+                confirmWarp,
+                { tileId: BOARD_TILES.ALTAR }
             );
         };
 
@@ -236,7 +225,9 @@ export const BoardGimmickHandlers = {
             return;
         }
         ctx.turnTimer.start(GAME_CONSTANTS.ALERT_THINK_TIME || 5);
-        RuntimePopup.showNormalPopup(text.VOLCANICA_TITLE, text.VOLCANICA_DESC, true, ctx.proceedEndTurn);
+        RuntimePopup.showNormalPopup(text.VOLCANICA_TITLE, text.VOLCANICA_DESC, true, ctx.proceedEndTurn, {
+            confirmText: text.VOLCANICA_CONFIRM_BTN || '발뻗고 쉬기'
+        });
     },
 
     // 20: 정령산 정상
@@ -282,15 +273,28 @@ export const BoardGimmickHandlers = {
 
         ctx.turnTimer.start(getPlayerThinkTime(p, GAME_CONSTANTS.BUY_THINK_TIME));
         RuntimePopup.showChoicePopup(text.MOUNTAIN_TITLE, text.MOUNTAIN_DESC, [
-            { text: text.BTN_YES, color: '#3498db', action: () => {
+            { text: text.MOUNTAIN_YES_BTN || text.BTN_YES, color: '#2ecc71', action: () => {
                 if (p.money >= GAME_CONSTANTS.MOUNTAIN_FEE) {
                     acquireMountainBuffWithMetrics(ctx, p);
-                    RuntimePopup.showToast(`[${p.name}] ${text.MOUNTAIN_TITLE}`, 3200);
+                    RuntimePopup.showToast(
+                        `[${p.name}] ${text.MOUNTAIN_TITLE}`,
+                        3200,
+                        null,
+                        {
+                            actorId: p.id,
+                            selfMessage: text.MOUNTAIN_YES_TOAST || '현자의 가르침으로 통행료가 1.2배 증가합니다!',
+                            otherMessage: `🏔️ ${p.name}님이 정령산 정상의 제자가 되었습니다! (통행료 1.2배)`,
+                            logMessage: `🏔️ ${p.name}님이 정령산 정상의 제자가 되었습니다.`
+                        }
+                    );
                     ctx.refreshUI();
                 } else RuntimePopup.showToast(text.NOT_ENOUGH_MONEY, 2800, p.id);
                 ctx.proceedEndTurn();
             }},
-            { text: text.BTN_NO, color: '#e74c3c', action: ctx.proceedEndTurn }
+            { text: text.MOUNTAIN_NO_BTN || text.BTN_NO, color: '#e74c3c', action: () => {
+                RuntimePopup.showToast(text.MOUNTAIN_NO_TOAST || '당신은 한번 더 고민해보기로 했습니다.', 2600, p.id);
+                ctx.proceedEndTurn();
+            }}
         ]);
     },
 
@@ -312,14 +316,30 @@ export const BoardGimmickHandlers = {
                 WorldGimmickManager.bbangjuState = 'finished';
                 addBbangjuVisit();
                 ctx.player.tracker.bbangjuUsageCount++;
-                if (targetId < ctx.player.pos || targetId === BOARD_TILES.START) {
-                    applyLapPassBonus(ctx.player, { showBlockedToast: true });
-                }
+                const fromPos = ctx.player.pos;
+                const passedStart = targetId < ctx.player.pos || targetId === BOARD_TILES.START;
+                const lapBonus = passedStart ? applyLapPassBonus(ctx.player, { showBlockedToast: true }) : 0;
                 ctx.player.pos = targetId;
-                RuntimePopup.showToast(`${ctx.player.name}${gText.BBANGJU_SPEED_EARLY_OPEN_TOAST}`, 3400);
+                ctx.emitMoveEvent?.(ctx.player, fromPos, targetId, 'bbangju', { passedStart, lapBonus });
+                RuntimePopup.showToast(
+                    `${ctx.player.name}${gText.BBANGJU_SPEED_EARLY_OPEN_TOAST}`,
+                    3400,
+                    null,
+                    {
+                        actorId: ctx.player.id,
+                        selfMessage: gText.BBANGJU_SPEED_EARLY_OPEN_SELF_TOAST || '🚀 지원해줘서 고마워~ 마음껏 사용해~',
+                        otherMessage: `${ctx.player.name}${gText.BBANGJU_SPEED_EARLY_OPEN_TOAST}`,
+                        logMessage: `🚀 ${ctx.player.name}${gText.BBANGJU_SPEED_EARLY_OPEN_TOAST}`
+                    }
+                );
                 ctx.updateRender();
                 ctx.refreshUI();
-                scheduleGameTask(() => ctx.handleTileArrival(ctx.player), 1100);
+                const ring = (ctx.tiles || []).filter(t => t && !t.isDisabled).sort((a, b) => a.id - b.id);
+                const sIdx = Math.max(0, ring.findIndex(t => t.id === fromPos));
+                const eIdx = ring.findIndex(t => t.id === targetId);
+                const distSteps = (ring.length > 1 && eIdx >= 0) ? ((eIdx - sIdx + ring.length) % ring.length || 1) : 1;
+                const jumpDelay = Math.max(1150, Math.round(780 + Math.pow(Math.min(1, distSteps / Math.max(1, ring.length - 1)), 0.78) * 1650) + 330);
+                scheduleGameTask(() => ctx.handleTileArrival(ctx.player), jumpDelay);
             };
 
             if (ctx.player.isAi()) {
@@ -402,7 +422,7 @@ export const BoardGimmickHandlers = {
 
                 ctx.turnTimer.start(buyThinkTime);
                 RuntimePopup.showChoicePopup(gText.BBANGJU_TAKE_TITLE, descText, [
-                    { text: `${gText.BTN_ACCEPT} (${formatMoney(reqTakeoverCost)})`, color: '#2ecc71', action: () => {
+                    { text: `가로채기 (${formatMoney(reqTakeoverCost)})`, color: '#e67e22', action: () => {
                         if (ctx.player.money >= reqTakeoverCost) {
                             ctx.turnTimer.stop();
                             ctx.player.money -= reqTakeoverCost;
@@ -411,7 +431,17 @@ export const BoardGimmickHandlers = {
                             WorldGimmickManager.bbangjuChiefs = [ctx.player];
                             ctx.allPlayers.forEach(p => { p.bbangjuSupportTurns = 0; });
                             RuntimePopup.closeAll();
-                            RuntimePopup.showToast(`${ctx.player.name} ${gText.BBANGJU_ANNOUNCE}`, 3400);
+                            RuntimePopup.showToast(
+                                `${ctx.player.name} ${gText.BBANGJU_ANNOUNCE}`,
+                                3400,
+                                null,
+                                {
+                                    actorId: ctx.player.id,
+                                    selfMessage: gText.BBANGJU_TAKE_YES_TOAST || '🔧 바로 그 자세라고~ 이제부터 너가 정비반장이야~',
+                                    otherMessage: `${ctx.player.name} ${gText.BBANGJU_ANNOUNCE}`,
+                                    logMessage: `🔧 ${ctx.player.name} ${gText.BBANGJU_ANNOUNCE}`
+                                }
+                            );
                             ctx.updateRender(); ctx.refreshUI();
                             scheduleGameTask(ctx.proceedEndTurn, 2000);
                         } else {
@@ -419,14 +449,14 @@ export const BoardGimmickHandlers = {
                             RuntimePopup.closeAll(); ctx.proceedEndTurn();
                         }
                     }},
-                    { text: gText.BTN_REJECT, color: '#e74c3c', action: ctx.proceedEndTurn }
+                    { text: gText.BBANGJU_REQ_NO_BTN || gText.BTN_REJECT, color: '#e74c3c', action: ctx.proceedEndTurn }
                 ]);
             } else if (ctx.player.isAi()) {
                 RuntimePopup.showToast(`[${ctx.player.name}] ${getTileName(ctx.tile)} - ${gText.BBANGJU_CLOSED}`, 3000);
                 scheduleGameTask(ctx.proceedEndTurn, 1800);
             } else {
                 ctx.turnTimer.start(GAME_CONSTANTS.ALERT_THINK_TIME || 5);
-                RuntimePopup.showNormalPopup(getTileName(ctx.tile), gText.BBANGJU_CLOSED, true, ctx.proceedEndTurn);
+                RuntimePopup.showNormalPopup(gText.BBANGJU_CLOSED_TITLE || getTileName(ctx.tile), gText.BBANGJU_CLOSED, true, ctx.proceedEndTurn);
             }
         } else {
             // 4턴 이후: 그을음 기간이거나 [후회]/[죄업] 상태일 때 빵주 이용 불가 (기획서 24~27p)
@@ -458,13 +488,19 @@ export const BoardGimmickHandlers = {
                 }
                 addBbangjuVisit();
                 ctx.player.tracker.bbangjuUsageCount++;
-                if (targetId < ctx.player.pos || targetId === BOARD_TILES.START) {
-                    applyLapPassBonus(ctx.player, { showBlockedToast: true });
-                }
+                const fromPos = ctx.player.pos;
+                const passedStart = targetId < ctx.player.pos || targetId === BOARD_TILES.START;
+                const lapBonus = passedStart ? applyLapPassBonus(ctx.player, { showBlockedToast: true }) : 0;
                 ctx.player.pos = targetId;
+                ctx.emitMoveEvent?.(ctx.player, fromPos, targetId, 'bbangju', { passedStart, lapBonus });
                 ctx.updateRender();
                 ctx.refreshUI();
-                scheduleGameTask(() => ctx.handleTileArrival(ctx.player), 1100);
+                const ring = (ctx.tiles || []).filter(t => t && !t.isDisabled).sort((a, b) => a.id - b.id);
+                const sIdx = Math.max(0, ring.findIndex(t => t.id === fromPos));
+                const eIdx = ring.findIndex(t => t.id === targetId);
+                const distSteps = (ring.length > 1 && eIdx >= 0) ? ((eIdx - sIdx + ring.length) % ring.length || 1) : 1;
+                const jumpDelay = Math.max(1150, Math.round(780 + Math.pow(Math.min(1, distSteps / Math.max(1, ring.length - 1)), 0.78) * 1650) + 330);
+                scheduleGameTask(() => ctx.handleTileArrival(ctx.player), jumpDelay);
             };
 
             if (ctx.player.isAi()) {
@@ -524,14 +560,25 @@ export const BoardGimmickHandlers = {
 
         if (!ctx.tile.owner && !ctx.player.isAi()) {
             ctx.turnTimer.start(thinkTime);
-            RuntimePopup.showChoicePopup(tileName, `${formatMoney(GAME_CONSTANTS.THEATER_BUY)}${gText.ASK_BUY}`, [
-                { text: gText.BTN_ACCEPT, color: '#2ecc71', action: () => {
+            RuntimePopup.showChoicePopup(gText.THEATER_BUY_TITLE || tileName, gText.THEATER_BUY_DESC || `${formatMoney(GAME_CONSTANTS.THEATER_BUY)}${gText.ASK_BUY}`, [
+                { text: `극장 매입하기 (${formatMoney(GAME_CONSTANTS.THEATER_BUY)})`, color: '#2ecc71', action: () => {
                     if (ctx.player.buyProperty(ctx.tile, 0, GAME_CONSTANTS.THEATER_BUY)) {
+                        RuntimePopup.showToast(
+                            `🎭 ${ctx.player.name}님이 ${tileName}을 매입했습니다!`,
+                            3000,
+                            null,
+                            {
+                                actorId: ctx.player.id,
+                                selfMessage: gText.THEATER_TAKE_SELF_TOAST || '이번 사장님은 좋은 사장님일까...?',
+                                otherMessage: `🎭 ${ctx.player.name}님이 ${tileName}을 매입했습니다!`,
+                                logMessage: `🎭 ${ctx.player.name}님이 ${tileName}을 매입하였습니다!`
+                            }
+                        );
                         ctx.updateRender(); ctx.refreshUI();
                     } else RuntimePopup.showToast(text.NOT_ENOUGH_MONEY, 2800, ctx.player.id);
                     ctx.proceedEndTurn();
                 }},
-                { text: gText.BTN_REJECT, color: '#e74c3c', action: ctx.proceedEndTurn }
+                { text: '매입 안함', color: '#e74c3c', action: ctx.proceedEndTurn }
             ]);
         } else if (ctx.tile.owner && ctx.tile.owner !== ctx.player && !ctx.player.isAi()) {
             if (ctx.player.money < GAME_CONSTANTS.THEATER_TAKE) {
@@ -539,16 +586,27 @@ export const BoardGimmickHandlers = {
                 return;
             }
             ctx.turnTimer.start(thinkTime);
-            RuntimePopup.showChoicePopup(tileName, `${formatMoney(GAME_CONSTANTS.THEATER_TAKE)}${gText.ASK_TAKE}`, [
-                { text: `${gText.BTN_TAKE} (${formatMoney(GAME_CONSTANTS.THEATER_TAKE)})`, color: '#9b59b6', action: () => {
+            RuntimePopup.showChoicePopup(gText.THEATER_TAKE_TITLE || tileName, gText.THEATER_TAKE_DESC || `${formatMoney(GAME_CONSTANTS.THEATER_TAKE)}${gText.ASK_TAKE}`, [
+                { text: text.THEATER_TAKEOVER || `${gText.BTN_TAKE} (${formatMoney(GAME_CONSTANTS.THEATER_TAKE)})`, color: '#9b59b6', action: () => {
                     const prevOwner = ctx.tile.owner;
                     if (ctx.player.buyProperty(ctx.tile, 0, GAME_CONSTANTS.THEATER_TAKE)) {
                         prevOwner.money += GAME_CONSTANTS.THEATER_TAKE;
+                        RuntimePopup.showToast(
+                            `🎭 ${ctx.player.name}님이 ${tileName}을 인수했습니다!`,
+                            3000,
+                            null,
+                            {
+                                actorId: ctx.player.id,
+                                selfMessage: gText.THEATER_TAKE_SELF_TOAST || '이번 사장님은 좋은 사장님일까...?',
+                                otherMessage: `🎭 ${ctx.player.name}님이 ${tileName}을 인수했습니다!`,
+                                logMessage: `🎭 ${ctx.player.name}님이 ${tileName}을 인수하였습니다!`
+                            }
+                        );
                         ctx.updateRender(); ctx.refreshUI();
                     }
                     ctx.proceedEndTurn();
                 }},
-                { text: gText.BTN_REJECT, color: '#e74c3c', action: ctx.proceedEndTurn }
+                { text: '인수 안함', color: '#e74c3c', action: ctx.proceedEndTurn }
             ]);
         } else ctx.proceedEndTurn();
     },
@@ -592,9 +650,20 @@ export const BoardGimmickHandlers = {
 
         if (!ctx.tile.owner && !ctx.player.isAi()) {
             ctx.turnTimer.start(thinkTime);
-            RuntimePopup.showChoicePopup(tileName, `${formatMoney(GAME_CONSTANTS.MONATIUM_BUY)}${gText.ASK_BUY}`, [
-                { text: gText.BTN_ACCEPT, color: '#2ecc71', action: () => {
+            RuntimePopup.showChoicePopup(gText.MONATIUM_BUY_TITLE || tileName, gText.MONATIUM_BUY_DESC || `${formatMoney(GAME_CONSTANTS.MONATIUM_BUY)}${gText.ASK_BUY}`, [
+                { text: `매입 (${formatMoney(GAME_CONSTANTS.MONATIUM_BUY)})`, color: '#2ecc71', action: () => {
                     if (ctx.player.buyProperty(ctx.tile, 0, GAME_CONSTANTS.MONATIUM_BUY)) {
+                        RuntimePopup.showToast(
+                            `🏙️ ${ctx.player.name}님이 모나티엄 25를 매입했습니다!`,
+                            3000,
+                            null,
+                            {
+                                actorId: ctx.player.id,
+                                selfMessage: '🏙️ 모나티엄 25를 매입하였습니다!',
+                                otherMessage: `🏙️ ${ctx.player.name}님이 모나티엄 25를 매입했습니다!`,
+                                logMessage: `🏙️ ${ctx.player.name}님이 모나티엄 25를 매입하였습니다!`
+                            }
+                        );
                         ctx.updateRender(); ctx.refreshUI();
                     } else RuntimePopup.showToast(text.NOT_ENOUGH_MONEY, 2800, ctx.player.id);
                     ctx.proceedEndTurn();
@@ -603,16 +672,30 @@ export const BoardGimmickHandlers = {
             ]);
         } else if (ctx.tile.owner === ctx.player && ctx.tile.level < 2 && !ctx.player.isAi()) {
             const expCost = ctx.tile.level === 0 ? GAME_CONSTANTS.MONATIUM_EXPAND_1 : GAME_CONSTANTS.MONATIUM_EXPAND_2;
+            const expDesc = ctx.tile.level === 0
+                ? (gText.MONATIUM_EXPAND_1_DESC || `${formatMoney(expCost)}${gText.ASK_EXPAND}`)
+                : (gText.MONATIUM_EXPAND_2_DESC || `${formatMoney(expCost)}${gText.ASK_EXPAND}`);
             if (ctx.player.money < expCost) {
                 ctx.proceedEndTurn();
                 return;
             }
             ctx.turnTimer.start(thinkTime);
-            RuntimePopup.showChoicePopup(`${tileName} 확장`, `${formatMoney(expCost)}${gText.ASK_EXPAND}`, [
-                { text: `${gText.BTN_EXPAND} (${formatMoney(expCost)})`, color: '#f39c12', action: () => {
+            RuntimePopup.showChoicePopup(gText.MONATIUM_EXPAND_TITLE || `${tileName} 확장`, expDesc, [
+                { text: `${text.MONATIUM_EXPAND || '확장'} (${formatMoney(expCost)})`, color: '#3498db', action: () => {
                     if (ctx.player.money >= expCost) {
                         ctx.player.money -= expCost;
                         ctx.tile.level++;
+                        RuntimePopup.showToast(
+                            `🏙️ ${ctx.player.name}님이 모나티엄 25를 ${ctx.tile.level}단계 확장했습니다!`,
+                            3000,
+                            null,
+                            {
+                                actorId: ctx.player.id,
+                                selfMessage: `🏙️ 모나티엄 25를 ${ctx.tile.level}단계로 확장했습니다!`,
+                                otherMessage: `🏙️ ${ctx.player.name}님이 모나티엄 25를 ${ctx.tile.level}단계로 확장했습니다!`,
+                                logMessage: `🏙️ ${ctx.player.name}님이 모나티엄 25를 ${ctx.tile.level}단계로 확장하였습니다!`
+                            }
+                        );
                         ctx.updateRender(); ctx.refreshUI();
                     }
                     ctx.proceedEndTurn();
@@ -683,10 +766,21 @@ export const BoardGimmickHandlers = {
 
         if (!ctx.tile.owner && !ctx.player.isAi()) {
             ctx.turnTimer.start(getPlayerThinkTime(ctx.player, GAME_CONSTANTS.BUY_THINK_TIME));
-            RuntimePopup.showChoicePopup(tileName, `${formatMoney(GAME_CONSTANTS.LAKE_BUY)}${gText.ASK_BUY}`, [
-                { text: gText.BTN_ACCEPT, color: '#2ecc71', action: () => {
+            RuntimePopup.showChoicePopup(gText.LAKE_BUY_TITLE || tileName, gText.LAKE_BUY_DESC || `${formatMoney(GAME_CONSTANTS.LAKE_BUY)}${gText.ASK_BUY}`, [
+                { text: `매입 (${formatMoney(GAME_CONSTANTS.LAKE_BUY)})`, color: '#2ecc71', action: () => {
                     if (ctx.player.buyProperty(ctx.tile, 0, GAME_CONSTANTS.LAKE_BUY)) {
                         recordLakeFirstOwnedTurn(ctx);
+                        RuntimePopup.showToast(
+                            `🌊 ${ctx.player.name}님이 정령 호수를 매입했습니다!`,
+                            3000,
+                            null,
+                            {
+                                actorId: ctx.player.id,
+                                selfMessage: '🌊 정령 호수를 매입하였습니다!',
+                                otherMessage: `🌊 ${ctx.player.name}님이 정령 호수를 매입했습니다!`,
+                                logMessage: `🌊 ${ctx.player.name}님이 정령 호수를 매입하였습니다!`
+                            }
+                        );
                         ctx.updateRender(); ctx.refreshUI();
                     } else RuntimePopup.showToast(text.NOT_ENOUGH_MONEY, 2800, ctx.player.id);
                     ctx.proceedEndTurn();
@@ -711,10 +805,14 @@ export const BoardGimmickHandlers = {
                 } else if (aiDecision.action === 'summon' && aiDecision.target) {
                     ctx.player.money -= summonFee;
                     ctx.tile.owner.money += summonFee;
+                    const fromPos = aiDecision.target.pos;
                     aiDecision.target.pos = BOARD_TILES.LAKE;
                     aiDecision.target.restTurns = 1;
                     recordNormalLakeRest(ctx.player);
+                    ctx.emitMoveEvent?.(aiDecision.target, fromPos, BOARD_TILES.LAKE, 'card');
                     ctx.updateRender(); ctx.refreshUI();
+                    scheduleGameTask(ctx.proceedEndTurn, 1250);
+                    return;
                 }
                 scheduleGameTask(ctx.proceedEndTurn, 1000);
                 return;
@@ -743,7 +841,7 @@ export const BoardGimmickHandlers = {
                         if (ctx.setWaitingAction) ctx.setWaitingAction(false);
                         ctx.executeRoll();
                     } else {
-                        RuntimePopup.showToast(text.NOT_ENOUGH_MONEY, 2000);
+                        RuntimePopup.showToast(text.NOT_ENOUGH_MONEY, 2000, ctx.player.id);
                     }
                 }},
                 { text: text.LAKE_BTN_SUMMON, color: '#9b59b6', action: () => {
@@ -758,9 +856,11 @@ export const BoardGimmickHandlers = {
                             RuntimePopup.closeAll();
                             ctx.player.money -= summonFee;
                             ctx.tile.owner.money += summonFee;
+                            const fromPos = targetPlayer.pos;
                             targetPlayer.pos = BOARD_TILES.LAKE;
                             targetPlayer.restTurns = 1;
                             recordNormalLakeRest(ctx.player);
+                            ctx.emitMoveEvent?.(targetPlayer, fromPos, BOARD_TILES.LAKE, 'card');
                             ctx.updateRender(); ctx.refreshUI();
                             RuntimePopup.showToast(`[${ctx.player.name}] ${targetPlayer.name}${gText.LAKE_SUMMON_DONE}`, 3200);
                             scheduleGameTask(ctx.proceedEndTurn, 1500);
@@ -841,7 +941,9 @@ export const BoardGimmickHandlers = {
             }
             if (showPopup && !targetPlayer.isAi()) {
                 if (triggerEndTurn) ctx.turnTimer.start(GAME_CONSTANTS.ALERT_THINK_TIME || 5);
-                RuntimePopup.showNormalPopup(cText.SHAYDI_TITLE, customMsg || cText.SHAYDI_DESC, true, ctx.proceedEndTurn);
+                RuntimePopup.showNormalPopup(cText.SHAYDI_TITLE, customMsg || cText.SHAYDI_DESC, true, ctx.proceedEndTurn, {
+                    confirmText: cText.SHAYDI_CONFIRM_BTN || '제발 지옥같은 여기서 날 꺼내줘'
+                });
             } else {
                 RuntimePopup.showToast(`${targetPlayer.name} ${cText.SHAYDI_PULLED}`, 3200);
                 ctx.refreshUI();
@@ -852,27 +954,75 @@ export const BoardGimmickHandlers = {
             }
         };
 
+        const handleNormalVoidOutcome = () => {
+            if (hasRim) {
+                if (wmVoid) wmVoid.voidRimEvadedCount = (wmVoid.voidRimEvadedCount || 0) + 1;
+                RuntimePopup.showToast(
+                    `${ctx.player.name}님의 [림의 기역]효과로 셰이디의 장난을 무시합니다!`,
+                    3200,
+                    null,
+                    {
+                        actorId: ctx.player.id,
+                        selfMessage: '[림의 기역] 으윽, 그 낫은...! 빨리 내 차원에서 사라져!',
+                        otherMessage: `${ctx.player.name}님의 [림의 기역]효과로 셰이디의 장난을 무시합니다!`,
+                        logMessage: `${ctx.player.name}님의 [림의 기역]효과로 셰이디의 장난을 무시합니다!`
+                    }
+                );
+                scheduleGameTask(ctx.proceedEndTurn, 2000);
+            } else if (ctx.player.isAi()) {
+                applyRest(ctx.player, false, true);
+            } else {
+                ctx.turnTimer.start(thinkTime);
+                applyRest(ctx.player, true, false);
+            }
+        };
+
         if (hasBigEvent) {
             const targets = ctx.allPlayers.filter(p => p !== ctx.player && !p.isBankrupt);
             const executePull = (target) => {
+                const fromPos = target.pos;
                 target.pos = BOARD_TILES.VOID;
+                ctx.emitMoveEvent?.(target, fromPos, BOARD_TILES.VOID, 'blackhole');
                 ctx.updateRender(); ctx.refreshUI();
                 applyRest(target, false, false);
 
                 if (hasRim) {
                     if (wmVoid) wmVoid.voidRimEvadedCount = (wmVoid.voidRimEvadedCount || 0) + 1;
                     scheduleGameTask(() => {
-                        RuntimePopup.showToast(`[${ctx.player.name}] ${cText.SHAYDI_EVADE}`, 3200);
+                        RuntimePopup.showToast(
+                            `${ctx.player.name}님의 [림의 기역]효과로 셰이디의 장난을 무시합니다!`,
+                            3200,
+                            null,
+                            {
+                                actorId: ctx.player.id,
+                                selfMessage: '[림의 기역] 으윽, 그 낫은...! 빨리 내 차원에서 사라져!',
+                                otherMessage: `${ctx.player.name}님의 [림의 기역]효과로 셰이디의 장난을 무시합니다!`,
+                                logMessage: `${ctx.player.name}님의 [림의 기역]효과로 셰이디의 장난을 무시합니다!`
+                            }
+                        );
                         scheduleGameTask(ctx.proceedEndTurn, 2000);
-                    }, 1000);
+                    }, 2050);
                 } else if (ctx.player.isAi()) {
-                    scheduleGameTask(() => applyRest(ctx.player, false, true), 1000);
+                    scheduleGameTask(() => applyRest(ctx.player, false, true), 2050);
                 } else {
                     scheduleGameTask(() => {
                         ctx.turnTimer.start(thinkTime);
                         applyRest(ctx.player, true, false);
-                    }, 1000);
+                    }, 2050);
                 }
+            };
+
+            const openTargetSelector = () => {
+                ctx.turnTimer.start(thinkTime, () => {
+                    RuntimePopup.closeAll();
+                    executePull(targets[0]);
+                });
+                const btnConfigs = targets.map(t => ({
+                    text: t.name,
+                    color: t.color,
+                    action: () => { ctx.turnTimer.stop(); RuntimePopup.closeAll(); executePull(t); }
+                }));
+                RuntimePopup.showChoicePopup(cText.SHAYDI_TARGET_TITLE, cText.SHAYDI_TARGET_DESC, btnConfigs);
             };
 
             if (ctx.player.isAi() || targets.length === 0) {
@@ -885,19 +1035,35 @@ export const BoardGimmickHandlers = {
             } else {
                 ctx.turnTimer.start(thinkTime, () => {
                     RuntimePopup.closeAll();
-                    executePull(targets[0]);
+                    handleNormalVoidOutcome();
                 });
-                const btnConfigs = targets.map(t => ({ text: t.name, color: t.color, action: () => { ctx.turnTimer.stop(); RuntimePopup.closeAll(); executePull(t); } }));
-                RuntimePopup.showChoicePopup(cText.SHAYDI_TARGET_TITLE, cText.SHAYDI_TARGET_DESC, btnConfigs);
+                RuntimePopup.showChoicePopup(
+                    cText.SHAYDI_USE_EVENT_TITLE || '셰이디의 빅 이벤트',
+                    cText.SHAYDI_USE_EVENT_DESC || '보유 중인 [셰이디의 빅 이벤트]를 사용하여 상대 플레이어를 셰이디의 차원으로 끌어들이시겠습니까?',
+                    [
+                        {
+                            text: cText.BTN_USE || '사용하기',
+                            color: '#2ecc71',
+                            action: () => {
+                                ctx.turnTimer.stop();
+                                RuntimePopup.closeAll();
+                                openTargetSelector();
+                            }
+                        },
+                        {
+                            text: '보류 (미사용)',
+                            color: '#7f8c8d',
+                            action: () => {
+                                ctx.turnTimer.stop();
+                                RuntimePopup.closeAll();
+                                handleNormalVoidOutcome();
+                            }
+                        }
+                    ]
+                );
             }
-        } else if (hasRim) {
-            if (wmVoid) wmVoid.voidRimEvadedCount = (wmVoid.voidRimEvadedCount || 0) + 1;
-            RuntimePopup.showToast(`[${ctx.player.name}] ${cText.SHAYDI_EVADE}`, 3200);
-            scheduleGameTask(ctx.proceedEndTurn, 2000);
-        } else if (ctx.player.isAi()) {
-            applyRest(ctx.player, false, true);
         } else {
-            ctx.turnTimer.start(thinkTime); applyRest(ctx.player, true, false);
+            handleNormalVoidOutcome();
         }
     },
 
@@ -922,9 +1088,20 @@ export const BoardGimmickHandlers = {
 
         if (!ctx.tile.owner && !ctx.player.isAi()) {
             ctx.turnTimer.start(getPlayerThinkTime(ctx.player, GAME_CONSTANTS.BUY_THINK_TIME));
-            RuntimePopup.showChoicePopup(tileName, `${formatMoney(GAME_CONSTANTS.LIBRARY_BUY)}${gText.ASK_BUY}`, [
-                { text: gText.BTN_ACCEPT, color: '#2ecc71', action: () => {
+            RuntimePopup.showChoicePopup(gText.LIBRARY_BUY_TITLE || tileName, gText.LIBRARY_BUY_DESC || `${formatMoney(GAME_CONSTANTS.LIBRARY_BUY)}${gText.ASK_BUY}`, [
+                { text: `매입 (${formatMoney(GAME_CONSTANTS.LIBRARY_BUY)})`, color: '#2ecc71', action: () => {
                     if (ctx.player.buyProperty(ctx.tile, 0, GAME_CONSTANTS.LIBRARY_BUY)) {
+                        RuntimePopup.showToast(
+                            `📖 ${ctx.player.name}님이 마녀 도서관을 매입했습니다!`,
+                            3000,
+                            null,
+                            {
+                                actorId: ctx.player.id,
+                                selfMessage: '📖 마녀 도서관을 매입하였습니다!',
+                                otherMessage: `📖 ${ctx.player.name}님이 마녀 도서관을 매입했습니다!`,
+                                logMessage: `📖 ${ctx.player.name}님이 마녀 도서관을 매입하였습니다!`
+                            }
+                        );
                         ctx.updateRender(); ctx.refreshUI();
                     } else RuntimePopup.showToast(text.NOT_ENOUGH_MONEY, 2800, ctx.player.id);
                     ctx.proceedEndTurn();
@@ -1027,17 +1204,33 @@ export const BoardGimmickHandlers = {
         }
 
         if (!ctx.tile.owner && !ctx.player.isAi()) {
+            const isDayaMinimi = String(ctx.player?.minimiPath || '').includes('Minimi_Daya');
             ctx.turnTimer.start(thinkTime);
-            RuntimePopup.showChoicePopup(tileName, `${formatMoney(GAME_CONSTANTS.DAYA_BUY)}${gText.ASK_BUY}`, [
-                { text: gText.BTN_ACCEPT, color: '#2ecc71', action: () => {
-                    if (ctx.player.buyProperty(ctx.tile, 0, GAME_CONSTANTS.DAYA_BUY)) {
-                        ctx.player.recordDayaHoldTurn(ctx.turnManager ? ctx.turnManager.globalTurn : null);
-                        ctx.updateRender(); ctx.refreshUI();
-                    } else RuntimePopup.showToast(text.NOT_ENOUGH_MONEY, 2800, ctx.player.id);
-                    ctx.proceedEndTurn();
-                }},
-                { text: gText.BTN_REJECT, color: '#e74c3c', action: ctx.proceedEndTurn }
-            ]);
+            RuntimePopup.showChoicePopup(
+                isDayaMinimi ? (gText.DAYA_SELF_BUY_TITLE || gText.DAYA_BUY_TITLE) : (gText.DAYA_BUY_TITLE || tileName),
+                isDayaMinimi ? (gText.DAYA_SELF_BUY_DESC || gText.DAYA_BUY_DESC) : (gText.DAYA_BUY_DESC || `${formatMoney(GAME_CONSTANTS.DAYA_BUY)}${gText.ASK_BUY}`),
+                [
+                    { text: `매입 (${formatMoney(GAME_CONSTANTS.DAYA_BUY)})`, color: '#2ecc71', action: () => {
+                        if (ctx.player.buyProperty(ctx.tile, 0, GAME_CONSTANTS.DAYA_BUY)) {
+                            ctx.player.recordDayaHoldTurn(ctx.turnManager ? ctx.turnManager.globalTurn : null);
+                            RuntimePopup.showToast(
+                                `💎 ${ctx.player.name}님이 다야의 궁전을 매입했습니다!`,
+                                3000,
+                                null,
+                                {
+                                    actorId: ctx.player.id,
+                                    selfMessage: isDayaMinimi ? (gText.DAYA_SELF_BUY_TOAST || '💎 다야의 궁전을 매입하였습니다!') : '💎 다야의 궁전을 매입하였습니다!',
+                                    otherMessage: `💎 ${ctx.player.name}님이 다야의 궁전을 매입했습니다!`,
+                                    logMessage: `💎 ${ctx.player.name}님이 다야의 궁전을 매입하였습니다!`
+                                }
+                            );
+                            ctx.updateRender(); ctx.refreshUI();
+                        } else RuntimePopup.showToast(text.NOT_ENOUGH_MONEY, 2800, ctx.player.id);
+                        ctx.proceedEndTurn();
+                    }},
+                    { text: gText.BTN_REJECT, color: '#e74c3c', action: ctx.proceedEndTurn }
+                ]
+            );
         } else if (ctx.tile.owner && ctx.tile.owner !== ctx.player) {
             ctx.handleTollPayment(ctx.player, ctx.tile, () => {
                 if (ctx.player.isBankrupt || ctx.player.money < GAME_CONSTANTS.DAYA_TAKE) {
@@ -1059,21 +1252,36 @@ export const BoardGimmickHandlers = {
                     scheduleGameTask(ctx.proceedEndTurn, 1200);
                     return;
                 }
+                const isDayaMinimi = String(ctx.player?.minimiPath || '').includes('Minimi_Daya');
                 if (ctx.setWaitingAction) ctx.setWaitingAction(true);
                 ctx.turnTimer.start(thinkTime);
-                RuntimePopup.showChoicePopup(gText.DAYA_TAKE_TITLE, gText.DAYA_TAKE_DESC, [
-                    { text: `${gText.BTN_TAKE} (${formatMoney(GAME_CONSTANTS.DAYA_TAKE)})`, color: '#9b59b6', action: () => {
-                        const prevOwner = ctx.tile.owner;
-                        if (ctx.player.buyProperty(ctx.tile, 0, GAME_CONSTANTS.DAYA_TAKE)) {
-                            prevOwner.money += GAME_CONSTANTS.DAYA_TAKE;
-                            ctx.player.recordDayaHoldTurn(ctx.turnManager ? ctx.turnManager.globalTurn : null);
-                            ctx.updateRender(); ctx.refreshUI();
-                            RuntimePopup.showToast(`[${ctx.player.name}] ${gText.DAYA_TAKE_DONE}`, 3400);
-                        }
-                        ctx.proceedEndTurn();
-                    }},
-                    { text: gText.BTN_REJECT, color: '#e74c3c', action: ctx.proceedEndTurn }
-                ]);
+                RuntimePopup.showChoicePopup(
+                    isDayaMinimi ? (gText.DAYA_SELF_TAKE_TITLE || gText.DAYA_TAKE_TITLE) : gText.DAYA_TAKE_TITLE,
+                    isDayaMinimi ? (gText.DAYA_SELF_TAKE_DESC || gText.DAYA_TAKE_DESC) : gText.DAYA_TAKE_DESC,
+                    [
+                        { text: `대여할래요 (${formatMoney(GAME_CONSTANTS.DAYA_TAKE)})`, color: '#e67e22', action: () => {
+                            const prevOwner = ctx.tile.owner;
+                            if (ctx.player.buyProperty(ctx.tile, 0, GAME_CONSTANTS.DAYA_TAKE)) {
+                                prevOwner.money += GAME_CONSTANTS.DAYA_TAKE;
+                                ctx.player.recordDayaHoldTurn(ctx.turnManager ? ctx.turnManager.globalTurn : null);
+                                ctx.updateRender(); ctx.refreshUI();
+                                RuntimePopup.showToast(
+                                    `[${ctx.player.name}] ${gText.DAYA_TAKE_DONE}`,
+                                    3400,
+                                    null,
+                                    {
+                                        actorId: ctx.player.id,
+                                        selfMessage: isDayaMinimi ? (gText.DAYA_SELF_TAKE_TOAST || gText.DAYA_TAKE_SELF_TOAST) : (gText.DAYA_TAKE_SELF_TOAST || '"되도록이면 깨끗하게 사용해주거라."'),
+                                        otherMessage: `💎 ${ctx.player.name}님이 다야의 궁전을 대여했습니다!`,
+                                        logMessage: `💎 ${ctx.player.name}님이 다야의 궁전을 대여하였습니다!`
+                                    }
+                                );
+                            }
+                            ctx.proceedEndTurn();
+                        }},
+                        { text: '거절할게요', color: '#e74c3c', action: ctx.proceedEndTurn }
+                    ]
+                );
             });
         } else ctx.proceedEndTurn();
     },
@@ -1091,7 +1299,7 @@ export const BoardGimmickHandlers = {
             recordHaloPositiveGain(ctx.player, bonus - baseBonus);
         }
         ctx.player.money += bonus;
-        ctx.refreshUI(); RuntimePopup.showToast(`[${ctx.player.name}] ${text.TOAST_MOON} (+${formatMoney(bonus)})`, 3400); scheduleGameTask(ctx.proceedEndTurn, 2000);
+        ctx.refreshUI(); RuntimePopup.showToast(`${text.TOAST_MOON} (+${formatMoney(bonus)})`, 3400, ctx.player.id); scheduleGameTask(ctx.proceedEndTurn, 2000);
     },
 
     // [차원 열쇠 카드 로직]

@@ -1,7 +1,7 @@
 // ProgramFiles/System/Server/MarbleServerSession.js
 // 룸 단위로 MarbleGameEngine 인스턴스를 관리하며 클라이언트에 개인화된 스냅샷과 이벤트를 중계
 
-import { MarbleGameEngine } from '../../Marble/MarbleEngine.js';
+import { MarbleGameEngine } from '../../Game/Marble/MarbleEngine.js';
 
 export class MarbleServerSession {
     constructor({ room, broadcastToPlayer, broadcastToRoom, onGameFinished, onPlayerAfkKick }) {
@@ -17,15 +17,35 @@ export class MarbleServerSession {
             callbacks: {
                 onStateChange: () => this.pushStateToAll(),
                 onEvent: (event) => {
-                    const payload = {
-                        type: 'GAME_EVENT',
-                        roomId: this.room.id,
-                        event
-                    };
                     if (event?.targetPlayerId) {
-                        this.broadcastToPlayer(event.targetPlayerId, payload);
+                        this.broadcastToPlayer(event.targetPlayerId, {
+                            type: 'GAME_EVENT',
+                            roomId: this.room.id,
+                            event
+                        });
+                    } else if (event?.type === 'TOAST' && (event.selfMessage || event.otherMessage) && event.actorId) {
+                        for (const slot of this.room.slots) {
+                            if (slot.type === 'human' && slot.id) {
+                                const personalMsg = slot.id === event.actorId
+                                    ? (event.selfMessage || event.message)
+                                    : (event.otherMessage || event.message);
+                                this.broadcastToPlayer(slot.id, {
+                                    type: 'GAME_EVENT',
+                                    roomId: this.room.id,
+                                    event: {
+                                        ...event,
+                                        message: personalMsg,
+                                        logMessage: event.logMessage || event.otherMessage || event.message
+                                    }
+                                });
+                            }
+                        }
                     } else {
-                        this.broadcastToRoom(payload);
+                        this.broadcastToRoom({
+                            type: 'GAME_EVENT',
+                            roomId: this.room.id,
+                            event
+                        });
                     }
                     if (event?.type === 'GAME_OVER' && typeof this.onGameFinished === 'function') {
                         this.onGameFinished(event.results, event.matchLogData || this.engine?.lastMatchLogInput || null);

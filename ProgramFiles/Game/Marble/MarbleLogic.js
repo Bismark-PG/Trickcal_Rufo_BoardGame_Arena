@@ -1,9 +1,9 @@
 import { Player } from './MarblePlayer.js';
 import { TimeSlotSystem } from './MarbleTimeSlot.js';
 import { WorldGimmickManager } from './MarbleWorldGimmick.js';
-import { LangState } from '../System/LanguageManager.js';
-import { BOARD_TILES, BoardNames, SPECIAL_TERRITORY_IDS, getBoardTileType } from '../System/Index/Marble/MarbleBoardIndex.js';
-import { TILE_BASE_PRICES, BUILDING_COSTS, MULTIPLIERS, GAME_CONSTANTS, isTileExcludedInMode, getModeConfig } from '../System/Index/Marble/MarblePriceIndex.js';
+import { LangState } from '../../System/LanguageManager.js';
+import { BOARD_TILES, BoardNames, SPECIAL_TERRITORY_IDS, getBoardTileType } from '../../System/Index/Marble/MarbleBoardIndex.js';
+import { TILE_BASE_PRICES, BUILDING_COSTS, MULTIPLIERS, GAME_CONSTANTS, isTileExcludedInMode, getModeConfig } from '../../System/Index/Marble/MarblePriceIndex.js';
 import { getTreasurePurchaseMultiplier, getTreasureTollMultiplierDelta } from './MarbleCardTreasure.js';
 import { getRequiemPurchaseMultiplier, getRequiemTollPayerDelta } from './MarbleRequiem.js';
 import { getActiveWorld } from './MarbleRuntime.js';

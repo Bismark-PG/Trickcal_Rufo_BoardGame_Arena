@@ -175,6 +175,77 @@ export function renderGameMainPage(container, config) {
         return presets[Math.floor(Math.random() * presets.length)] || fallback || '';
     };
 
+    const getNetBadgeState = (text) => {
+        const netStatus = RoomManager.getNetworkStatus().status;
+        const isOnline = RoomManager.isOnline();
+        const pillStyle = isOnline
+            ? 'background: #FFFBF0; border: 3px solid #77C242; color: #2B6213;'
+            : (netStatus === 'reconnecting'
+                ? 'background: #FFF7DF; border: 3px solid #F38221; color: #9E4412;'
+                : 'background: #FFF7DF; border: 3px solid #C9965B; color: #724929;');
+        const pillText = isOnline
+            ? (text.NET_ONLINE || '🟢 온라인')
+            : (netStatus === 'reconnecting'
+                ? (text.NET_RECONNECTING || '🟡 재연결 중')
+                : (text.NET_OFFLINE || '🟠 오프라인 AI 모드'));
+        return { pillStyle, pillText };
+    };
+
+    const buildRoomRowsHtml = (rooms, text) => {
+        if (rooms.length === 0) {
+            return `<div style="flex: 1; min-height: 360px; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: bold; color: #FDEAC8; text-align: center; padding: 24px;">${escapeHtml(text.EMPTY_ROOM_LIST)}</div>`;
+        }
+        return rooms.map(room => {
+            const occ = RoomManager.getOccupiedCount(room);
+            const isFull = occ >= room.maxPlayers;
+            const isPlaying = room.status === 'playing';
+            const statusText = isPlaying
+                ? text.STATUS_PLAYING
+                : (room.status === 'starting' ? text.STATUS_STARTING : text.STATUS_WAITING);
+            const statusPill = isPlaying
+                ? `<span class="pill-badge" style="background: #5E72E4; color: #fff; border: 2px solid #C7D0FF;">${escapeHtml(statusText)}</span>`
+                : (room.status === 'starting'
+                    ? `<span class="pill-badge" style="background: #F38221; color: #fff; border: 2px solid #FFE4AC;">${escapeHtml(statusText)}</span>`
+                    : `<span class="pill-badge" style="background: #77C242; color: #16330A; border: 2px solid #DFF5BE;">${escapeHtml(statusText)}</span>`);
+            const joinDisabled = isFull || isPlaying;
+
+            return `
+                <div class="room-row-card">
+                    <div style="font-size: 21px; font-weight: 900; padding-right: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        ${room.isPrivate ? '🔒 ' : ''}${escapeHtml(room.title)}
+                    </div>
+                    <div style="font-size: 18px; font-weight: bold; color: #6E3D1E; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">👑 ${escapeHtml(RoomManager.getHostName(room))}</div>
+                    <div style="font-size: 19px; font-weight: 900; color: #4E2812;">${occ} / ${room.maxPlayers}${escapeHtml(text.PLAYERS_UNIT)}</div>
+                    <div>${statusPill}</div>
+                    <div style="text-align: right;">
+                        <button type="button" class="btn-join-room-row ${joinDisabled ? 'btn-wood' : 'btn-orange'}" data-room-id="${escapeHtml(room.id)}" ${joinDisabled ? 'disabled' : ''} style="padding: 10px 24px; font-size: 17px; border-radius: 12px;">
+                            ${escapeHtml(isFull ? text.BTN_ROOM_FULL : text.BTN_JOIN_ROOM)}
+                        </button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    };
+
+    let updateLobbyDynamicContent = () => {};
+
+    const bindRoomRowJoinButtons = (rowsRoot, text) => {
+        if (!rowsRoot) return;
+        rowsRoot.querySelectorAll('.btn-join-room-row').forEach(btn => {
+            btn.onclick = async () => {
+                const roomId = btn.dataset.roomId;
+                const res = await RoomManager.joinRoomById(roomId, gameId);
+                if (!res.ok) {
+                    showLobbyToast(container, text[res.errorCode] || text.ERR_NOT_FOUND);
+                    await RoomManager.fetchRooms(gameId);
+                    updateLobbyDynamicContent();
+                    return;
+                }
+                changeScene('room');
+            };
+        });
+    };
+
     const render = () => {
         const lang = LangState.current || 'ko';
         const text = LobbyLang[lang] || LobbyLang.ko;
@@ -189,57 +260,14 @@ export function renderGameMainPage(container, config) {
         const badgeBg = isUnos ? '#5E72E4' : '#76C140';
         const badgeColor = isUnos ? '#ffffff' : '#16330A';
         const badgeBorder = isUnos ? '#C5CEFF' : '#D6F5B3';
-        const bannerBg = isUnos ? './Resource/Texture/BG/BG_Broken_Altar_Special.png' : './Resource/Texture/BG/BG_Throne_room.png';
-        const bannerChar = isUnos ? './Resource/Texture/Char/Char_Erpin_Unos.png' : './Resource/Texture/Char/Char_Erpin_Marble.png';
+        const bannerBg = isUnos ? './Resource/Texture/BG/BG_Broken_Altar_Special.webp' : './Resource/Texture/BG/BG_Throne_room.webp';
+        const bannerChar = isUnos ? './Resource/Texture/Char/Char_Erpin_Unos.webp' : './Resource/Texture/Char/Char_Erpin_Marble.webp';
         const bannerVerText = isUnos
             ? (lang === 'en' ? 'Alpha' : (lang === 'ja' ? 'アルファ' : '알파'))
             : (lang === 'en' ? 'Version 1.0' : (lang === 'ja' ? 'バージョン 1.0' : '버전 1.0'));
 
-        const netStatus = RoomManager.getNetworkStatus().status;
-        const isOnline = RoomManager.isOnline();
-        const netPillStyle = isOnline
-            ? 'background: #FFFBF0; border: 3px solid #77C242; color: #2B6213;'
-            : (netStatus === 'reconnecting'
-                ? 'background: #FFF7DF; border: 3px solid #F38221; color: #9E4412;'
-                : 'background: #FFF7DF; border: 3px solid #C9965B; color: #724929;');
-        const netPillText = isOnline
-            ? (text.NET_ONLINE || '🟢 온라인')
-            : (netStatus === 'reconnecting'
-                ? (text.NET_RECONNECTING || '🟡 재연결 중')
-                : (text.NET_OFFLINE || '🟠 오프라인 AI 모드'));
-
-        const roomRowsHtml = rooms.length === 0
-            ? `<div style="flex: 1; min-height: 360px; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: bold; color: #FDEAC8; text-align: center; padding: 24px;">${escapeHtml(text.EMPTY_ROOM_LIST)}</div>`
-            : rooms.map(room => {
-                const occ = RoomManager.getOccupiedCount(room);
-                const isFull = occ >= room.maxPlayers;
-                const isPlaying = room.status === 'playing';
-                const statusText = isPlaying
-                    ? text.STATUS_PLAYING
-                    : (room.status === 'starting' ? text.STATUS_STARTING : text.STATUS_WAITING);
-                const statusPill = isPlaying
-                    ? `<span class="pill-badge" style="background: #5E72E4; color: #fff; border: 2px solid #C7D0FF;">${escapeHtml(statusText)}</span>`
-                    : (room.status === 'starting'
-                        ? `<span class="pill-badge" style="background: #F38221; color: #fff; border: 2px solid #FFE4AC;">${escapeHtml(statusText)}</span>`
-                        : `<span class="pill-badge" style="background: #77C242; color: #16330A; border: 2px solid #DFF5BE;">${escapeHtml(statusText)}</span>`);
-                const joinDisabled = isFull || isPlaying;
-
-                return `
-                    <div class="room-row-card">
-                        <div style="font-size: 21px; font-weight: 900; padding-right: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                            ${room.isPrivate ? '🔒 ' : ''}${escapeHtml(room.title)}
-                        </div>
-                        <div style="font-size: 18px; font-weight: bold; color: #6E3D1E; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">👑 ${escapeHtml(RoomManager.getHostName(room))}</div>
-                        <div style="font-size: 19px; font-weight: 900; color: #4E2812;">${occ} / ${room.maxPlayers}${escapeHtml(text.PLAYERS_UNIT)}</div>
-                        <div>${statusPill}</div>
-                        <div style="text-align: right;">
-                            <button type="button" class="btn-join-room-row ${joinDisabled ? 'btn-wood' : 'btn-orange'}" data-room-id="${escapeHtml(room.id)}" ${joinDisabled ? 'disabled' : ''} style="padding: 10px 24px; font-size: 17px; border-radius: 12px;">
-                                ${escapeHtml(isFull ? text.BTN_ROOM_FULL : text.BTN_JOIN_ROOM)}
-                            </button>
-                        </div>
-                    </div>
-                `;
-            }).join('');
+        const { pillStyle: netPillStyle, pillText: netPillText } = getNetBadgeState(text);
+        const roomRowsHtml = buildRoomRowsHtml(rooms, text);
 
         let selectedCreateMax = meta.maxPlayers;
         const playerCountButtons = [];
@@ -279,7 +307,7 @@ export function renderGameMainPage(container, config) {
                     <div class="lobby-grid">
                         <section class="wood-panel lobby-list-panel">
                             <div class="lobby-list-toolbar">
-                                <h2>${escapeHtml(text.ROOM_LIST_TITLE)} (${rooms.length})</h2>
+                                <h2 id="lobby-room-list-title">${escapeHtml(text.ROOM_LIST_TITLE)} (${rooms.length})</h2>
                                 <div style="display: flex; gap: 10px;">
                                     <button id="btn-refresh-rooms" type="button" class="btn-wood" style="padding: 11px 18px; font-size: 18px;">${escapeHtml(text.BTN_REFRESH)}</button>
                                     <button id="btn-open-join-code" type="button" class="btn-blue" style="padding: 11px 20px; font-size: 18px;">${escapeHtml(text.BTN_JOIN_BY_CODE)}</button>
@@ -295,7 +323,7 @@ export function renderGameMainPage(container, config) {
                                 <div style="text-align: right;">${escapeHtml(text.COL_ACTION)}</div>
                             </div>
 
-                            <div class="lobby-rows-scroll">
+                            <div id="lobby-rows-scroll" class="lobby-rows-scroll">
                                 ${roomRowsHtml}
                             </div>
                         </section>
@@ -438,7 +466,7 @@ export function renderGameMainPage(container, config) {
         container.querySelector('#btn-back-arena').onclick = () => changeScene('menu');
         container.querySelector('#btn-refresh-rooms').onclick = async () => {
             await RoomManager.fetchRooms(gameId);
-            render();
+            updateLobbyDynamicContent();
         };
 
         const openLobbyInfoBtn = container.querySelector('#btn-lobby-info');
@@ -554,22 +582,44 @@ export function renderGameMainPage(container, config) {
             if (e.key === 'Enter') submitJoinByCode();
         };
 
-        container.querySelectorAll('.btn-join-room-row').forEach(btn => {
-            btn.onclick = async () => {
-                const roomId = btn.dataset.roomId;
-                const res = await RoomManager.joinRoomById(roomId, gameId);
-                if (!res.ok) {
-                    showLobbyToast(container, text[res.errorCode] || text.ERR_NOT_FOUND);
-                    await RoomManager.fetchRooms(gameId);
-                    render();
-                    return;
-                }
-                changeScene('room');
-            };
-        });
+        bindRoomRowJoinButtons(container.querySelector('#lobby-rows-scroll'), text);
     };
 
-    const langHandler = () => render();
+    let isCleanedUp = false;
+    let tabCheckInFlight = false;
+
+    updateLobbyDynamicContent = () => {
+        if (isCleanedUp) return;
+        const rowsEl = container.querySelector('#lobby-rows-scroll');
+        if (!rowsEl) {
+            render();
+            return;
+        }
+        const lang = LangState.current || 'ko';
+        const text = LobbyLang[lang] || LobbyLang.ko;
+        const rooms = RoomManager.getPublicRooms(gameId);
+        const { pillStyle, pillText } = getNetBadgeState(text);
+
+        const netBadge = container.querySelector('#net-status-badge');
+        if (netBadge) {
+            netBadge.style.cssText = `height: 44px; padding: 0 18px; font-size: 16px; ${pillStyle}`;
+            netBadge.textContent = pillText;
+        }
+        const titleEl = container.querySelector('#lobby-room-list-title');
+        if (titleEl) {
+            titleEl.textContent = `${text.ROOM_LIST_TITLE} (${rooms.length})`;
+        }
+        rowsEl.innerHTML = buildRoomRowsHtml(rooms, text);
+        bindRoomRowJoinButtons(rowsEl, text);
+    };
+
+    const langHandler = () => {
+        const wasSettingsOpen = Boolean(container.querySelector('#popup-lobby-settings')?.classList.contains('open'));
+        render();
+        if (wasSettingsOpen) {
+            container.querySelector('#popup-lobby-settings')?.classList.add('open');
+        }
+    };
     const escHandler = (e) => {
         if (e.key === 'Escape') {
             container.querySelector('#modal-create-room')?.classList.remove('open');
@@ -578,9 +628,6 @@ export function renderGameMainPage(container, config) {
     };
     document.addEventListener('languageChanged', langHandler);
     document.addEventListener('keydown', escHandler);
-
-    let isCleanedUp = false;
-    let tabCheckInFlight = false;
 
     const verifyTabThenLoad = async () => {
         if (isCleanedUp || tabCheckInFlight) return true;
@@ -597,14 +644,15 @@ export function renderGameMainPage(container, config) {
     const unsubscribeRoom = RoomManager.subscribe((evtName, payload) => {
         if (isCleanedUp) return;
         if (evtName === 'NETWORK_STATUS' || evtName === 'HELLO_ACK') {
+            updateLobbyDynamicContent();
             verifyTabThenLoad().then((allowed) => {
                 if (!allowed || isCleanedUp) return;
                 RoomManager.fetchRooms(gameId).then(() => {
-                    if (!isCleanedUp) render();
+                    if (!isCleanedUp) updateLobbyDynamicContent();
                 });
             });
         } else if (evtName === 'LOBBY_ROOMS' && payload?.gameId === gameId) {
-            render();
+            updateLobbyDynamicContent();
         }
     });
 
@@ -636,6 +684,6 @@ export function renderGameMainPage(container, config) {
             }
         }
         await RoomManager.fetchRooms(gameId);
-        if (!isCleanedUp) render();
+        if (!isCleanedUp) updateLobbyDynamicContent();
     });
 }

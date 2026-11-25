@@ -1,6 +1,6 @@
-import { GAME_CONSTANTS, MULTIPLIERS, BUILDING_COSTS, getModeConfig } from '../System/Index/Marble/MarblePriceIndex.js';
-import { BOARD_TILES, SPECIAL_TERRITORY_IDS, BoardNames } from '../System/Index/Marble/MarbleBoardIndex.js';
-import { LangState } from '../System/LanguageManager.js';
+import { GAME_CONSTANTS, MULTIPLIERS, BUILDING_COSTS, getModeConfig } from '../../System/Index/Marble/MarblePriceIndex.js';
+import { BOARD_TILES, SPECIAL_TERRITORY_IDS, BoardNames } from '../../System/Index/Marble/MarbleBoardIndex.js';
+import { LangState } from '../../System/LanguageManager.js';
 import { formatMoney, getSettlementText, getActiveWorld } from './MarbleRuntime.js';
 import { getGlobalBbangjuVisits } from './MarbleEconomy.js';
 import { WorldGimmickManager } from './MarbleWorldGimmick.js';
@@ -461,7 +461,9 @@ export function serializeSettlementResults(rankedResults) {
         player: {
             id: res.player.id,
             name: res.player.name,
-            color: res.player.color
+            color: res.player.color,
+            minimiPath: res.player.minimiPath || './Resource/Texture/Minimi/Minimi_Erpin.webp',
+            minimiPegX: res.player.minimiPegX || 0.406
         },
         baseCash: res.baseCash,
         landAssetTotal: res.landAssetTotal || 0,

@@ -1,4 +1,4 @@
-// ProgramFiles/Marble/MarbleCardNormal.js
+// ProgramFiles/Game/Marble/MarbleCardNormal.js
 import {
     RuntimePopup,
     formatMoney,
@@ -9,9 +9,9 @@ import {
     getMarbleText,
     getGimmickText
 } from './MarbleRuntime.js';
-import { CARD_IDS } from '../System/Index/Marble/MarbleCardIndex.js';
-import { BOARD_TILES } from '../System/Index/Marble/MarbleBoardIndex.js';
-import { GAME_CONSTANTS, BUILDING_COSTS, resolveLapBaseBonus, stepActiveBoardPos } from '../System/Index/Marble/MarblePriceIndex.js';
+import { CARD_IDS } from '../../System/Index/Marble/MarbleCardIndex.js';
+import { BOARD_TILES } from '../../System/Index/Marble/MarbleBoardIndex.js';
+import { GAME_CONSTANTS, BUILDING_COSTS, resolveLapBaseBonus, stepActiveBoardPos } from '../../System/Index/Marble/MarblePriceIndex.js';
 import {
     RequiemState,
     canPlayerReceiveLapBonus,
@@ -22,6 +22,7 @@ import {
 } from './MarbleRequiem.js';
 import { getPlayerThinkTime } from './MarbleCardTreasure.js';
 import { AIManager } from './MarbleAI.js';
+import { buildCardActivationToast } from '../../System/Index/Marble/MarbleCardToastIndex.js';
 
 // 진행 순서 및 누적 순회 콤보 기반 기본 순회 보상 산출 ([109] 보유 시 1.5배)
 export function getBaseStartBonusForPlayer(player) {
@@ -64,7 +65,17 @@ export function applyLapPassBonus(player, options = {}) {
             const extra = startBonus - Math.round(startBonus / getPositiveEffectMultiplier(player));
             recordHaloPositiveGain(player, extra);
         }
-        RuntimePopup.showToast(`[${player.name}] ${label} (+${formatMoney(startBonus)})`, duration, targetPlayerId);
+        RuntimePopup.showToast(
+            `[${player.name}]님이 순회 보너스 획득!`,
+            duration,
+            targetPlayerId,
+            targetPlayerId ? null : {
+                actorId: player.id,
+                selfMessage: `시작 지점 통과! 순회 보너스 ${formatMoney(startBonus)} 획득!`,
+                otherMessage: `[${player.name}]님이 순회 보너스 획득!`,
+                logMessage: `[${player.name}] 시작 지점 통과! 순회 보너스 획득! (+${formatMoney(startBonus)})`
+            }
+        );
         return startBonus;
     }
 
@@ -96,7 +107,7 @@ export function checkAndDestroyRank2Privilege(player, tiles) {
         if (idx > -1) {
             player.buffs['hold_immune'].splice(idx, 1);
             const uiText = getCardUIText();
-            RuntimePopup.showToast(`[${player.name}] ${uiText.CARD_DESTROYED_RANK2}`, 3200);
+            RuntimePopup.showToast(uiText.CARD_DESTROYED_RANK2, 3200, player.id);
         }
     }
 }
@@ -122,18 +133,24 @@ export function executeNormalCard(ctx, card, onComplete = null) {
     switch (card.actionType) {
         // [1 ~ 14] 지정된 칸으로 이동 (특수 칸 이동 / 일반 칸 이동 + 지원금)
         case "move_fixed": {
-            if (card.bonusMoney > 0) {
-                const actualBonus = Math.round(card.bonusMoney * posMult);
+            const actualBonus = card.bonusMoney > 0 ? Math.round(card.bonusMoney * posMult) : 0;
+            if (actualBonus > 0) {
                 p.money += actualBonus;
                 if (RequiemState.isHaloState && actualBonus > card.bonusMoney) {
                     recordHaloPositiveGain(p, actualBonus - card.bonusMoney);
                 }
-                RuntimePopup.showToast(`[${p.name}] ${formatMoney(actualBonus)} ${uiText.MOVE_CARD_BONUS}`, 3200);
             }
-            if ((card.targetId < p.pos || card.targetId === BOARD_TILES.START) && card.targetId !== p.pos) {
-                applyLapPassBonus(p, { showBlockedToast: true });
-            }
+            const tp = buildCardActivationToast({
+                card,
+                actorName: p.name,
+                amountStr: actualBonus > 0 ? formatMoney(actualBonus) : undefined
+            });
+            RuntimePopup.showToast(tp.otherMessage, 3200, null, { actorId: p.id, ...tp });
+            const fromPos = p.pos;
+            const passedStart = (card.targetId < p.pos || card.targetId === BOARD_TILES.START) && card.targetId !== p.pos;
+            const lapBonus = passedStart ? applyLapPassBonus(p, { showBlockedToast: true }) : 0;
             p.pos = card.targetId;
+            ctx.emitMoveEvent?.(p, fromPos, card.targetId, 'card', { passedStart, lapBonus });
             ctx.updateRender();
             ctx.refreshUI();
             scheduleGameTask(() => ctx.handleTileArrival(p), 1200);
@@ -154,11 +171,18 @@ export function executeNormalCard(ctx, card, onComplete = null) {
             }
 
             const applyRelativeMove = (spaces) => {
+                const fromPos = p.pos;
                 const { pos: nextPos, passedStart } = stepActiveBoardPos(p.pos, spaces, ctx.tiles);
                 p.pos = nextPos;
-                if (spaces > 0 && passedStart) {
-                    applyLapPassBonus(p, { showBlockedToast: true });
-                }
+                const tp = buildCardActivationToast({ card, actorName: p.name, step: Math.abs(spaces) });
+                RuntimePopup.showToast(tp.otherMessage, 3000, null, { actorId: p.id, ...tp });
+                const didPassStart = spaces > 0 && passedStart;
+                const lapBonus = didPassStart ? applyLapPassBonus(p, { showBlockedToast: true }) : 0;
+                ctx.emitMoveEvent?.(p, fromPos, nextPos, 'card', {
+                    steps: spaces,
+                    passedStart: didPassStart,
+                    lapBonus
+                });
                 ctx.updateRender();
                 ctx.refreshUI();
                 scheduleGameTask(() => ctx.handleTileArrival(p), 1200);
@@ -172,7 +196,9 @@ export function executeNormalCard(ctx, card, onComplete = null) {
                     RuntimePopup.closeAll();
                     applyRelativeMove(options[0]);
                 });
+                const isChoiceCard = card.actionType === "move_choice";
                 const btnConfigs = options.map(val => ({
+                    row: isChoiceCard ? (val > 0 ? 1 : 2) : 1,
                     text: val > 0
                         ? `${uiText.MOVE_FORWARD_PREFIX}${val}${uiText.MOVE_SPACE_SUFFIX}`
                         : `${uiText.MOVE_BACKWARD_PREFIX}${Math.abs(val)}${uiText.MOVE_SPACE_SUFFIX}`,
@@ -197,7 +223,8 @@ export function executeNormalCard(ctx, card, onComplete = null) {
                     totalStolen += other.payMoney(req, p);
                 }
             });
-            RuntimePopup.showToast(`[${p.name}] ${uiText.MONEY_STEAL_ALL} (+${formatMoney(totalStolen)})`, 3400);
+            const tp = buildCardActivationToast({ card, actorName: p.name, amountStr: formatMoney(totalStolen) });
+            RuntimePopup.showToast(tp.otherMessage, 3400, null, { actorId: p.id, ...tp });
             ctx.refreshUI();
             scheduleGameTask(finish, 1800);
             break;
@@ -218,8 +245,17 @@ export function executeNormalCard(ctx, card, onComplete = null) {
             }
             if (tax > 0) {
                 const actualPaid = p.payMoney(tax, null);
-                if (actualPaid < tax) RuntimePopup.showToast(`[${p.name}] ${uiText.TAX_FAILED}`, 3200);
-                else RuntimePopup.showToast(`[${p.name}] ${uiText.TAX_PAID} (-${formatMoney(tax)})`, 3200);
+                const tp = buildCardActivationToast({ card, actorName: p.name, amountStr: formatMoney(tax) });
+                if (actualPaid < tax) {
+                    RuntimePopup.showToast(tp.otherMessage, 3200, null, {
+                        actorId: p.id,
+                        selfMessage: `[${p.name}] ${uiText.TAX_FAILED}`,
+                        otherMessage: tp.otherMessage,
+                        logMessage: tp.logMessage
+                    });
+                } else {
+                    RuntimePopup.showToast(tp.otherMessage, 3200, null, { actorId: p.id, ...tp });
+                }
             }
             ctx.refreshUI();
             scheduleGameTask(finish, 1800);
@@ -235,8 +271,8 @@ export function executeNormalCard(ctx, card, onComplete = null) {
                 multiplier: card.multiplier,
                 remainingTurns: card.turns || 2
             });
-            const msg = card.multiplier < 1 ? uiText.TOLL_BUFF_RIOT : uiText.TOLL_BUFF_FESTIVAL;
-            RuntimePopup.showToast(`[${p.name}] ${msg}`, 3200);
+            const tp = buildCardActivationToast({ card, actorName: p.name });
+            RuntimePopup.showToast(tp.otherMessage, 3200, null, { actorId: p.id, ...tp });
             ctx.refreshUI();
             scheduleGameTask(finish, 1800);
             break;
@@ -251,7 +287,8 @@ export function executeNormalCard(ctx, card, onComplete = null) {
             if (RequiemState.isHaloState && prize > basePrize) {
                 recordHaloPositiveGain(p, prize - basePrize);
             }
-            RuntimePopup.showToast(`[${p.name}] 🎲(${d1}) ${uiText.LOTTERY_WIN} (+${formatMoney(prize)})`, 3200);
+            const tp = buildCardActivationToast({ card, actorName: p.name, rollValue: d1, amountStr: formatMoney(prize) });
+            RuntimePopup.showToast(tp.otherMessage, 3200, null, { actorId: p.id, ...tp });
             ctx.refreshUI();
             scheduleGameTask(finish, 1800);
             break;
@@ -271,7 +308,8 @@ export function executeNormalCard(ctx, card, onComplete = null) {
             if (RequiemState.isHaloState && reward > baseReward) {
                 recordHaloPositiveGain(p, reward - baseReward);
             }
-            RuntimePopup.showToast(`[${p.name}] ${formatMoney(reward)} ${uiText.MONEY_RECEIVE}`, 3200);
+            const tp = buildCardActivationToast({ card, actorName: p.name, amountStr: formatMoney(reward) });
+            RuntimePopup.showToast(tp.otherMessage, 3200, null, { actorId: p.id, ...tp });
             ctx.refreshUI();
             scheduleGameTask(finish, 1800);
             break;
@@ -303,9 +341,17 @@ export function executeNormalCard(ctx, card, onComplete = null) {
             if (fundGrant > 0) {
                 p.money += fundGrant;
             }
+            const tp = buildCardActivationToast({ card, actorName: p.name });
             RuntimePopup.showToast(
-                `[${p.name}] ${uiText.CULT_EMERGENCY_FUND_APPLIED} (청산 ${formatMoney(clearedTotal)} / 지원 +${formatMoney(fundGrant)})`,
-                3800
+                tp.otherMessage,
+                3800,
+                null,
+                {
+                    actorId: p.id,
+                    selfMessage: `${uiText.CULT_EMERGENCY_FUND_APPLIED} (청산 ${formatMoney(clearedTotal)} / 지원 +${formatMoney(fundGrant)})`,
+                    otherMessage: tp.otherMessage,
+                    logMessage: tp.logMessage
+                }
             );
             ctx.refreshUI();
             scheduleGameTask(finish, 1800);
@@ -321,7 +367,7 @@ export function executeNormalCard(ctx, card, onComplete = null) {
         case "hold_pira_loan": {
             // 서열 2위의 특권(34): 이미 다야의 궁전 소유자라면 획득 즉시 파괴
             if (card.id === CARD_IDS.RANK_2_PRIVILEGE && ctx.tiles[BOARD_TILES.DAYA].owner === p) {
-                RuntimePopup.showToast(`[${p.name}] ${uiText.CARD_DESTROYED_RANK2}`, 3200);
+                RuntimePopup.showToast(uiText.CARD_DESTROYED_RANK2, 3200, p.id);
                 scheduleGameTask(finish, 1600);
                 return;
             }
@@ -346,14 +392,15 @@ export function executeNormalCard(ctx, card, onComplete = null) {
                     p.loanPrincipal = Math.round(p.loanPrincipal * piraMult);
                     p.loanInterest = Math.round(p.loanPrincipal * piraFixedRate);
                 }
-                RuntimePopup.showToast(`[${p.name}] ${uiText.PIRA_LOAN_APPLIED}`, 3400);
+                RuntimePopup.showToast(uiText.PIRA_LOAN_APPLIED, 3400, p.id);
             // 이면세계(37): 현재 소지한 모든 영토의 시간대(낮/밤) 즉시 역전
             } else if (card.id === CARD_IDS.OTHERWORLD) {
                 ctx.tiles.filter(t => t.owner === p && (t.timeType === 'day' || t.timeType === 'night')).forEach(t => {
                     t.timeType = t.timeType === 'day' ? 'night' : 'day';
                 });
                 ctx.updateRender();
-                RuntimePopup.showToast(`[${p.name}] ${uiText.OTHERWORLD_APPLIED}`, 3400);
+                const tp = buildCardActivationToast({ card, actorName: p.name });
+                RuntimePopup.showToast(tp.otherMessage, 3400, null, { actorId: p.id, ...tp });
             } else {
                 RuntimePopup.showToast(`[${card.name}] ${uiText.CARD_BUFF_APPLIED}`, 3200, p.id);
             }
@@ -415,7 +462,8 @@ export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
             p.islandTurns = 0;
             RuntimePopup.closeAll();
             finalizeUse();
-            RuntimePopup.showToast(`[${p.name}] ${cText.USE_ESCAPE_DONE}`, 3200);
+            const tp = buildCardActivationToast({ card, actorName: p.name });
+            RuntimePopup.showToast(tp.otherMessage, 3200, null, { actorId: p.id, ...tp });
             break;
         }
 
@@ -429,7 +477,8 @@ export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
             p.hasLibraryBuff = true;
             RuntimePopup.closeAll();
             finalizeUse();
-            RuntimePopup.showToast(`[${p.name}] ${cText.USE_LIBRARY_DONE}`, 3200);
+            const tp = buildCardActivationToast({ card, actorName: p.name });
+            RuntimePopup.showToast(tp.otherMessage, 3200, null, { actorId: p.id, ...tp });
             break;
         }
 
@@ -447,7 +496,8 @@ export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
                 const picked = AIManager.selectBestUpgradeTile(p, ctx.tiles, t => t.level < 2, false, globalTurn) || buildableLands[0];
                 picked.level = 2;
                 finalizeUse();
-                RuntimePopup.showToast(`[${p.name}] ${getTileName(picked)} ${cText.RES_BUILD}`, 3200);
+                const tp = buildCardActivationToast({ card, actorName: p.name, targetTileName: getTileName(picked) });
+                RuntimePopup.showToast(tp.otherMessage, 3200, null, { actorId: p.id, ...tp });
                 return;
             }
             resetTargetTimer();
@@ -469,7 +519,8 @@ export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
                 t.level = 2; // 마을(2단계)까지 하이패스 무료 건설
                 RuntimePopup.closeAll();
                 finalizeUse();
-                RuntimePopup.showToast(`[${p.name}] ${getTileName(t)} ${cText.RES_BUILD}`, 3200);
+                const tp = buildCardActivationToast({ card, actorName: p.name, targetTileName: getTileName(t) });
+                RuntimePopup.showToast(tp.otherMessage, 3200, null, { actorId: p.id, ...tp });
             }, cancelTarget);
             break;
         }
@@ -488,7 +539,8 @@ export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
                 const picked = AIManager.selectBestUpgradeTile(p, ctx.tiles, t => t.level === 1 || t.level === 2, true, globalTurn) || myUpgradable[0];
                 picked.level++;
                 finalizeUse();
-                RuntimePopup.showToast(`[${p.name}] ${getTileName(picked)} ${cText.RES_UPGRADE}`, 3200);
+                const tp = buildCardActivationToast({ card, actorName: p.name, targetTileName: getTileName(picked) });
+                RuntimePopup.showToast(tp.otherMessage, 3200, null, { actorId: p.id, ...tp });
                 return;
             }
             resetTargetTimer();
@@ -510,7 +562,8 @@ export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
                 t.level++;
                 RuntimePopup.closeAll();
                 finalizeUse();
-                RuntimePopup.showToast(`[${p.name}] ${getTileName(t)} ${cText.RES_UPGRADE}`, 3200);
+                const tp = buildCardActivationToast({ card, actorName: p.name, targetTileName: getTileName(t) });
+                RuntimePopup.showToast(tp.otherMessage, 3200, null, { actorId: p.id, ...tp });
             }, cancelTarget);
             break;
         }
@@ -529,7 +582,8 @@ export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
                 const picked = AIManager.selectBestUpgradeTile(p, ctx.tiles, t => t.level === 3, true, globalTurn) || myKingdoms[0];
                 picked.level = 4;
                 finalizeUse();
-                RuntimePopup.showToast(`[${p.name}] ${getTileName(picked)} ${cText.RES_LANDMARK}`, 3400);
+                const tp = buildCardActivationToast({ card, actorName: p.name, targetTileName: getTileName(picked) });
+                RuntimePopup.showToast(tp.otherMessage, 3400, null, { actorId: p.id, ...tp });
                 return;
             }
             resetTargetTimer();
@@ -551,7 +605,8 @@ export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
                 t.level = 4;
                 RuntimePopup.closeAll();
                 finalizeUse();
-                RuntimePopup.showToast(`[${p.name}] ${getTileName(t)} ${cText.RES_LANDMARK}`, 3400);
+                const tp = buildCardActivationToast({ card, actorName: p.name, targetTileName: getTileName(t) });
+                RuntimePopup.showToast(tp.otherMessage, 3400, null, { actorId: p.id, ...tp });
             }, cancelTarget);
             break;
         }
@@ -581,7 +636,7 @@ export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
                 picked.level = -1;
                 p.territoryCount--;
                 finalizeUse();
-                RuntimePopup.showToast(`[${p.name}] ${getTileName(picked)} ${cText.RES_SELL} +${formatMoney(sellPrice)}`, 3400);
+                RuntimePopup.showToast(`🎯 ${getTileName(picked)} 매각 완료 (+${formatMoney(sellPrice)})`, 3400, p.id);
                 return;
             }
             resetTargetTimer();
@@ -598,7 +653,7 @@ export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
                 p.territoryCount--;
                 RuntimePopup.closeAll();
                 finalizeUse();
-                RuntimePopup.showToast(`[${p.name}] ${getTileName(t)} ${cText.RES_SELL} +${formatMoney(sellPrice)}`, 3400);
+                RuntimePopup.showToast(`🎯 ${getTileName(t)} 매각 완료 (+${formatMoney(sellPrice)})`, 3400, p.id);
             }, cancelTarget);
             break;
         }
@@ -627,7 +682,8 @@ export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
                         targetTile.owner = p;
                         p.territoryCount++;
                         finalizeUse();
-                        RuntimePopup.showToast(`[${p.name}] ${getTileName(targetTile)} ${cText.RES_TAKE}`, 3400);
+                        const tp = buildCardActivationToast({ card, actorName: p.name, targetTileName: getTileName(targetTile) });
+                        RuntimePopup.showToast(tp.otherMessage, 3400, null, { actorId: p.id, ...tp });
                         return;
                     }
                 }
@@ -655,7 +711,8 @@ export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
                         p.territoryCount++;
                         RuntimePopup.closeAll();
                         finalizeUse();
-                        RuntimePopup.showToast(`[${p.name}] ${getTileName(targetTile)} ${cText.RES_TAKE}`, 3400);
+                        const tp = buildCardActivationToast({ card, actorName: p.name, targetTileName: getTileName(targetTile) });
+                        RuntimePopup.showToast(tp.otherMessage, 3400, null, { actorId: p.id, ...tp });
                     } else {
                         RuntimePopup.showToast(mText.NOT_ENOUGH_MONEY, 2800, p.id);
                     }
@@ -683,7 +740,8 @@ export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
                         const ripTile = builtLands[Math.floor(Math.random() * builtLands.length)];
                         ripTile.level = Math.max(0, ripTile.level - 2);
                         finalizeUse();
-                        RuntimePopup.showToast(`[${p.name} → ${targetPlayer.name}] ${getTileName(ripTile)} ${cText.RES_DESTROY}`, 3400);
+                        const tp = buildCardActivationToast({ card, actorName: p.name, targetPlayerName: targetPlayer.name, targetTileName: getTileName(ripTile) });
+                        RuntimePopup.showToast(tp.otherMessage, 3400, null, { actorId: p.id, ...tp });
                         return;
                     }
                 }
@@ -699,7 +757,8 @@ export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
                 ripTile.level = Math.max(0, ripTile.level - 2); // 건설 단계 2단계 하락 (2단계 이하는 토지(0)만 남음)
                 RuntimePopup.closeAll();
                 finalizeUse();
-                RuntimePopup.showToast(`[${p.name} → ${targetPlayer.name}] ${getTileName(ripTile)} ${cText.RES_DESTROY}`, 3400);
+                const tp = buildCardActivationToast({ card, actorName: p.name, targetPlayerName: targetPlayer.name, targetTileName: getTileName(ripTile) });
+                RuntimePopup.showToast(tp.otherMessage, 3400, null, { actorId: p.id, ...tp });
             }, cancelTarget);
             break;
         }
@@ -718,7 +777,8 @@ export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
                 if (t) {
                     t.timeType = t.timeType === 'day' ? 'night' : 'day';
                     finalizeUse();
-                    RuntimePopup.showToast(`[${p.name}] ${getTileName(t)} ${cText.REVERSE_ONE_APPLIED}`, 3200);
+                    const tp = buildCardActivationToast({ card, actorName: p.name, targetTileName: getTileName(t) });
+                    RuntimePopup.showToast(tp.otherMessage, 3200, null, { actorId: p.id, ...tp });
                     return;
                 }
                 cancelTarget();
@@ -735,7 +795,8 @@ export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
                 t.timeType = t.timeType === 'day' ? 'night' : 'day';
                 RuntimePopup.closeAll();
                 finalizeUse();
-                RuntimePopup.showToast(`[${p.name}] ${getTileName(t)} ${cText.REVERSE_ONE_APPLIED}`, 3200);
+                const tp = buildCardActivationToast({ card, actorName: p.name, targetTileName: getTileName(t) });
+                RuntimePopup.showToast(tp.otherMessage, 3200, null, { actorId: p.id, ...tp });
             }, cancelTarget);
             break;
         }
@@ -777,9 +838,9 @@ export function useNormalActiveCard(ctx, card, finalizeUse, onCancel = null) {
             RuntimePopup.closeAll();
             finalizeUse();
             if (downgraded) {
-                RuntimePopup.showToast(`[${p.name}] ${cText.GOLDIE_REALTY_APPLIED} (감면 대출금: ${formatMoney(reducedTotal)})`, 3400);
+                RuntimePopup.showToast(`${cText.GOLDIE_REALTY_APPLIED} (감면 대출금: ${formatMoney(reducedTotal)})`, 3400, p.id);
             } else {
-                RuntimePopup.showToast(`[${p.name}] ${cText.GOLDIE_REALTY_NO_DOWNGRADE} (감면 대출금: ${formatMoney(reducedTotal)})`, 3400);
+                RuntimePopup.showToast(`${cText.GOLDIE_REALTY_NO_DOWNGRADE} (감면 대출금: ${formatMoney(reducedTotal)})`, 3400, p.id);
             }
             break;
         }

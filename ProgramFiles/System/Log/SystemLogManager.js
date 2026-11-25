@@ -15,11 +15,11 @@ import {
     MarbleMode3Log10Adapter,
     MarbleMode4LogAdapter,
     MarbleMode4Log10Adapter
-} from '../../Marble/MarbleLogManager.js';
+} from '../../Game/Marble/MarbleLogManager.js';
 import {
     UnosLogAdapter,
     UnosLog10Adapter
-} from '../../Unos/UnosLogManager.js';
+} from '../../Game/Unos/UnosLogManager.js';
 
 const STORAGE_PREFIX = 'rufo_system_logs_v1_';
 const ERROR_LOG_JSON_FILE = '아레나_오류보고_로그.json';

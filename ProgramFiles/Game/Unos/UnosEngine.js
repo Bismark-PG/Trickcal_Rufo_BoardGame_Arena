@@ -1,7 +1,7 @@
-// ProgramFiles/Unos/UnosEngine.js
+// ProgramFiles/Game/Unos/UnosEngine.js
 // 우노스(UNOS) 서버·로컬 공용 순수 상태머신
 // - 선/후공 숫자 카드(0~9) 추첨(TURN_ORDER: 5초 자동뽑기·동점 재추첨·덱 복귀 후 56장 원형 보존 셔플)
-// - 56장 카드 페이즈(액션 1회 연쇄, 액션+리버스 색상 동기화, 스킵, 공명, 우울)
+// - 56장 카드 페이즈(콤보 1회 연쇄, 콤보+리버스 색상 동기화, 스킵, 리버스, 공명, 우울 +2)
 // - 6x6 체스 페이즈(색상 연동 이동, K/Q 예외, 퀸 2턴 쿨타임, 프로모션 강화 폰 승급+카드 소각, 캐슬링+위협 확인)
 // - 버스트(UNO! 3턴 지속 + 우울(+2)/프로모션(-1) 재드로우 가감)
 // - 초장기전 안전 상한(MAX_MATCH_TURNS = 160 / 킹 단독 12턴 판정) 및 10만 사이클 7대 통계 메트릭 집계
@@ -15,13 +15,13 @@ import {
     UNOS_TURN_TIMER_CONFIG,
     getUnosDict,
     formatUnosCardTitle
-} from '../System/Index/Unos/UnosCardIndex.js';
-import { normalizeUnosAiDifficulty } from '../System/GameRegistry.js';
+} from '../../System/Index/Unos/UnosCardIndex.js';
+import { normalizeUnosAiDifficulty } from '../../System/GameRegistry.js';
 import {
     UNOS_BOARD_SIZE,
     pickRandomUnosBoardPreset,
     validateUnosBoardGrid
-} from '../System/Index/Unos/UnosBoardPresetIndex.js';
+} from '../../System/Index/Unos/UnosBoardPresetIndex.js';
 import {
     createInitialChessBoard,
     cloneChessBoard,
@@ -932,6 +932,9 @@ export class UnosEngine {
         this._addLog(`🔥 ${player.name} 버스트(UNO!) 발동! 3턴간 색상 제약 없이 체스 기물을 이동합니다.`);
         this._emitEvent({
             type: 'TOAST',
+            actorId: player.id,
+            selfMessage: '🔥 UNO! 버스트 발동! 3턴간 색상 제약 없이 체스 기물을 이동합니다!',
+            otherMessage: `🔥 ${player.name}님이 버스트(UNO!)를 발동했습니다! (3턴간 색상 자유 이동)`,
             message: `🔥 ${player.name} 버스트(UNO!) 발동! (3턴간 색상 자유 이동)`
         });
     }
@@ -1015,6 +1018,9 @@ export class UnosEngine {
                 this._addLog(`${player.name}의 버스트 종료! 카드 ${drawn.length}장을 재드로우하여 일반 상태로 복귀합니다.`);
                 this._emitEvent({
                     type: 'TOAST',
+                    actorId: player.id,
+                    selfMessage: `🔥 버스트 종료! 카드 ${drawn.length}장을 재드로우하여 일반 상태로 복귀합니다.`,
+                    otherMessage: `🔥 ${player.name}님의 버스트 종료! (${drawn.length}장 재드로우)`,
                     message: `${player.name} 버스트 종료 (${drawn.length}장 재드로우)`
                 });
             }
@@ -1226,7 +1232,7 @@ export class UnosEngine {
             this.turnState.turnActiveColors = [randomColor];
 
             const colorLabel = getUnosDict('ko').COLORS[randomColor];
-            this._addLog(`${player.name}: [리버스] 제출! (체스판 재배치 & 활성 성격 → ${colorLabel})`);
+            this._addLog(`${player.name}: [${formatUnosCardTitle(card, 'ko')}] 제출! (체스판 재배치 & 활성 성격 → ${colorLabel})`);
         } else if (card.kind === UNOS_CARD_KINDS.RESONANCE) {
             const chosenColor = UNOS_PERSONALITY_KEYS.includes(action.chosenColor)
                 ? action.chosenColor

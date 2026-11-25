@@ -7,12 +7,14 @@ import { RoomManager } from '../Lobby/RoomManager.js';
 import { getGameMeta } from '../System/GameRegistry.js';
 import { ErrorTracker } from '../System/ErrorTracker.js';
 import { SystemLogManager } from '../System/Log/SystemLogManager.js';
-import { UnosEngine } from '../Unos/UnosEngine.js';
-import { UnosUIController } from '../Unos/UnosUI.js';
+import { UnosEngine } from '../Game/Unos/UnosEngine.js';
+import { UnosUIController } from '../Game/Unos/UnosUI.js';
+import { preloadUnosAssets } from '../Game/Unos/UnosAssetLoader.js';
 
 export function initUnos(container, sceneParams = null) {
     ErrorTracker.markTransitionComplete('unos');
     ErrorTracker.clearTransitionWatchdog();
+    preloadUnosAssets().catch(() => {});
 
     let isCleanedUp = false;
     let localEngine = null;
@@ -207,7 +209,11 @@ export function initUnos(container, sceneParams = null) {
                 onEvent: (event) => {
                     if (isCleanedUp) return;
                     if (event?.type === 'TOAST' && event.message) {
-                        ui.showToast(event.message);
+                        const viewerId = resolveOfflineViewerId(localEngine);
+                        const msg = (event.actorId && (event.selfMessage || event.otherMessage))
+                            ? (event.actorId === viewerId ? (event.selfMessage || event.message) : (event.otherMessage || event.message))
+                            : event.message;
+                        ui.showToast(msg);
                     } else if (event?.type === 'GAME_OVER' && event.matchLogData) {
                         RoomManager.resetOfflineHostIdleStrikes?.();
                         SystemLogManager.recordGameResult('unos', event.matchLogData).catch(() => {});

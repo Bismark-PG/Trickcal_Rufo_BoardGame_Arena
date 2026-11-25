@@ -1,4 +1,4 @@
-// ProgramFiles/Marble/MarbleCard.js
+// ProgramFiles/Game/Marble/MarbleCard.js
 // 카드(덱) 매니저: 덱/사용된 카드 추적, 확률/등장조건 필터링, 등급별(일반/특수/보물) 실행자 라우팅
 import {
     RuntimePopup,
@@ -6,9 +6,9 @@ import {
     getCardDeck,
     getCardUIText
 } from './MarbleRuntime.js';
-import { CARD_IDS } from '../System/Index/Marble/MarbleCardIndex.js';
-import { BOARD_TILES } from '../System/Index/Marble/MarbleBoardIndex.js';
-import { getModeConfig, isPlayerTreasureUnlocked } from '../System/Index/Marble/MarblePriceIndex.js';
+import { CARD_IDS } from '../../System/Index/Marble/MarbleCardIndex.js';
+import { BOARD_TILES } from '../../System/Index/Marble/MarbleBoardIndex.js';
+import { getModeConfig, isPlayerTreasureUnlocked } from '../../System/Index/Marble/MarblePriceIndex.js';
 import { WorldGimmickManager } from './MarbleWorldGimmick.js';
 import { OdysseyManager, getDrawnTreasures, getCultFundDrawShare } from './MarbleOdyssey.js';
 import { RequiemState } from './MarbleRequiem.js';
@@ -21,7 +21,7 @@ import {
     getCardFormLabel,
     getCardGradeTheme,
     formatCardDisplayTitle
-} from '../System/Index/Marble/MarbleCardUIIndex.js';
+} from '../../System/Index/Marble/MarbleCardUIIndex.js';
 export {
     getCardGrade,
     getCardFormLabel,

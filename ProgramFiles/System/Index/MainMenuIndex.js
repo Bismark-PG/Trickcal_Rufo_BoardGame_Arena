@@ -91,9 +91,9 @@ export const MAIN_MENU_CATALOG = [
         features: ['4가지 게임 모드', '5단계 AI 난이도', '역전기믹'],
         description: '주사위를 굴려 엘리아스의 영토를 차지하는 게임인것이다!\n특수한 영토나 칸을 차지하면 보너스가 따라오는것이다!\n다양한 카드와 기믹으로 짜릿한 역전승도 노려보는것이다!',
         ctaLabel: '🎲 로비 입장하기',
-        bg: './Resource/Texture/BG/BG_Throne_room.png',
-        heroChar: './Resource/Texture/Char/Char_Erpin_Marble.png',
-        rufoChar: './Resource/Texture/Char/Char_Rufo_Dice.png',
+        bg: './Resource/Texture/BG/BG_Throne_room.webp',
+        heroChar: './Resource/Texture/Char/Char_Erpin_Marble.webp',
+        rufoChar: './Resource/Texture/Char/Char_Rufo_Dice.webp',
         rufoQuote: '누가누가 더 많은 땅을 차지하는지 승부인 것이다!'
     },
     {
@@ -110,9 +110,9 @@ export const MAIN_MENU_CATALOG = [
         features: ['1:1 두뇌 심리전', '3단계 AI 난이도', '3턴 버스트'],
         description: '우노라는 카드게임과 체스를 섞은 게임인 것이다!\n제출한 카드의 성격과 동일한 칸의 기물만 움직일 수 있는 것이다!\n상대보다 빠르게 손패를 털어서 우노스를 발동하고 상대의 킹을 잡는것이다!',
         ctaLabel: '♟️ 로비 입장하기',
-        bg: './Resource/Texture/BG/BG_Broken_Altar_Special.png',
-        heroChar: './Resource/Texture/Char/Char_Erpin_Unos.png',
-        rufoChar: './Resource/Texture/Char/Char_Rufo_Taunt_1.png',
+        bg: './Resource/Texture/BG/BG_Broken_Altar_Special.webp',
+        heroChar: './Resource/Texture/Char/Char_Erpin_Unos.webp',
+        rufoChar: './Resource/Texture/Char/Char_Rufo_Taunt_1.webp',
         rufoQuote: '꽤나 머리를 써야하는 게임인 것이다~ 따라올 수 있는것이냐?'
     },
     {
@@ -130,10 +130,10 @@ export const MAIN_MENU_CATALOG = [
         features: ['준비중'],
         description: '준비중입니다.',
         ctaLabel: '🚧 로비 입장하기',
-        bg: './Resource/Texture/Logo_Trickcal.png',
+        bg: './Resource/Texture/Logo_Arena.webp',
         bgFit: 'contain',
-        heroChar: './Resource/Texture/Char/Char_Dummy.png',
-        rufoChar: './Resource/Texture/Char/Char_Rufo_Close.png',
+        heroChar: './Resource/Texture/Minimi/Minimi_Rufo.webp',
+        rufoChar: './Resource/Texture/Char/Char_Rufo_Close.webp',
         rufoQuote: '재밌는 보드게임을 생각중인것이다~'
     },
     {
@@ -151,10 +151,10 @@ export const MAIN_MENU_CATALOG = [
         features: ['준비중'],
         description: '준비중입니다.',
         ctaLabel: '🚧 로비 입장하기',
-        bg: './Resource/Texture/Logo_Trickcal.png',
+        bg: './Resource/Texture/Logo_Arena.webp',
         bgFit: 'contain',
-        heroChar: './Resource/Texture/Char/Char_Dummy.png',
-        rufoChar: './Resource/Texture/Char/Char_Rufo_Surprise.png',
+        heroChar: './Resource/Texture/Minimi/Minimi_Rufo.webp',
+        rufoChar: './Resource/Texture/Char/Char_Rufo_Surprise.webp',
         rufoQuote: '생각중이니 재촉하지 마는 것이다.'
     }
 ];
@@ -167,14 +167,14 @@ export const MAIN_MENU_CATALOG = [
  * ============================================================================
  */
 export const RUFO_CLICK_REACTIONS = [
-    { id: 'close', img: './Resource/Texture/Char/Char_Rufo_Close.png', quote: '후후, 이 루포님이 보드게임에서 질리가 없는것이다~' },
-    { id: 'happy1', img: './Resource/Texture/Char/Char_Rufo_Happy_1.png', quote: '또 놀러온것이냐? 빨리 한 판 하러 가는것이다!' },
-    { id: 'happy2', img: './Resource/Texture/Char/Char_Rufo_Happy_2.png', quote: '루포님의 승리인것이다! 역시 나를 이길 자는 없는것이다!' },
-    { id: 'happy3', img: './Resource/Texture/Char/Char_Rufo_Happy_3.png', quote: '이 루포님의 실력이 어떠한것이냐?' },
-    { id: 'idle', img: './Resource/Texture/Char/Char_Rufo_Idle.png', quote: '안녕하신가들!' },
-    { id: 'surprise', img: './Resource/Texture/Char/Char_Rufo_Surprise.png', quote: '엘프...? 개못하는 엘프랑은 안 하는 것이다!', requiresElfNick: true },
-    { id: 'taunt1', img: './Resource/Texture/Char/Char_Rufo_Taunt_1.png', quote: '무슨 놀이가 좋을지 고민하는 것이냐?' },
-    { id: 'taunt2', img: './Resource/Texture/Char/Char_Rufo_Taunt_2.png', quote: '어려우면 AI의 난이도를 낮춰보는것이다!' }
+    { id: 'close', img: './Resource/Texture/Char/Char_Rufo_Close.webp', quote: '후후, 이 루포님이 보드게임에서 질리가 없는것이다~' },
+    { id: 'happy1', img: './Resource/Texture/Char/Char_Rufo_Happy_1.webp', quote: '또 놀러온것이냐? 빨리 한 판 하러 가는것이다!' },
+    { id: 'happy2', img: './Resource/Texture/Char/Char_Rufo_Happy_2.webp', quote: '루포님의 승리인것이다! 역시 나를 이길 자는 없는것이다!' },
+    { id: 'happy3', img: './Resource/Texture/Char/Char_Rufo_Happy_3.webp', quote: '이 루포님의 실력이 어떠한것이냐?' },
+    { id: 'idle', img: './Resource/Texture/Char/Char_Rufo_Idle.webp', quote: '안녕하신가들!' },
+    { id: 'surprise', img: './Resource/Texture/Char/Char_Rufo_Surprise.webp', quote: '엘프...? 개못하는 엘프랑은 안 하는 것이다!', requiresElfNick: true },
+    { id: 'taunt1', img: './Resource/Texture/Char/Char_Rufo_Taunt_1.webp', quote: '무슨 놀이가 좋을지 고민하는 것이냐?' },
+    { id: 'taunt2', img: './Resource/Texture/Char/Char_Rufo_Taunt_2.webp', quote: '어려우면 AI의 난이도를 낮춰보는것이다!' }
 ];
 
 /**

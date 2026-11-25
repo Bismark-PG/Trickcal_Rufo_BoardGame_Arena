@@ -1,4 +1,4 @@
-import { GAME_CONSTANTS } from '../System/Index/Marble/MarblePriceIndex.js';
+import { GAME_CONSTANTS } from '../../System/Index/Marble/MarblePriceIndex.js';
 import {
     RuntimePopup,
     formatMoney,
@@ -194,9 +194,20 @@ export function handleTollPaymentProcess(ctx) {
         settleTollTransfer(player, tile.owner, tile, toll, onPaymentSettled);
         if (ctx.tollToastLabel) {
             RuntimePopup.showToast(`[${player.name}] ${ctx.tollToastLabel} (${formatMoney(toll)})`, 3200);
+        } else if (tile.owner) {
+            RuntimePopup.showToast(
+                `[${player.name} → ${tile.owner.name}] ${text.TOLL_TITLE} ${formatMoney(toll)}`,
+                3200,
+                null,
+                {
+                    actorId: player.id,
+                    selfMessage: `💸 ${tile.owner.name}님에게 통행료 ${formatMoney(toll)}을 지불하였습니다!`,
+                    otherMessage: `💸 ${player.name}님이 ${tile.owner.name}님에게 통행료 ${formatMoney(toll)}을 지불했습니다!`,
+                    logMessage: `💸 ${player.name}님이 ${tile.owner.name}님에게 통행료 ${formatMoney(toll)}을 지불하였습니다!`
+                }
+            );
         } else {
-            const ownerTag = tile.owner ? ` → ${tile.owner.name}` : '';
-            RuntimePopup.showToast(`[${player.name}${ownerTag}] ${text.TOLL_TITLE} ${formatMoney(toll)}`, 3200);
+            RuntimePopup.showToast(`[${player.name}] ${text.TOLL_TITLE} ${formatMoney(toll)}`, 3200);
         }
         updateRender(); refreshUI(); scheduleGameTask(finishPayment, 1100); return;
     }
@@ -216,7 +227,17 @@ export function handleTollPaymentProcess(ctx) {
         const loanAmount = executePlayerLoanBorrow(player, rawLoanAmount, 'toll', ctx.turnManager ? ctx.turnManager.globalTurn : 1);
 
         settleTollTransfer(player, tile.owner, tile, toll, onPaymentSettled);
-        RuntimePopup.showToast(`[${player.name}] ${formatMoney(loanAmount)} ${text.LOAN_EXECUTE} ${text.LOAN_DONE}`, 3500);
+        RuntimePopup.showToast(
+            `${player.name}님이 긴급대출을 실행했습니다!`,
+            3500,
+            null,
+            {
+                actorId: player.id,
+                selfMessage: `🏦 ${formatMoney(loanAmount)} 긴급 대출 실행!`,
+                otherMessage: `${player.name}님이 긴급대출을 실행했습니다!`,
+                logMessage: `${player.name}님이 긴급대출을 실행했습니다!`
+            }
+        );
         updateRender(); refreshUI(); scheduleGameTask(finishPayment, 2000);
     };
 
@@ -233,7 +254,17 @@ export function handleTollPaymentProcess(ctx) {
             if (typeof onPaymentSettled === 'function' && coveredToll > 0) {
                 onPaymentSettled(coveredToll);
             }
-            RuntimePopup.showToast(`[${player.name}] ${text.BANKRUPT}`, 3800);
+            RuntimePopup.showToast(
+                `${player.name}님이 파산하였습니다!`,
+                3800,
+                null,
+                {
+                    actorId: player.id,
+                    selfMessage: '💥 파산! 더 이상 자금을 지불할 수 없습니다.',
+                    otherMessage: `${player.name}님이 파산하였습니다!`,
+                    logMessage: `${player.name}님이 파산하였습니다!`
+                }
+            );
             updateRender(); refreshUI(); scheduleGameTask(proceedEndTurn, 2500);
         } else {
             // [106: 두번째 기회] 발동으로 300만/150만 달러를 수령하여 회생한 경우
@@ -256,7 +287,7 @@ export function handleTollPaymentProcess(ctx) {
         if (decision.action === 'sell' && decision.tiles.length > 0) {
             player.sellProperties(decision.tiles, getTileSellValue);
             settleTollTransfer(player, tile.owner, tile, toll, onPaymentSettled);
-            RuntimePopup.showToast(`${player.name}${gText.AI_CRISIS_SELL}`, 3400);
+            RuntimePopup.showToast(`${player.name}${gText.AI_CRISIS_SELL}`, 3400, player.id);
             updateRender(); refreshUI(); scheduleGameTask(finishPayment, 1600);
         } else if (decision.action === 'loan' && player.loanCount < GAME_CONSTANTS.LOAN_MAX_COUNT) {
             executeLoan();
@@ -287,7 +318,7 @@ export function handleTollPaymentProcess(ctx) {
                     ctx.turnTimer.stop();
                     player.sellProperties(selectedTiles, getTileSellValue);
                     settleTollTransfer(player, tile.owner, tile, toll, onPaymentSettled);
-                    RuntimePopup.closeAll(); RuntimePopup.showToast(`[${player.name}] ${text.TOAST_SELL_DONE}`, 3200);
+                    RuntimePopup.closeAll(); RuntimePopup.showToast(text.TOAST_SELL_DONE, 3200, player.id);
                     updateRender(); refreshUI(); scheduleGameTask(finishPayment, 1100);
                 },
                 () => RuntimePopup.showToast(text.SELL_UNAVOIDABLE, 2800, player.id)
@@ -302,7 +333,8 @@ export function handleTollPaymentProcess(ctx) {
                         ctx.turnTimer.stop();
                         player.sellProperties(selectedTiles, getTileSellValue);
                         settleTollTransfer(player, tile.owner, tile, toll, onPaymentSettled);
-                        RuntimePopup.closeAll(); updateRender(); refreshUI(); scheduleGameTask(finishPayment, 1100);
+                        RuntimePopup.closeAll(); RuntimePopup.showToast(text.TOAST_SELL_DONE, 3200, player.id);
+                        updateRender(); refreshUI(); scheduleGameTask(finishPayment, 1100);
                     },
                     () => handleTollPaymentProcess(ctx)
                 );

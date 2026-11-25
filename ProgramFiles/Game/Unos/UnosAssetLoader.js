@@ -1,12 +1,9 @@
-// ProgramFiles/Marble/MarbleAssetLoader.js
-// 엘리아스 마블 전용 텍스처 매니페스트 생성 · 우선순위 프리로딩(decode) · 메모리 캐시 유지 모듈
+// ProgramFiles/Game/Unos/UnosAssetLoader.js
+// 우노스(UNOS) 전용 텍스처 매니페스트 생성 · 우선순위 프리로딩(decode) · 메모리 캐시 유지 모듈
 
-import { ErrorTracker } from '../System/ErrorTracker.js';
-import { MARBLE_MODES } from '../System/Index/Marble/MarblePriceIndex.js';
-import { TILE_BG_VARIANTS, formatTileBgPath } from '../System/Index/Marble/MarbleBoardIndex.js';
+import { ErrorTracker } from '../../System/ErrorTracker.js';
+import { getAllUnosTexturePaths } from '../../System/Index/Unos/UnosCardIndex.js';
 
-const DICE_NORMAL_PREFIX = './Resource/Texture/Marble/Dice/Dice_N_';
-const DICE_ERPIN_PREFIX = './Resource/Texture/Marble/Dice/Dice_E_';
 const ASSET_TIMEOUT_MS = 20000;
 
 const _imageCache = new Map();
@@ -17,7 +14,7 @@ const _progressSubscribers = new Set();
 let _preloadPromise = null;
 let _preloadDone = false;
 let _lastProgress = {
-    gameId: 'marble',
+    gameId: 'unos',
     loaded: 0,
     total: 0,
     percent: 0,
@@ -27,52 +24,20 @@ let _lastProgress = {
 };
 
 /**
- * 마블 인게임에서 사용하는 핵심(보드 3종·주사위 12종) 및 확정 BG 텍스처 목록을 인덱스 기반으로 동적 수집한다.
+ * 우노스 인게임에서 사용하는 확정 텍스처 목록(25종 .webp)을 인덱스 기반으로 동적 수집한다.
  */
-export function getMarblePreloadManifest() {
-    const core = [];
-    const backgrounds = [];
-    const seen = new Set();
-
-    const pushUnique = (target, path) => {
-        if (!path || seen.has(path)) return;
-        seen.add(path);
-        target.push(path);
-    };
-
-    Object.values(MARBLE_MODES).forEach((cfg) => {
-        if (cfg?.boardTexture) {
-            pushUnique(core, cfg.boardTexture);
-        }
-    });
-
-    for (let pip = 1; pip <= 6; pip++) {
-        pushUnique(core, `${DICE_NORMAL_PREFIX}${pip}.png`);
-    }
-    for (let pip = 1; pip <= 6; pip++) {
-        pushUnique(core, `${DICE_ERPIN_PREFIX}${pip}.png`);
-    }
-
-    Object.entries(TILE_BG_VARIANTS).forEach(([rawId, variants]) => {
-        const tileId = Number(rawId);
-        if (!Number.isInteger(tileId) || !Array.isArray(variants)) return;
-        variants.forEach((tag) => {
-            if (tag === undefined || tag === null) return;
-            pushUnique(backgrounds, formatTileBgPath(tileId, tag));
-        });
-    });
-
+export function getUnosPreloadManifest() {
+    const core = getAllUnosTexturePaths();
     return {
         core,
-        backgrounds,
-        all: [...core, ...backgrounds]
+        all: [...core]
     };
 }
 
 /**
- * 디코딩 완료된 마블 텍스처(HTMLImageElement)를 반환한다.
+ * 디코딩 완료된 우노스 텍스처(HTMLImageElement)를 반환한다.
  */
-export function getCachedMarbleImage(src) {
+export function getCachedUnosImage(src) {
     if (!src) return null;
     const img = _imageCache.get(src);
     if (img && img.complete && img.naturalWidth > 0) {
@@ -81,15 +46,15 @@ export function getCachedMarbleImage(src) {
     return null;
 }
 
-export function isMarbleImageOk(src) {
-    return _statusCache.get(src) === 'ok' || Boolean(getCachedMarbleImage(src));
+export function isUnosImageOk(src) {
+    return _statusCache.get(src) === 'ok' || Boolean(getCachedUnosImage(src));
 }
 
-export function isMarbleImageError(src) {
+export function isUnosImageError(src) {
     return _statusCache.get(src) === 'error';
 }
 
-export function isMarblePreloaded() {
+export function isUnosPreloaded() {
     return _preloadDone;
 }
 
@@ -106,7 +71,7 @@ function notifySubscribers(progress) {
 
 function loadAndDecodeImage(src) {
     if (!src) return Promise.resolve(false);
-    if (getCachedMarbleImage(src)) {
+    if (getCachedUnosImage(src)) {
         _statusCache.set(src, 'ok');
         return Promise.resolve(true);
     }
@@ -145,7 +110,7 @@ function loadAndDecodeImage(src) {
 
         ErrorTracker.trackImage(img, {
             critical: false,
-            label: 'MarblePreload',
+            label: 'UnosPreload',
             onFallback: () => finish(false)
         });
 
@@ -182,10 +147,10 @@ async function runPool(items, concurrency, workerFn) {
 }
 
 /**
- * 엘리아스 마블 전체 텍스처를 1단계(보드+주사위) -> 2단계(BG) 순으로 프리로딩 및 디코딩한다.
+ * 우노스 전체 텍스처(25종)를 프리로딩 및 디코딩한다.
  * 동일 세션 내 중복 호출 시 진행 중인 단일 Promise를 공유한다.
  */
-export function preloadMarbleAssets({ onProgress = null, concurrency = 4 } = {}) {
+export function preloadUnosAssets({ onProgress = null, concurrency = 4 } = {}) {
     if (typeof onProgress === 'function') {
         _progressSubscribers.add(onProgress);
         if (_lastProgress.total > 0) {
@@ -199,7 +164,7 @@ export function preloadMarbleAssets({ onProgress = null, concurrency = 4 } = {})
 
     if (_preloadDone) {
         const result = {
-            gameId: 'marble',
+            gameId: 'unos',
             total: _lastProgress.total,
             loaded: _lastProgress.loaded - _lastProgress.failedCount,
             failedCount: _lastProgress.failedCount
@@ -218,13 +183,13 @@ export function preloadMarbleAssets({ onProgress = null, concurrency = 4 } = {})
         });
     }
 
-    const manifest = getMarblePreloadManifest();
+    const manifest = getUnosPreloadManifest();
     const total = manifest.all.length;
     let settledCount = 0;
     let failedCount = 0;
 
     notifySubscribers({
-        gameId: 'marble',
+        gameId: 'unos',
         loaded: 0,
         total,
         percent: total === 0 ? 100 : 0,
@@ -233,30 +198,25 @@ export function preloadMarbleAssets({ onProgress = null, concurrency = 4 } = {})
         phase: 'core'
     });
 
-    const loadPhase = async (list, phaseName) => {
-        await runPool(list, concurrency, async (src) => {
+    _preloadPromise = (async () => {
+        await runPool(manifest.core, concurrency, async (src) => {
             const ok = await loadAndDecodeImage(src);
             settledCount += 1;
             if (!ok) failedCount += 1;
             const percent = total === 0 ? 100 : Math.min(100, Math.round((settledCount / total) * 100));
             notifySubscribers({
-                gameId: 'marble',
+                gameId: 'unos',
                 loaded: settledCount,
                 total,
                 percent,
                 failedCount,
                 currentAsset: src,
-                phase: phaseName
+                phase: 'core'
             });
         });
-    };
-
-    _preloadPromise = (async () => {
-        await loadPhase(manifest.core, 'core');
-        await loadPhase(manifest.backgrounds, 'backgrounds');
         _preloadDone = true;
         return {
-            gameId: 'marble',
+            gameId: 'unos',
             total,
             loaded: settledCount - failedCount,
             failedCount
@@ -270,9 +230,6 @@ export function preloadMarbleAssets({ onProgress = null, concurrency = 4 } = {})
     return _preloadPromise;
 }
 
-/**
- * 이미 프리로드된 이미지를 기반으로 단일 보드/BG 텍스처를 필요 시 즉시 캐시에 추가 로드한다.
- */
-export function ensureMarbleAssetLoaded(src) {
+export function ensureUnosAssetLoaded(src) {
     return loadAndDecodeImage(src);
 }

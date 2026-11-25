@@ -1,17 +1,17 @@
-// ProgramFiles/Marble/MarbleRuntime.js
+// ProgramFiles/Game/Marble/MarbleRuntime.js
 // 서버/클라이언트 공용 순수 런타임 계층:
 // 1) 멀티 룸 동시 실행을 위한 게임별 격리 월드 상태(WorldState) 스코프 관리
 // 2) DOM/PopupManager 직접 의존을 제거한 UI·타이머 포트(RuntimePort) 브리지
 // 3) Node.js 서버 및 브라우저 공용 안전 다국어 조회/포맷 헬퍼
 
-import { LangState } from '../System/LanguageManager.js';
-import { BOARD_TILES, BoardNames, BbangjuWorkshopName } from '../System/Index/Marble/MarbleBoardIndex.js';
-import { MarbleLang } from '../System/Index/Marble/MarbleUIIndex.js';
-import { CardUILang } from '../System/Index/Marble/MarbleCardUIIndex.js';
-import { GimmickLang } from '../System/Index/Marble/MarbleGimmickIndex.js';
-import { SettlementLang } from '../System/Index/Marble/MarbleSettlementIndex.js';
-import { CardIndex } from '../System/Index/Marble/MarbleCardIndex.js';
-import { GAME_CONSTANTS, getModeConfig, normalizeMarbleMode } from '../System/Index/Marble/MarblePriceIndex.js';
+import { LangState } from '../../System/LanguageManager.js';
+import { BOARD_TILES, BoardNames, BbangjuWorkshopName, isBbangjuCompleted } from '../../System/Index/Marble/MarbleBoardIndex.js';
+import { MarbleLang } from '../../System/Index/Marble/MarbleUIIndex.js';
+import { CardUILang } from '../../System/Index/Marble/MarbleCardUIIndex.js';
+import { GimmickLang } from '../../System/Index/Marble/MarbleGimmickIndex.js';
+import { SettlementLang } from '../../System/Index/Marble/MarbleSettlementIndex.js';
+import { CardIndex } from '../../System/Index/Marble/MarbleCardIndex.js';
+import { GAME_CONSTANTS, getModeConfig, normalizeMarbleMode } from '../../System/Index/Marble/MarblePriceIndex.js';
 
 export function pickLangDict(langMap, lang = LangState.current) {
     if (!langMap) return {};
@@ -264,8 +264,7 @@ export function formatMoney(amount, lang = LangState.current) {
 
 export function getTileName(tile, worldState = null, lang = LangState.current) {
     const world = worldState || getActiveWorld();
-    const modeCfg = getModeConfig(world?.gameMode);
-    if (tile.id === BOARD_TILES.BBANGJU && modeCfg.enableBbangjuChief && (world?.currentTurn ?? 1) < 4) {
+    if (tile.id === BOARD_TILES.BBANGJU && !isBbangjuCompleted(world)) {
         return BbangjuWorkshopName[lang] || BbangjuWorkshopName.ko;
     }
     const names = BoardNames[tile.id];
@@ -278,8 +277,8 @@ export function scheduleGameTask(fn, delay) {
 }
 
 export const RuntimePopup = {
-    showToast(msg, duration = 3200, targetPlayerId = null) {
-        getRuntimePort().showToast(msg, duration, targetPlayerId);
+    showToast(msg, duration = 3200, targetPlayerId = null, extra = null) {
+        getRuntimePort().showToast(msg, duration, targetPlayerId, extra);
     },
     closeAll() {
         getRuntimePort().closeAll();

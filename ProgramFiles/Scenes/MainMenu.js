@@ -256,7 +256,7 @@ export function initMenu(container) {
                 const gameId = selected.id;
                 const meta = games.find(g => g.id === gameId);
                 if (!meta) {
-                    openNoticeModal(text.UNOS_EXTERNAL_BLOCK_MSG || '이 게임은 지금 생각중인것이다! 다음에 오는 것이다!');
+                    showLobbyToast(container, text.UNOS_EXTERNAL_BLOCK_MSG || '이 게임은 지금 생각중인것이다! 다음에 오는 것이다!', 2600);
                     return;
                 }
                 if (gameId === 'unos' && !shouldBypassResourceGuard(typeof window !== 'undefined' ? window.location : null)) {

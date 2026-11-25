@@ -78,7 +78,7 @@ export const GAME_REGISTRY = {
         descKey: 'GAME_UNOS_DESC',
         minPlayers: 2,
         maxPlayers: 2,
-        status: 'preparing',
+        status: 'active',
         lobbyEnabled: true,
         gameSupported: true,
         preloadOnBoot: true, // 향후 우노스 인게임 에셋 추가 시 부팅 공용 로딩 자동 합류

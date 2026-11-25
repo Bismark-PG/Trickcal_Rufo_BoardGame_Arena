@@ -1,12 +1,12 @@
-// ProgramFiles/Unos/UnosAI.js
+// ProgramFiles/Game/Unos/UnosAI.js
 // 우노스(UNOS) 3단계 난이도(순한맛 mild / 보통맛 normal / 매운맛 spicy) 규칙·전술 기반 AI 봇
 // - mild(순한맛): 56장 규칙은 유지하되, 상대(플레이어) 손패 색상에 맞춰 카드를 내주고 킹 포획/체크 회피를 확률적으로 눈감아줌
 // - normal(보통맛): 1수 기본 전술 + 소폭 변칙(사람이 생각하면 이길 수 있는 균형)
 // - spicy(매운맛): 보드 연계 최적 색상 탐색 + 2-Ply 상대 최선 반격 시뮬레이션(전력 AI)
 
-import { UNOS_PERSONALITY_KEYS, UNOS_CARD_KINDS } from '../System/Index/Unos/UnosCardIndex.js';
-import { UNOS_BOARD_SIZE } from '../System/Index/Unos/UnosBoardPresetIndex.js';
-import { normalizeUnosAiDifficulty } from '../System/GameRegistry.js';
+import { UNOS_PERSONALITY_KEYS, UNOS_CARD_KINDS } from '../../System/Index/Unos/UnosCardIndex.js';
+import { UNOS_BOARD_SIZE } from '../../System/Index/Unos/UnosBoardPresetIndex.js';
+import { normalizeUnosAiDifficulty } from '../../System/GameRegistry.js';
 import {
     UNOS_SAFETY_LEVELS,
     cloneChessBoard,

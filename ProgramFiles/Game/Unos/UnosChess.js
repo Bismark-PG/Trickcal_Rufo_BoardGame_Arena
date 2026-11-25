@@ -1,8 +1,8 @@
-// ProgramFiles/Unos/UnosChess.js
+// ProgramFiles/Game/Unos/UnosChess.js
 // 우노스(UNOS) 6x6 체스 기물 초기 배치(거울 대칭 A안), 색상 연동 이동 계산, 퀸 2턴 쿨타임,
 // 폰 프로모션(즉시 소멸 + 카드 소각 트리거), 6x6 전용 캐슬링 조건/위협 판정, 안전도 삼각형(none/yellow/red) 판정
 
-import { UNOS_BOARD_SIZE } from '../System/Index/Unos/UnosBoardPresetIndex.js';
+import { UNOS_BOARD_SIZE } from '../../System/Index/Unos/UnosBoardPresetIndex.js';
 
 // 1~6번 칸 (c = 0..5) 거울 대칭 초기 배치: 룩(1) - 나이트(2) - 퀸(3) - 킹(4) - 비숍(5) - 룩(6)
 export const UNOS_BACK_ROW_LAYOUT = Object.freeze(['R', 'N', 'Q', 'K', 'B', 'R']);

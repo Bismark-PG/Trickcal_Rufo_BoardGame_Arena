@@ -5,6 +5,7 @@ import { changeScene } from '../Main.js';
 import { LangState } from '../System/LanguageManager.js';
 import {
     ONBOARDING_LIMITS,
+    ARENA_LEGAL_NOTICE_LINES,
     LOADING_TIPS,
     OnboardingLang
 } from '../System/Index/ArenaOnboardingIndex.js';
@@ -167,12 +168,12 @@ export function initArenaLoading(container, sceneParams = null) {
                 <div class="loading-page">
                     <div class="wood-panel loading-board">
                         <div class="loading-hero-row">
-                            <img id="arena-loading-logo" class="loading-rufo-avatar" src="./Resource/Texture/Char/Char_Rufo_Sit.png" alt="루포">
+                            <img class="loading-logo-mini" src="./Resource/Texture/Logo_Arena.webp" alt="루포의 보드게임 아레나 로고">
                             <div class="loading-headings">
-                                <img class="loading-logo-mini" src="./Resource/Texture/Logo_Trickcal.png" alt="트릭컬 로고">
                                 <h1>${escapeHtml(text.WELCOME_HEADING)}</h1>
                                 <p>${escapeHtml(text.CERTIFICATE_PROMPT)}</p>
                             </div>
+                            <img id="arena-loading-logo" class="loading-rufo-avatar" src="./Resource/Texture/Char/Char_Rufo_Sit.webp" alt="루포">
                         </div>
 
                         <!-- 중앙: 엘리아스 주민 증명서(닉네임) 입력 카드 -->
@@ -234,6 +235,11 @@ export function initArenaLoading(container, sceneParams = null) {
                                 ${escapeHtml(text.BTN_ENTER_ARENA)}
                             </button>
                         </div>
+                    </div>
+
+                    <!-- 좌하단: 비영리 2차 창작 팬게임 안내 -->
+                    <div class="loading-legal-notice" role="note" aria-label="비영리 2차 창작 및 저작권 안내">
+                        ${ARENA_LEGAL_NOTICE_LINES.map((line, idx) => `<p class="${idx === 2 ? 'legal-highlight' : ''}">${escapeHtml(line)}</p>`).join('')}
                     </div>
 
                     <!-- 모달: 증명서 미등록 안내 -->

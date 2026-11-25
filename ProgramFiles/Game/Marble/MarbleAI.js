@@ -6,9 +6,9 @@ import {
     getModeConfig,
     getMaxAllowedBuildLevel,
     stepActiveBoardPos
-} from '../System/Index/Marble/MarblePriceIndex.js';
-import { BOARD_TILES, CARD_TILE_IDS } from '../System/Index/Marble/MarbleBoardIndex.js';
-import { CARD_IDS } from '../System/Index/Marble/MarbleCardIndex.js';
+} from '../../System/Index/Marble/MarblePriceIndex.js';
+import { BOARD_TILES, CARD_TILE_IDS } from '../../System/Index/Marble/MarbleBoardIndex.js';
+import { CARD_IDS } from '../../System/Index/Marble/MarbleCardIndex.js';
 import { calculateToll, applySpecialTileTollModifiers, getTileSellValue } from './MarbleLogic.js';
 import { WorldGimmickManager } from './MarbleWorldGimmick.js';
 import { getActiveWorld } from './MarbleRuntime.js';
@@ -19,7 +19,7 @@ import {
 } from './MarbleRequiem.js';
 import { isTreasureDebuffActive, isBowVillageForced } from './MarbleCardTreasure.js';
 import { getDrawnTreasures } from './MarbleOdyssey.js';
-import { normalizeAiDifficulty } from '../System/GameRegistry.js';
+import { normalizeAiDifficulty } from '../../System/GameRegistry.js';
 
 export const AI_DIFFICULTY_CONFIG = {
     // 1단계: 순한맛 (매우 쉬움) - 높은 현금 유보율, 낮은 전방 위험 감지, 증축 단계 하향 확률, 착지·도서관 오차, 낮은 전술 카드 발동률

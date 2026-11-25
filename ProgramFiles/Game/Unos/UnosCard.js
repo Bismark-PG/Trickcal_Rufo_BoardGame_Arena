@@ -1,13 +1,13 @@
-// ProgramFiles/Unos/UnosCard.js
+// ProgramFiles/Game/Unos/UnosCard.js
 // 우노스(UNOS) 56장 덱 생성/셔플, 초기 7+7장(4+4+3+3) 분배, 중앙 비특수 카드 보장,
-// 묘지 재충전 드로우, 카드 제출 가능 판정 및 '액션' 최대 1회 연쇄(3번째 액션 비활성화) 로직
+// 묘지 재충전 드로우, 카드 제출 가능 판정 및 '콤보' 최대 1회 연쇄(3번째 콤보 비활성화) 로직
 
 import {
     UNOS_DECK_TEMPLATES,
     UNOS_CARD_KINDS,
     UNOS_PERSONALITY_KEYS,
     getUnosDict
-} from '../System/Index/Unos/UnosCardIndex.js';
+} from '../../System/Index/Unos/UnosCardIndex.js';
 
 export function shuffleCards(cards, rng = Math.random) {
     const arr = [...cards];
@@ -193,8 +193,8 @@ export function evaluateUnosCardPlayability(card, context = {}) {
         };
     }
 
-    // 액션 카드 1회 연쇄 후 3번째 카드 제출 단계(actionChainStep >= 2):
-    // 3번째 카드로 다시 '액션'을 내는 것은 엄격히 금지
+    // 콤보 카드 1회 연쇄 후 3번째 카드 제출 단계(actionChainStep >= 2):
+    // 3번째 카드로 다시 '콤보'를 내는 것은 엄격히 금지
     if (actionChainStep >= 2) {
         if (card.kind === UNOS_CARD_KINDS.ACTION) {
             return {
@@ -210,8 +210,8 @@ export function evaluateUnosCardPlayability(card, context = {}) {
         };
     }
 
-    // 1번째 '액션' 제출 직후 2번째 카드 자유 제출 단계(actionChainStep === 1):
-    // 색상/숫자 조건 없이 모든 카드(2번째 '액션' 포함) 자유 제출 허용
+    // 1번째 '콤보' 제출 직후 2번째 카드 자유 제출 단계(actionChainStep === 1):
+    // 색상/숫자 조건 없이 모든 카드(2번째 '콤보' 포함) 자유 제출 허용
     if (actionChainStep === 1) {
         return {
             playable: true,
@@ -221,7 +221,7 @@ export function evaluateUnosCardPlayability(card, context = {}) {
     }
 
     // 기본 제출 단계(actionChainStep === 0):
-    // 1) 무속성/특수 카드(리버스, 공명, 우울)는 언제든 제출 가능
+    // 1) 무속성/특수 카드(리버스, 공명, 우울)는 색상/숫자 제약 없이 언제든 제출 가능
     if (card.isWild
         || card.kind === UNOS_CARD_KINDS.REVERSE
         || card.kind === UNOS_CARD_KINDS.RESONANCE

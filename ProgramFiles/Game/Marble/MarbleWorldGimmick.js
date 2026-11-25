@@ -1,5 +1,5 @@
 import { TimeSlotSystem } from './MarbleTimeSlot.js';
-import { GAME_CONSTANTS, getModeConfig } from '../System/Index/Marble/MarblePriceIndex.js';
+import { GAME_CONSTANTS, getModeConfig } from '../../System/Index/Marble/MarblePriceIndex.js';
 import {
     RuntimePopup,
     getActiveWorld,
@@ -89,7 +89,7 @@ export const WorldGimmickManager = {
 
     // 특수 카드(심판의 시간 / 교주의 염원) 발동 시 즉시 빛무리 전환
     triggerHaloByCard(allPlayers, cardUser, stateType, ctx = null) {
-        triggerHaloByCard(allPlayers, cardUser, stateType, ctx);
+        return triggerHaloByCard(allPlayers, cardUser, stateType, ctx);
     },
 
     getRemainingTimeTurns() {

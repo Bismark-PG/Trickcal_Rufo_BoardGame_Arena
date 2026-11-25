@@ -1,20 +1,24 @@
-// ProgramFiles/Unos/UnosUI.js
+// ProgramFiles/Game/Unos/UnosUI.js
 // 우노스(UNOS) 1920x1080 3분할 인게임 UI 렌더러 및 인터랙션 컨트롤러
 // - 좌측: 6x6 색상 체스판, 기물/쿨타임/체크 표시, 2단계 이동 프리뷰 + 안전도 삼각형(none/yellow/red) + [이동 종료], 조건부 [좌/우 캐슬링] + 위협 확인 팝업
 // - 우측: 우노 테이블(덱/중앙 더미/현재 활성 성격 강조 배지), 상대 프로필(뒷면 손패 장수/버스트 상태), 액션 로그
 // - 하단: 슬레이 더 스파이어 스타일 부채꼴 손패, 호버 확대, 클릭 및 상향 드래그 제출, 3번째 액션 비활성화 안내("더 이상 이 카드를 낼 수 없습니다!")
 
-import { escapeHtml } from '../Lobby/LobbyUI.js';
-import { LangState } from '../System/LanguageManager.js';
+import { escapeHtml } from '../../Lobby/LobbyUI.js';
+import { LangState } from '../../System/LanguageManager.js';
 import {
     UNOS_PERSONALITY_KEYS,
     UNOS_COLOR_PALETTE,
     UNOS_CARD_KINDS,
     UNOS_TURN_TIMER_CONFIG,
+    UNOS_COMMON_TEXTURES,
+    UNOS_CARD_OVERLAY_SPEC,
+    getUnosPersonalityTextures,
+    resolveUnosCardVisualSpec,
     getUnosDict,
     formatUnosCardTitle
-} from '../System/Index/Unos/UnosCardIndex.js';
-import { UNOS_BOARD_SIZE } from '../System/Index/Unos/UnosBoardPresetIndex.js';
+} from '../../System/Index/Unos/UnosCardIndex.js';
+import { UNOS_BOARD_SIZE } from '../../System/Index/Unos/UnosBoardPresetIndex.js';
 import { UNOS_SAFETY_LEVELS } from './UnosChess.js';
 
 const PIECE_ICONS = Object.freeze({
@@ -232,6 +236,62 @@ function injectUnosStyles() {
             filter: grayscale(0.6) brightness(0.6);
             cursor: not-allowed;
             border-color: #ff5252 !important;
+        }
+        .unos-card-surface {
+            position: relative;
+            overflow: hidden;
+            padding: 0 !important;
+        }
+        .unos-card-bg-img {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: fill;
+            display: block;
+            pointer-events: none;
+        }
+        .unos-card-center-slot {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: ${UNOS_CARD_OVERLAY_SPEC.WIDTH_PERCENT}%;
+            aspect-ratio: ${UNOS_CARD_OVERLAY_SPEC.ASPECT_RATIO};
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+            z-index: 2;
+        }
+        .unos-card-number-sprite {
+            width: 100%;
+            height: 100%;
+            background-repeat: no-repeat;
+            filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.45));
+        }
+        .unos-card-medallion-img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+            filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.45));
+        }
+        .unos-card-temp-slot {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            text-align: center;
+        }
+        .unos-personality-emblem {
+            object-fit: contain;
+            display: block;
+            flex-shrink: 0;
+            filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.45));
         }
     `;
     document.head.appendChild(style);
@@ -602,10 +662,18 @@ export class UnosUIController {
         const matchColorKey = snapshot.matchColor || 'madness';
         const matchPalette = UNOS_COLOR_PALETTE[matchColorKey] || UNOS_COLOR_PALETTE.madness;
         const matchColorName = dict.COLORS[matchColorKey] || matchColorKey;
+        const matchTex = getUnosPersonalityTextures(matchColorKey);
+        const matchEmblemHtml = matchTex?.logo
+            ? `<img src="${escapeHtml(matchTex.logo)}" alt="${escapeHtml(matchColorName)}" class="unos-personality-emblem" style="width: 34px; height: 34px;">`
+            : `<span>${matchPalette.icon}</span>`;
 
         let turnMoveBadgesHtml = '';
         if (snapshot.colorFreeMove) {
-            turnMoveBadgesHtml = `<span style="background: linear-gradient(90deg, #e74c3c, #f1c40f, #2ecc71, #3498db); color: #fff; font-weight: 900; padding: 6px 14px; border-radius: 999px; font-size: 15px; text-shadow: 0 1px 3px rgba(0,0,0,0.8);">🌈 ${escapeHtml(dict.COLOR_FREE_MOVE_LABEL)}</span>`;
+            const resTex = getUnosPersonalityTextures('resonance');
+            const resBadgeHtml = resTex?.badge
+                ? `<img src="${escapeHtml(resTex.badge)}" alt="" class="unos-personality-emblem" style="width: 20px; height: 20px;">`
+                : `<span>🌈</span>`;
+            turnMoveBadgesHtml = `<span style="display: inline-flex; align-items: center; gap: 6px; background: linear-gradient(90deg, #e74c3c, #f1c40f, #2ecc71, #3498db); color: #fff; font-weight: 900; padding: 6px 14px; border-radius: 999px; font-size: 15px; text-shadow: 0 1px 3px rgba(0,0,0,0.8);">${resBadgeHtml}${escapeHtml(dict.COLOR_FREE_MOVE_LABEL)}</span>`;
         } else {
             const activeList = Array.isArray(snapshot.turnActiveColors) && snapshot.turnActiveColors.length > 0
                 ? snapshot.turnActiveColors
@@ -613,19 +681,23 @@ export class UnosUIController {
             turnMoveBadgesHtml = activeList.map(cKey => {
                 const pal = UNOS_COLOR_PALETTE[cKey] || UNOS_COLOR_PALETTE.madness;
                 const cName = dict.COLORS[cKey] || cKey;
-                return `<span style="background: ${pal.hex}; color: ${pal.text}; font-weight: 900; padding: 5px 14px; border-radius: 999px; font-size: 15px; border: 2px solid ${pal.border};">${pal.icon} ${escapeHtml(cName)}</span>`;
+                const cTex = getUnosPersonalityTextures(cKey);
+                const cBadgeHtml = cTex?.badge
+                    ? `<img src="${escapeHtml(cTex.badge)}" alt="" class="unos-personality-emblem" style="width: 20px; height: 20px;">`
+                    : `<span>${pal.icon}</span>`;
+                return `<span style="display: inline-flex; align-items: center; gap: 6px; background: ${pal.hex}; color: ${pal.text}; font-weight: 900; padding: 5px 14px; border-radius: 999px; font-size: 15px; border: 2px solid ${pal.border};">${cBadgeHtml}${escapeHtml(cName)}</span>`;
             }).join(' ');
         }
 
         // 중앙 버림 더미 최상단 카드 시각 표현
         const centerCardHtml = this._buildCardVisualHtml(snapshot.centerCard, { isCenterPile: true, lang });
 
-        // 상대 손패 뒷면 카드 팬 표현 (상대 hand 배열 원본 없이 handCount만 사용)
+        // 상대 손패 뒷면 카드 팬 표현 (상대 hand 배열 원본 없이 handCount만 사용 · 신규 Card_Back.webp 반영)
         const oppHandCount = Number(opponent?.handCount || 0);
         const visibleBackCards = Math.min(10, oppHandCount);
         let oppBacksHtml = '';
         for (let i = 0; i < visibleBackCards; i++) {
-            oppBacksHtml += `<div style="width: 34px; height: 50px; border-radius: 7px; background: linear-gradient(135deg, #2c3e50, #1a252f); border: 2px solid #f1c40f; margin-left: ${i === 0 ? '0' : '-14px'}; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; color: #f1c40f; box-shadow: 0 3px 8px rgba(0,0,0,0.5);">U</div>`;
+            oppBacksHtml += `<img src="${escapeHtml(UNOS_COMMON_TEXTURES.CARD_BACK)}" alt="카드 뒷면" style="width: 34px; height: 50px; border-radius: 7px; object-fit: cover; border: 2px solid #f1c40f; margin-left: ${i === 0 ? '0' : '-14px'}; box-shadow: 0 3px 8px rgba(0,0,0,0.5);">`;
         }
 
         const oppBurstBadge = opponent?.burst?.active
@@ -690,11 +762,11 @@ export class UnosUIController {
             <!-- 중앙: 덱 & 중앙 버림 더미 & 현재 활성 성격 배지 -->
             <div style="display: flex; align-items: center; justify-content: space-around; background: rgba(10, 15, 28, 0.65); border: 2px solid rgba(255,255,255,0.12); border-radius: 18px; padding: 20px 18px; my: 10px;">
                 <!-- 드로우 덱 -->
-                <div style="display: flex; flex-direction: column; align-items: center; gap: 10px;">
-                    <div id="btn-unos-deck-draw" style="width: 132px; height: 188px; border-radius: 16px; background: linear-gradient(145deg, #2c3e50, #0f172a); border: 3px solid ${canDrawCard ? '#00e5ff' : '#f1c40f'}; box-shadow: ${canDrawCard ? '0 0 24px rgba(0,229,255,0.8)' : '0 8px 20px rgba(0,0,0,0.6)'}; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: ${canDrawCard ? 'pointer' : 'default'};">
-                        <span style="font-size: 28px; font-weight: 900; color: #f1c40f; letter-spacing: 2px;">UNOS</span>
-                        <span style="font-size: 14px; color: #bdc3c7; margin-top: 8px;">${escapeHtml(dict.DECK_REMAINING)}: <strong>${snapshot.deckCount}</strong></span>
+                <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+                    <div id="btn-unos-deck-draw" style="position: relative; width: 132px; height: 188px; border-radius: 16px; overflow: hidden; border: 3px solid ${canDrawCard ? '#00e5ff' : '#f1c40f'}; box-shadow: ${canDrawCard ? '0 0 24px rgba(0,229,255,0.8)' : '0 8px 20px rgba(0,0,0,0.6)'}; cursor: ${canDrawCard ? 'pointer' : 'default'};">
+                        <img src="${escapeHtml(UNOS_COMMON_TEXTURES.CARD_BACK)}" alt="우노스 카드 뒷면" style="width: 100%; height: 100%; object-fit: cover; display: block;">
                     </div>
+                    <span style="font-size: 13px; color: #f8fafc; font-weight: 800;">${escapeHtml(dict.DECK_REMAINING)} : <strong style="color: #f1c40f;">${snapshot.deckCount}${escapeHtml(dict.HAND_COUNT_UNIT || '장')}</strong></span>
                     <button type="button" id="btn-unos-draw-action" ${canDrawCard ? '' : 'disabled'}
                         style="font-family: inherit; padding: 8px 16px; font-size: 14px; font-weight: bold; background: ${canDrawCard ? '#00acc1' : '#34495e'}; color: #fff; border: none; border-radius: 10px; cursor: ${canDrawCard ? 'pointer' : 'not-allowed'}; opacity: ${canDrawCard ? '1' : '0.45'};">
                         🃏 ${escapeHtml(dict.BTN_DRAW_CARD)}
@@ -710,8 +782,9 @@ export class UnosUIController {
                 <!-- 현재 활성 성격(색상) 강조 배지 -->
                 <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; min-width: 240px; background: rgba(255,255,255,0.05); padding: 16px; border-radius: 16px; border: 2px solid ${matchPalette.border};">
                     <span style="font-size: 14px; color: #bdc3c7; font-weight: bold;">${escapeHtml(dict.ACTIVE_COLOR_LABEL)}</span>
-                    <div style="padding: 12px 26px; border-radius: 14px; background: ${matchPalette.hex}; color: ${matchPalette.text}; font-size: 24px; font-weight: 900; border: 3px solid #fff; box-shadow: 0 0 20px ${matchPalette.hex};">
-                        ${matchPalette.icon} ${escapeHtml(matchColorName)}
+                    <div style="display: inline-flex; align-items: center; gap: 10px; padding: 12px 24px; border-radius: 14px; background: ${matchPalette.hex}; color: ${matchPalette.text}; font-size: 24px; font-weight: 900; border: 3px solid #fff; box-shadow: 0 0 20px ${matchPalette.hex};">
+                        ${matchEmblemHtml}
+                        <span>${escapeHtml(matchColorName)}</span>
                     </div>
                     <span style="font-size: 13px; color: #bdc3c7; margin-top: 4px;">${escapeHtml(dict.TURN_MOVE_COLOR_LABEL)}</span>
                     <div style="display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;">
@@ -786,13 +859,53 @@ export class UnosUIController {
         const bgStyle = pal.gradient || pal.hex;
         const title = formatUnosCardTitle(card, lang);
         const desc = dict.CARD_DESC[card.kind] || '';
+        const visualSpec = resolveUnosCardVisualSpec(card);
+        const hasBgTexture = Boolean(visualSpec.cardBgPath);
+
+        const bgLayerHtml = hasBgTexture
+            ? `<img class="unos-card-bg-img" src="${escapeHtml(visualSpec.cardBgPath)}" alt="${escapeHtml(title)}">`
+            : '';
+
+        let centerOverlayHtml = '';
+        if (visualSpec.overlayType === 'number' && visualSpec.numberSprite) {
+            const ns = visualSpec.numberSprite;
+            centerOverlayHtml = `
+                <div class="unos-card-center-slot" aria-hidden="true">
+                    <div class="unos-card-number-sprite"
+                         style="background-image: url('${escapeHtml(ns.spritePath)}'); background-size: ${escapeHtml(ns.backgroundSize)}; background-position: ${escapeHtml(ns.backgroundPosition)};">
+                    </div>
+                </div>
+            `;
+        } else if (visualSpec.overlayType === 'medallion' && visualSpec.overlayImagePath) {
+            centerOverlayHtml = `
+                <div class="unos-card-center-slot" aria-hidden="true">
+                    <img class="unos-card-medallion-img" src="${escapeHtml(visualSpec.overlayImagePath)}" alt="${escapeHtml(title)}">
+                </div>
+            `;
+        } else if (visualSpec.overlayType === 'temp_symbol') {
+            const kindLabel = dict.KINDS[card.kind] || '';
+            centerOverlayHtml = `
+                <div class="unos-card-center-slot" aria-hidden="true">
+                    <div class="unos-card-temp-slot">
+                        <span style="font-size: ${isCenterPile ? '38px' : '40px'}; font-weight: 900; color: #ffffff; text-shadow: 0 3px 10px rgba(0,0,0,0.85), 0 0 6px rgba(0,0,0,0.65); line-height: 1.05;">
+                            ${escapeHtml(visualSpec.tempSymbol || card.symbol || String(card.value ?? ''))}
+                        </span>
+                        <span style="font-size: 11px; font-weight: 900; color: #ffffff; background: rgba(15,23,42,0.72); border: 1px solid rgba(255,255,255,0.45); padding: 2px 8px; border-radius: 999px; letter-spacing: 0.4px;">
+                            ${escapeHtml(kindLabel)}
+                        </span>
+                    </div>
+                </div>
+            `;
+        }
 
         if (isCenterPile) {
+            const centerStyle = hasBgTexture
+                ? `width: 136px; height: 192px; border-radius: 16px; background: transparent; box-shadow: 0 10px 26px rgba(0,0,0,0.65); box-sizing: border-box;`
+                : `width: 136px; height: 192px; border-radius: 16px; background: ${bgStyle}; color: ${pal.text}; border: 4px solid #ffffff; box-shadow: 0 10px 26px rgba(0,0,0,0.65); box-sizing: border-box;`;
             return `
-                <div style="width: 136px; height: 192px; border-radius: 16px; background: ${bgStyle}; color: ${pal.text}; border: 4px solid #ffffff; box-shadow: 0 10px 26px rgba(0,0,0,0.65); padding: 12px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between;">
-                    <div style="font-size: 14px; font-weight: 900;">${pal.icon} ${escapeHtml(title)}</div>
-                    <div style="font-size: 40px; font-weight: 900; text-align: center;">${escapeHtml(card.symbol || String(card.value))}</div>
-                    <div style="font-size: 11px; text-align: center; opacity: 0.92; line-height: 1.25;">${escapeHtml(dict.KINDS[card.kind] || '')}</div>
+                <div class="unos-card-surface" style="${centerStyle}" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">
+                    ${bgLayerHtml}
+                    ${centerOverlayHtml}
                 </div>
             `;
         }
@@ -807,23 +920,21 @@ export class UnosUIController {
                </div>`
             : '';
 
+        const handCardStyle = hasBgTexture
+            ? `background: transparent; border: none; box-shadow: ${isPlayable ? '0 10px 24px rgba(0,0,0,0.55), 0 0 0 2px rgba(255,255,255,0.88)' : '0 10px 24px rgba(0,0,0,0.55)'}; --fan-transform: ${fanTransform}; z-index: ${10 + index};`
+            : `background: ${bgStyle}; color: ${pal.text}; border: 3px solid ${isPlayable ? '#ffffff' : 'rgba(255,255,255,0.35)'}; --fan-transform: ${fanTransform}; z-index: ${10 + index};`;
+
         return `
-            <div class="unos-card-item ${stateClass}"
+            <div class="unos-card-item unos-card-surface ${stateClass}"
                  data-card-id="${escapeHtml(card.id)}"
                  data-card-kind="${escapeHtml(card.kind)}"
                  data-playable="${isPlayable ? '1' : '0'}"
                  data-disabled-reason="${escapeHtml(card.disabledReason || '')}"
-                 style="background: ${bgStyle}; color: ${pal.text}; border: 3px solid ${isPlayable ? '#ffffff' : 'rgba(255,255,255,0.35)'}; --fan-transform: ${fanTransform}; z-index: ${10 + index};"
-                 title="${escapeHtml(card.disabledMessage || desc)}">
-                <div style="display: flex; align-items: center; justify-content: space-between; font-size: 13px; font-weight: 900;">
-                    <span>${pal.icon} ${escapeHtml(title)}</span>
-                </div>
-                <div style="font-size: 38px; font-weight: 900; text-align: center; my: 4px; text-shadow: 0 2px 6px rgba(0,0,0,0.35);">
-                    ${escapeHtml(card.symbol || String(card.value))}
-                </div>
-                <div style="font-size: 11px; line-height: 1.3; background: rgba(0,0,0,0.24); padding: 6px; border-radius: 8px; text-align: center;">
-                    ${escapeHtml(desc)}
-                </div>
+                 style="${handCardStyle}"
+                 title="${escapeHtml(card.disabledMessage || `${title} — ${desc}`)}"
+                 aria-label="${escapeHtml(title)}">
+                ${bgLayerHtml}
+                ${centerOverlayHtml}
                 ${chainBlockedOverlayHtml}
             </div>
         `;
@@ -860,7 +971,7 @@ export class UnosUIController {
         } else if (myPlayer?.burst?.active) {
             guideText = `🔥 버스트(UNO!) 상태 활성화 중! (잔여 ${myPlayer.burst.turnsLeft}턴간 카드 제출 없이 체스 자유 이동)`;
         } else if ((snapshot.actionChainStep || 0) > 0) {
-            guideText = `⚡ 액션 추가 제출 단계! 색상/숫자 조건 없이 카드를 1장 더 내세요.`;
+            guideText = `⚡ 콤보 추가 제출 단계! 색상/숫자 조건 없이 카드를 1장 더 내세요.`;
         }
 
         zone.innerHTML = `
@@ -1007,9 +1118,12 @@ export class UnosUIController {
 
                 const cardSlotHtml = (entry.drawn && entry.drawnCard)
                     ? this._buildCardVisualHtml(entry.drawnCard, { isCenterPile: true, lang })
-                    : `<div style="width: 136px; height: 192px; border-radius: 16px; background: linear-gradient(145deg, #2c3e50, #0f172a); border: 3px dashed ${isMe && canClickDraw ? '#00e5ff' : '#f1c40f'}; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 8px 22px rgba(0,0,0,0.6);">
-                        <span style="font-size: 46px; font-weight: 900; color: #f1c40f;">?</span>
-                        <span style="font-size: 12px; color: #bdc3c7; margin-top: 8px;">${escapeHtml(dict.TURN_ORDER_WAITING_DRAW)}</span>
+                    : `<div style="position: relative; width: 136px; height: 192px; border-radius: 16px; overflow: hidden; border: 3px dashed ${isMe && canClickDraw ? '#00e5ff' : '#f1c40f'}; box-shadow: 0 8px 22px rgba(0,0,0,0.6);">
+                        <img src="${escapeHtml(UNOS_COMMON_TEXTURES.CARD_BACK)}" alt="추첨 대기 카드 뒷면" style="width: 100%; height: 100%; object-fit: cover; display: block;">
+                        <div style="position: absolute; inset: 0; background: rgba(15, 23, 42, 0.45); display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                            <span style="font-size: 46px; font-weight: 900; color: #f1c40f; text-shadow: 0 3px 10px rgba(0,0,0,0.85);">?</span>
+                            <span style="font-size: 11px; color: #f8fafc; margin-top: 6px; background: rgba(15, 23, 42, 0.88); padding: 3px 10px; border-radius: 999px; border: 1px solid #f1c40f;">${escapeHtml(dict.TURN_ORDER_WAITING_DRAW)}</span>
+                        </div>
                        </div>`;
 
                 return `
@@ -1130,10 +1244,14 @@ export class UnosUIController {
             const colorBtnsHtml = UNOS_PERSONALITY_KEYS.map(cKey => {
                 const pal = UNOS_COLOR_PALETTE[cKey];
                 const cName = dict.COLORS[cKey];
+                const cTex = getUnosPersonalityTextures(cKey);
+                const cBadgeHtml = cTex?.badge
+                    ? `<img src="${escapeHtml(cTex.badge)}" alt="" class="unos-personality-emblem" style="width: 28px; height: 28px;">`
+                    : `<span>${pal.icon}</span>`;
                 return `
                     <button type="button" class="btn-unos-pick-color" data-color="${escapeHtml(cKey)}"
-                        style="font-family: inherit; padding: 18px 24px; font-size: 20px; font-weight: 900; background: ${pal.hex}; color: ${pal.text}; border: 3px solid #fff; border-radius: 14px; cursor: pointer; min-width: 130px;">
-                        ${pal.icon} ${escapeHtml(cName)}
+                        style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-family: inherit; padding: 18px 24px; font-size: 20px; font-weight: 900; background: ${pal.hex}; color: ${pal.text}; border: 3px solid #fff; border-radius: 14px; cursor: pointer; min-width: 130px;">
+                        ${cBadgeHtml}<span>${escapeHtml(cName)}</span>
                     </button>
                 `;
             }).join('');

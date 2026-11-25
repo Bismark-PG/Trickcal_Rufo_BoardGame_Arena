@@ -103,10 +103,10 @@ export const UNOS_CARD_CATEGORIES = {
  * 56장 표준 우노스 덱 템플릿 생성
  * - 숫자(0~9): 4색 × 10장 = 40장
  * - 스킵(skip): 4색 × 1장 = 4장
- * - 액션(action): 4색 × 1장 = 4장
- * - 리버스(reverse): 무속성 × 2장 = 2장
+ * - 콤보(action): 4색 × 1장 = 4장
+ * - 리버스(reverse): 무속성(공명 카드 배경 + 리버스 메달리온) × 2장 = 2장
  * - 공명(resonance): 무지개 × 4장 = 4장
- * - 우울(depression): 보라 × 2장 = 2장
+ * - 우울(depression): 보라(+2 공격) × 2장 = 2장
  */
 function buildUnosDeckTemplates() {
     const templates = [];
@@ -146,7 +146,7 @@ function buildUnosDeckTemplates() {
         });
     }
 
-    // 3. 액션 카드 4장 (4색 × 1장)
+    // 3. 콤보 카드 4장 (4색 × 1장, 내부 kind: 'action')
     for (const color of UNOS_PERSONALITY_KEYS) {
         templates.push({
             seq: seq++,
@@ -162,7 +162,7 @@ function buildUnosDeckTemplates() {
         });
     }
 
-    // 4. 리버스 카드 2장 (무속성 라이트그레이)
+    // 4. 리버스 카드 2장 (무속성 — 공명 카드 배경 + 리버스 메달리온, 언제나 제출 가능)
     for (let i = 1; i <= 2; i++) {
         templates.push({
             seq: seq++,
@@ -194,7 +194,7 @@ function buildUnosDeckTemplates() {
         });
     }
 
-    // 6. 우울 카드 2장 (특수 보라색)
+    // 6. 우울 카드 2장 (특수 보라색 +2 공격)
     for (let i = 1; i <= 2; i++) {
         templates.push({
             seq: seq++,
@@ -228,6 +228,216 @@ export const UNOS_TURN_TIMER_CONFIG = Object.freeze({
     WARN_THRESHOLD_SECONDS: 5
 });
 
+export const UNOS_TEXTURE_BASE_PATH = './Resource/Texture/UNOS';
+
+export const UNOS_CARD_OVERLAY_SPEC = Object.freeze({
+    WIDTH_PERCENT: 70.47,
+    HEIGHT_PERCENT_APPROX: 48.8,
+    ASPECT_RATIO: '1 / 1',
+    CELL_SIZE_PX: 432,
+    NUMBER_SPRITE_COLS: 5,
+    NUMBER_SPRITE_ROWS: 2,
+    NUMBER_SPRITE_BG_SIZE: '500% 200%'
+});
+
+export const UNOS_COMMON_TEXTURES = Object.freeze({
+    CARD_BACK: `${UNOS_TEXTURE_BASE_PATH}/Card_Back.webp`,
+    MEDALLION_REVERSE: `${UNOS_TEXTURE_BASE_PATH}/Medallion_Reverse.webp`,
+    MEDALLION_SKIP: `${UNOS_TEXTURE_BASE_PATH}/Medallion_Skip.webp`,
+    MEDALLION_COMBO: `${UNOS_TEXTURE_BASE_PATH}/Medallion_Combo.webp`,
+    MEDALLION_ATTACK: `${UNOS_TEXTURE_BASE_PATH}/Medallion_Attack.webp`,
+    NUMBER_SPRITE: `${UNOS_TEXTURE_BASE_PATH}/Number_Sprite.webp`
+});
+
+export const UNOS_PERSONALITY_TEXTURE_MAP = Object.freeze({
+    calm: Object.freeze({
+        key: 'calm',
+        artName: 'Composed',
+        cardBg: `${UNOS_TEXTURE_BASE_PATH}/Composed_Card.webp`,
+        cardSpecial: null,
+        badge: `${UNOS_TEXTURE_BASE_PATH}/Composed_Badge.webp`,
+        logo: `${UNOS_TEXTURE_BASE_PATH}/Composed_Logo.webp`
+    }),
+    depression: Object.freeze({
+        key: 'depression',
+        artName: 'Depressed',
+        cardBg: `${UNOS_TEXTURE_BASE_PATH}/Depressed_Card.webp`,
+        cardSpecial: null,
+        badge: `${UNOS_TEXTURE_BASE_PATH}/Depressed_Badge.webp`,
+        logo: `${UNOS_TEXTURE_BASE_PATH}/Depressed_Logo.webp`
+    }),
+    pure: Object.freeze({
+        key: 'pure',
+        artName: 'Innocent',
+        cardBg: `${UNOS_TEXTURE_BASE_PATH}/Innocent_Card.webp`,
+        cardSpecial: null,
+        badge: `${UNOS_TEXTURE_BASE_PATH}/Innocent_Badge.webp`,
+        logo: `${UNOS_TEXTURE_BASE_PATH}/Innocent_Logo.webp`
+    }),
+    madness: Object.freeze({
+        key: 'madness',
+        artName: 'Mad',
+        cardBg: `${UNOS_TEXTURE_BASE_PATH}/Mad_Card.webp`,
+        cardSpecial: null,
+        badge: `${UNOS_TEXTURE_BASE_PATH}/Mad_Badge.webp`,
+        logo: `${UNOS_TEXTURE_BASE_PATH}/Mad_Logo.webp`
+    }),
+    lively: Object.freeze({
+        key: 'lively',
+        artName: 'Vivacious',
+        cardBg: `${UNOS_TEXTURE_BASE_PATH}/Vivacious_Card.webp`,
+        cardSpecial: null,
+        badge: `${UNOS_TEXTURE_BASE_PATH}/Vivacious_Badge.webp`,
+        logo: `${UNOS_TEXTURE_BASE_PATH}/Vivacious_Logo.webp`
+    }),
+    resonance: Object.freeze({
+        key: 'resonance',
+        artName: 'Resonance',
+        cardBg: `${UNOS_TEXTURE_BASE_PATH}/Resonance_Card.webp`,
+        cardSpecial: `${UNOS_TEXTURE_BASE_PATH}/Resonance_Card_Special.webp`,
+        badge: `${UNOS_TEXTURE_BASE_PATH}/Resonance_Badge.webp`,
+        logo: `${UNOS_TEXTURE_BASE_PATH}/Resonance_Logo.webp`
+    })
+});
+
+export function getUnosPersonalityTextures(personalityKey) {
+    if (!personalityKey) return null;
+    return UNOS_PERSONALITY_TEXTURE_MAP[personalityKey] || null;
+}
+
+/**
+ * Number_Sprite.webp (2160x864, 5x2 그리드 432x432 셀) 기준 숫자(0~9) UV 좌표 계산
+ */
+export function getUnosNumberSpriteSpec(digit) {
+    const num = Number(digit);
+    if (!Number.isInteger(num) || num < 0 || num > 9) return null;
+    const col = num % UNOS_CARD_OVERLAY_SPEC.NUMBER_SPRITE_COLS;
+    const row = Math.floor(num / UNOS_CARD_OVERLAY_SPEC.NUMBER_SPRITE_COLS);
+    return {
+        digit: num,
+        col,
+        row,
+        spritePath: UNOS_COMMON_TEXTURES.NUMBER_SPRITE,
+        backgroundSize: UNOS_CARD_OVERLAY_SPEC.NUMBER_SPRITE_BG_SIZE,
+        backgroundPosition: `${col * 25}% ${row * 100}%`
+    };
+}
+
+/**
+ * 카드 객체의 확정 텍스처(카드 배경 + 중앙 70.47% 정사각 오버레이) 스펙을 계산한다.
+ */
+export function resolveUnosCardVisualSpec(card) {
+    if (!card) {
+        return {
+            cardBgPath: null,
+            overlayType: 'none',
+            overlayImagePath: null,
+            numberSprite: null,
+            tempSymbol: '',
+            isFullCardArt: false
+        };
+    }
+
+    const colorKey = card.color || card.paletteKey || null;
+    const tex = getUnosPersonalityTextures(colorKey);
+
+    if (card.kind === UNOS_CARD_KINDS.RESONANCE) {
+        const resTex = UNOS_PERSONALITY_TEXTURE_MAP.resonance;
+        return {
+            cardBgPath: resTex.cardSpecial || resTex.cardBg,
+            overlayType: 'none',
+            overlayImagePath: null,
+            numberSprite: null,
+            tempSymbol: '',
+            isFullCardArt: true
+        };
+    }
+
+    if (card.kind === UNOS_CARD_KINDS.DEPRESSION) {
+        const depTex = UNOS_PERSONALITY_TEXTURE_MAP.depression;
+        return {
+            cardBgPath: depTex.cardBg,
+            overlayType: 'medallion',
+            overlayImagePath: UNOS_COMMON_TEXTURES.MEDALLION_ATTACK,
+            numberSprite: null,
+            tempSymbol: '',
+            isFullCardArt: false
+        };
+    }
+
+    if (card.kind === UNOS_CARD_KINDS.NUMBER) {
+        const numberSprite = getUnosNumberSpriteSpec(card.value);
+        return {
+            cardBgPath: tex?.cardBg || null,
+            overlayType: numberSprite ? 'number' : 'temp_symbol',
+            overlayImagePath: null,
+            numberSprite,
+            tempSymbol: String(card.symbol ?? card.value ?? ''),
+            isFullCardArt: false
+        };
+    }
+
+    if (card.kind === UNOS_CARD_KINDS.REVERSE) {
+        const coloredTex = card.color ? getUnosPersonalityTextures(card.color) : null;
+        return {
+            cardBgPath: coloredTex?.cardBg || UNOS_PERSONALITY_TEXTURE_MAP.resonance.cardBg,
+            overlayType: 'medallion',
+            overlayImagePath: UNOS_COMMON_TEXTURES.MEDALLION_REVERSE,
+            numberSprite: null,
+            tempSymbol: '',
+            isFullCardArt: false
+        };
+    }
+
+    if (card.kind === UNOS_CARD_KINDS.SKIP) {
+        return {
+            cardBgPath: tex?.cardBg || null,
+            overlayType: 'medallion',
+            overlayImagePath: UNOS_COMMON_TEXTURES.MEDALLION_SKIP,
+            numberSprite: null,
+            tempSymbol: '',
+            isFullCardArt: false
+        };
+    }
+
+    if (card.kind === UNOS_CARD_KINDS.ACTION) {
+        return {
+            cardBgPath: tex?.cardBg || null,
+            overlayType: 'medallion',
+            overlayImagePath: UNOS_COMMON_TEXTURES.MEDALLION_COMBO,
+            numberSprite: null,
+            tempSymbol: '',
+            isFullCardArt: false
+        };
+    }
+
+    return {
+        cardBgPath: tex?.cardBg || null,
+        overlayType: 'temp_symbol',
+        overlayImagePath: null,
+        numberSprite: null,
+        tempSymbol: String(card.symbol ?? card.value ?? ''),
+        isFullCardArt: false
+    };
+}
+
+/**
+ * 프리로더가 사용할 우노스(UNOS) 확정 텍스처 전체 경로 목록(중복 제거) 반환
+ */
+export function getAllUnosTexturePaths() {
+    const paths = new Set();
+    Object.values(UNOS_COMMON_TEXTURES).forEach((p) => {
+        if (typeof p === 'string' && p.length > 0) paths.add(p);
+    });
+    Object.values(UNOS_PERSONALITY_TEXTURE_MAP).forEach((entry) => {
+        if (!entry) return;
+        [entry.cardBg, entry.cardSpecial, entry.badge, entry.logo].forEach((p) => {
+            if (typeof p === 'string' && p.length > 0) paths.add(p);
+        });
+    });
+    return Array.from(paths);
+}
+
 export const UnosLang = {
     ko: {
         GAME_TITLE: '우노스 (UNOS)',
@@ -243,7 +453,7 @@ export const UnosLang = {
         KINDS: {
             number: '숫자',
             skip: '스킵',
-            action: '액션',
+            action: '콤보',
             reverse: '리버스',
             resonance: '공명',
             depression: '우울'
@@ -311,7 +521,7 @@ export const UnosLang = {
         ACTIVE_COLOR_LABEL: '현재 활성 성격',
         TURN_MOVE_COLOR_LABEL: '이번 턴 이동 가능 성격',
         COLOR_FREE_MOVE_LABEL: '모든 성격 자유 이동 (제약 없음)',
-        DECK_REMAINING: '남은 덱',
+        DECK_REMAINING: '남은 카드 수',
         DISCARD_PILE: '중앙 더미',
         HAND_COUNT_UNIT: '장',
         TURN_TIMEOUT_MSG: '⏰ 제한시간 30초 초과! 현재 턴이 자동 진행됩니다.'
@@ -330,7 +540,7 @@ export const UnosLang = {
         KINDS: {
             number: 'Number',
             skip: 'Skip',
-            action: 'Action',
+            action: 'Combo',
             reverse: 'Reverse',
             resonance: 'Resonance',
             depression: 'Depression'
@@ -417,7 +627,7 @@ export const UnosLang = {
         KINDS: {
             number: '数字',
             skip: 'スキップ',
-            action: 'アクション',
+            action: 'コンボ',
             reverse: 'リバース',
             resonance: '共鳴',
             depression: '憂鬱'
@@ -504,19 +714,21 @@ export function getUnosColorName(colorKey, lang = 'ko') {
 export function formatUnosCardTitle(card, lang = 'ko') {
     if (!card) return '';
     const dict = getUnosDict(lang);
-    if (card.kind === UNOS_CARD_KINDS.REVERSE) return dict.KINDS.reverse;
     if (card.kind === UNOS_CARD_KINDS.RESONANCE) return dict.KINDS.resonance;
     if (card.kind === UNOS_CARD_KINDS.DEPRESSION) return dict.KINDS.depression;
 
-    const colorName = dict.COLORS[card.color] || card.color || '';
+    const colorName = card.color ? (dict.COLORS[card.color] || card.color) : '';
+    if (card.kind === UNOS_CARD_KINDS.REVERSE) {
+        return colorName ? `${colorName} ${dict.KINDS.reverse}` : dict.KINDS.reverse;
+    }
     if (card.kind === UNOS_CARD_KINDS.NUMBER) {
-        return `${colorName} ${card.value}`;
+        return `${colorName} ${card.value}`.trim();
     }
     if (card.kind === UNOS_CARD_KINDS.SKIP) {
-        return `${colorName} ${dict.KINDS.skip}`;
+        return `${colorName} ${dict.KINDS.skip}`.trim();
     }
     if (card.kind === UNOS_CARD_KINDS.ACTION) {
-        return `${colorName} ${dict.KINDS.action}`;
+        return `${colorName} ${dict.KINDS.action}`.trim();
     }
     return `${colorName} ${card.value ?? ''}`.trim();
 }

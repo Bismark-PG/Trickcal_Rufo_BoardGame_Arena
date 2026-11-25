@@ -5,10 +5,10 @@ import {
     createMarbleWorldMetrics
 } from './MarbleRuntime.js';
 import { RequiemState, checkAndTriggerClimax } from './MarbleRequiem.js';
-import { CARD_IDS } from '../System/Index/Marble/MarbleCardIndex.js';
-import { BOARD_TILES } from '../System/Index/Marble/MarbleBoardIndex.js';
+import { CARD_IDS } from '../../System/Index/Marble/MarbleCardIndex.js';
+import { BOARD_TILES } from '../../System/Index/Marble/MarbleBoardIndex.js';
 import { WorldGimmickManager } from './MarbleWorldGimmick.js';
-import { GAME_CONSTANTS, getModeConfig, isPlayerTreasureUnlocked } from '../System/Index/Marble/MarblePriceIndex.js';
+import { GAME_CONSTANTS, getModeConfig, isPlayerTreasureUnlocked } from '../../System/Index/Marble/MarblePriceIndex.js';
 import { getTileSellValue } from './MarbleLogic.js';
 
 /**

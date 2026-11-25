@@ -1,8 +1,9 @@
-import { GAME_CONSTANTS, stepActiveBoardPos, getModeConfig, getModeLoanSettlementRate } from '../System/Index/Marble/MarblePriceIndex.js';
-import { BOARD_TILES } from '../System/Index/Marble/MarbleBoardIndex.js';
-import { CARD_IDS } from '../System/Index/Marble/MarbleCardIndex.js';
-import { normalizeAiDifficulty } from '../System/GameRegistry.js';
-import { RuntimePopup, getCardUIText, getActiveWorld } from './MarbleRuntime.js';
+import { GAME_CONSTANTS, stepActiveBoardPos, getModeConfig, getModeLoanSettlementRate } from '../../System/Index/Marble/MarblePriceIndex.js';
+import { BOARD_TILES } from '../../System/Index/Marble/MarbleBoardIndex.js';
+import { CARD_IDS } from '../../System/Index/Marble/MarbleCardIndex.js';
+import { normalizeAiDifficulty } from '../../System/GameRegistry.js';
+import { RuntimePopup, formatMoney, getCardUIText, getActiveWorld } from './MarbleRuntime.js';
+import { buildCardActivationToast } from '../../System/Index/Marble/MarbleCardToastIndex.js';
 import { processTreasureTurnStart } from './MarbleCardTreasure.js';
 import { WorldGimmickManager } from './MarbleWorldGimmick.js';
 
@@ -10,6 +11,8 @@ export class Player {
     constructor(id, name, color, initialMoney, index, aiType = null, aiDifficulty = null) {
         this.id = id; this.name = name; this.color = color; this.money = initialMoney;
         this.playerIndex = index; this.territoryCount = 0; this.pos = 0; 
+        this.minimiPath = './Resource/Texture/Minimi/Minimi_Erpin.webp';
+        this.minimiPegX = 0.406;
 
         // 빵주 시스템
         this.isBbangjuChief = false;      // 정비반장 여부
@@ -56,6 +59,7 @@ export class Player {
         this.bowExtraRollAvailable = false;// ???의 활(502) 이번 턴 주사위 추가 굴림 가능 여부
         this.timeAccelBuffPhase = 'none';  // 시간가속(110) 주사위 2회 굴림 버프가 유지되는 시간대 ('day' | 'night' | 'none')
         this.timeAccelExtraRollAvailable = false; // 시간가속(110) 이번 턴 주사위 추가 굴림 가능 여부
+        this.pendingMakashaSupport = false; // 그을음 발동 후 자신의 다음 턴 시작 시 마카샤 100만 지원금 1회 지급 대기
         this._turnBaseRollsTaken = 0;      // 이번 턴 진행한 기본(비더블 보너스) 굴림 횟수
         this._turnDoubleBonusUsed = false; // 이번 턴 더블 보너스 사용 여부 (턴당 최대 1회)
         this._turnPendingDoubleBonus = false; // 이번 굴림 더블로 인한 재굴림 대기 여부
@@ -183,7 +187,7 @@ export class Player {
                     const idx = this.buffs['hold_immune'].findIndex(c => c.id === CARD_IDS.RANK_2_PRIVILEGE);
                     if (idx > -1) {
                         this.buffs['hold_immune'].splice(idx, 1);
-                        RuntimePopup.showToast(`[${this.name}] ${getCardUIText().CARD_DESTROYED_RANK2}`, 3200);
+                        RuntimePopup.showToast(getCardUIText().CARD_DESTROYED_RANK2, 3200, this.id);
                     }
                 }
             }
@@ -568,7 +572,18 @@ export class Player {
             this.money += reviveAmount;
             this.isBankrupt = false;
             const cText = getCardUIText();
-            RuntimePopup.showToast(`[${this.name}] ${hasOwnedTerritory ? cText.SECOND_CHANCE_HALF_USED : cText.SECOND_CHANCE_USED}`, 4000);
+            const toastPkg = buildCardActivationToast({
+                cardId: CARD_IDS.SPEC_SECOND_CHANCE,
+                cardName: '두번째 기회',
+                actorName: this.name,
+                amountStr: formatMoney(reviveAmount)
+            });
+            RuntimePopup.showToast(toastPkg.otherMessage, 4000, null, {
+                actorId: this.id,
+                selfMessage: `[${this.name}] ${hasOwnedTerritory ? cText.SECOND_CHANCE_HALF_USED : cText.SECOND_CHANCE_USED}`,
+                otherMessage: toastPkg.otherMessage,
+                logMessage: toastPkg.logMessage
+            });
             return false;
         }
 

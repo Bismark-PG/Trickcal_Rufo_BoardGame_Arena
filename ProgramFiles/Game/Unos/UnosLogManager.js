@@ -1,4 +1,4 @@
-// ProgramFiles/Unos/UnosLogManager.js
+// ProgramFiles/Game/Unos/UnosLogManager.js
 // 우노스(UNOS) 전용 경기 메트릭 정규화, 10만 사이클 모수 집계(computeUnosPopulationSummary),
 // 극값 보호 100사이클(density_preserve) 및 분위수 10사이클(quantile_preserve) 상세/평균 밸런스 로그 생성 어댑터
 
@@ -21,7 +21,7 @@ const CARD_KIND_KEYS = Object.freeze(['number', 'skip', 'action', 'reverse', 're
 const CARD_KIND_LABELS = Object.freeze({
     number: '숫자 (0~9, 40장)',
     skip: '스킵 (4장)',
-    action: '액션 (4장)',
+    action: '콤보 (4장)',
     reverse: '리버스 (2장)',
     resonance: '공명 (4장)',
     depression: '우울 (+2, 2장)'
@@ -295,7 +295,7 @@ export function computeUnosPopulationSummary(cycles, retentionPolicy = 'density_
     let depressionHitsDuringBurstSum = 0;
     let promotionsDuringBurstSum = 0;
 
-    // 섹션 4: 카드 56종 제출 · 액션 콤보 · 턴 진행 4대 분기 · 묘지 재셔플
+    // 섹션 4: 카드 56종 제출 · 콤보 연쇄 · 턴 진행 4대 분기 · 묘지 재셔플
     const cardsPlayedSum = {
         number: 0,
         skip: 0,
@@ -678,12 +678,12 @@ export function renderUnosAverageSummaryText(cycles, meta = null, sampleCycles =
         `  - 판당 버스트 중 \`우울(+2)\` 피격 가산 횟수: \`${fmt4(b.avgDepressionHitsDuringBurst)}회\``,
         `  - 판당 버스트 중 \`프로모션(-1)\` 차감 횟수: \`${fmt4(b.avgPromotionsDuringBurst)}회\``,
         '',
-        '## 4. 카드 56종 제출 · `액션` 콤보 · 턴 진행 4대 분기 통계',
+        '## 4. 카드 56종 제출 · `콤보` 연쇄 · 턴 진행 4대 분기 통계',
         '',
         `- **판당 평균 카드 제출 수**: \`${fmt4(cb.avgCardsPlayedPerMatch)}장\` · **판당 평균 묘지 재셔플**: \`${fmt4(cb.avgDeckReshufflesPerMatch)}회\``,
-        `- **\`액션\` 카드 연쇄 콤보 빈도**:`,
-        `  - 2장 연쇄 콤보 (\`액션 → 일반/특수\`): 판당 \`${fmt4(cb.avgActionCombo2PerMatch)}회\``,
-        `  - 3장 최대 연쇄 콤보 (\`액션 → 액션 → 비액션\`): 판당 \`${fmt4(cb.avgActionCombo3PerMatch)}회\``,
+        `- **\`콤보\` 카드 연쇄 빈도**:`,
+        `  - 2장 연쇄 콤보 (\`콤보 → 일반/특수\`): 판당 \`${fmt4(cb.avgActionCombo2PerMatch)}회\``,
+        `  - 3장 최대 연쇄 콤보 (\`콤보 → 콤보 → 비콤보\`): 판당 \`${fmt4(cb.avgActionCombo3PerMatch)}회\``,
         '',
         '| 카드 종류 | 판당 평균 제출 | 전체 제출 비중 | 승자 제출 비중 | 누적 제출 수 |',
         '| :--- | :---: | :---: | :---: | :---: |'
@@ -746,7 +746,7 @@ export function renderUnosAverageSummaryText(cycles, meta = null, sampleCycles =
         '',
         `- **카드 총량(\`56장\`) 보존 위반**: \`${inv.cardTotalMismatch}건\``,
         `- **보드 프리셋 \`4색 9칸·상하좌우 비인접\` 위반**: \`${inv.boardPresetInvalid}건\``,
-        `- **\`액션\` 3연속 제출 위반**: \`${inv.actionTripleChain}건\``,
+        `- **\`콤보\` 3연속 제출 위반**: \`${inv.actionTripleChain}건\``,
         `- **퀸(\`Q\`) 쿨타임 중 이동 위반**: \`${inv.queenCooldownViolation}건\``,
         `- **강화 폰(\`P+\`) 기물 점프 / 색상 규칙 위반**: \`${inv.promotedPawnJumpOrColorViolation}건\``,
         `- **강화 폰(\`P+\`) 프로모션 재발동 위반**: \`${inv.promotedPawnRePromotion}건\``,

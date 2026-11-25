@@ -381,6 +381,27 @@ export function initRoom(container, sceneParams = null) {
             readyBtnClass = isCountdown ? 'btn-danger' : 'btn-green';
         }
 
+        // ROOM_UPDATED 등으로 재렌더될 때 사용자가 열어둔 팝업([설정]/[정보]/[게임룸 설정]) 보존
+        const wasSettingsOpen = !isCountdown && Boolean(container.querySelector('#popup-room-settings')?.classList.contains('open'));
+        const prevEditRoomEl = container.querySelector('#modal-edit-room-info');
+        const wasEditRoomOpen = !isCountdown && Boolean(prevEditRoomEl?.classList.contains('open'));
+        const prevEditDraft = wasEditRoomOpen ? {
+            title: container.querySelector('#edit-room-title')?.value ?? room.title ?? '',
+            password: container.querySelector('#edit-room-password')?.value ?? room.password ?? '',
+            visibility: container.querySelector('input[name="edit-room-visibility"]:checked')?.value || (room.isPrivate ? 'private' : 'public'),
+            maxPlayers: Number(container.querySelector('.btn-edit-max-players.btn-orange')?.dataset?.max) || room.maxPlayers
+        } : null;
+        const preservedDynamicModals = [];
+        if (!isCountdown) {
+            for (const modalId of ['#modal-arena-info', '#modal-arena-help', '#modal-arena-terms', '#modal-arena-feedback']) {
+                const liveModal = container.querySelector(modalId);
+                if (liveModal) {
+                    liveModal.remove();
+                    preservedDynamicModals.push(liveModal);
+                }
+            }
+        }
+
         container.innerHTML = `
             <div class="arena-stage">
                 <div class="page-shell">
@@ -443,9 +464,9 @@ export function initRoom(container, sceneParams = null) {
                                 <h2 style="margin: 0; font-size: 26px; font-weight: 900; color: #FFE68B;">${escapeHtml(text.ROOM_SETTINGS_TITLE)}</h2>
                                 ${isUnos ? `
                                     <div class="lobby-rule-banner" style="height: 195px;">
-                                        <img class="rule-bg" src="./Resource/Texture/BG/BG_Broken_Altar_Special.png" alt="">
+                                        <img class="rule-bg" src="./Resource/Texture/BG/BG_Broken_Altar_Special.webp" alt="">
                                         <div class="rule-scrim"></div>
-                                        <img class="rule-char" src="./Resource/Texture/Char/Char_Erpin_Unos.png" alt="에르핀 우노스" style="height: 186px;">
+                                        <img class="rule-char" src="./Resource/Texture/Char/Char_Erpin_Unos.webp" alt="에르핀 우노스" style="height: 186px;">
                                         <div class="lobby-rule-banner-text">
                                             <span class="pill-badge" style="width: fit-content; background: #5E72E4; color: #fff; border: 2px solid #C5CEFF;">${lang === 'en' ? 'Alpha' : (lang === 'ja' ? 'アルファ' : '알파')}</span>
                                             <div style="font-size: 24px; font-weight: 900; color: #FFF8EE;">${escapeHtml(gameTitle)}</div>
@@ -773,6 +794,32 @@ export function initRoom(container, sceneParams = null) {
                 render();
             };
         });
+
+        // 재렌더 이전 열려있던 팝업 상태 복원 (카운트다운 진입 시에는 모두 닫힌 상태 유지)
+        if (!isCountdown) {
+            if (wasSettingsOpen && settingsPopup) {
+                settingsPopup.classList.add('open');
+            }
+            if (wasEditRoomOpen && editRoomModal && prevEditDraft) {
+                selectedEditMax = prevEditDraft.maxPlayers;
+                syncEditMaxStyles();
+                if (editTitleInput) editTitleInput.value = prevEditDraft.title;
+                if (editPwInput) editPwInput.value = prevEditDraft.password;
+                const pubRadio = container.querySelector('input[name="edit-room-visibility"][value="public"]');
+                const prvRadio = container.querySelector('input[name="edit-room-visibility"][value="private"]');
+                if (pubRadio && prvRadio) {
+                    pubRadio.checked = prevEditDraft.visibility !== 'private';
+                    prvRadio.checked = prevEditDraft.visibility === 'private';
+                }
+                editRoomModal.classList.add('open');
+            }
+            if (preservedDynamicModals.length > 0) {
+                const mountTarget = container.querySelector('.arena-stage') || container;
+                for (const liveModal of preservedDynamicModals) {
+                    mountTarget.appendChild(liveModal);
+                }
+            }
+        }
     };
 
     const langHandler = () => render();

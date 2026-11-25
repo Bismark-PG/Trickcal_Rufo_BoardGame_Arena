@@ -1,4 +1,4 @@
-// ProgramFiles/Marble/MarbleCardSpecial.js
+// ProgramFiles/Game/Marble/MarbleCardSpecial.js
 import {
     RuntimePopup,
     getTileName,
@@ -7,13 +7,14 @@ import {
     getGimmickText,
     getActiveWorld
 } from './MarbleRuntime.js';
-import { CARD_IDS, treasureCards } from '../System/Index/Marble/MarbleCardIndex.js';
-import { BOARD_TILES } from '../System/Index/Marble/MarbleBoardIndex.js';
-import { GAME_CONSTANTS, getActiveBoardSize, isPlayerTreasureUnlocked } from '../System/Index/Marble/MarblePriceIndex.js';
+import { CARD_IDS, treasureCards } from '../../System/Index/Marble/MarbleCardIndex.js';
+import { BOARD_TILES } from '../../System/Index/Marble/MarbleBoardIndex.js';
+import { GAME_CONSTANTS, getActiveBoardSize, isPlayerTreasureUnlocked } from '../../System/Index/Marble/MarblePriceIndex.js';
 import { WorldGimmickManager, syncFurryBeachFeeMultiplier } from './MarbleWorldGimmick.js';
 import { checkAndDestroyRank2Privilege, applyLapPassBonus } from './MarbleCardNormal.js';
-import { acquireTreasureCard, stealTreasureCardFromPlayer, getAvailableTreasureCards } from './MarbleCardTreasure.js';
+import { acquireTreasureCard, stealTreasureCardFromPlayer, getAvailableTreasureCards, getPlayerThinkTime } from './MarbleCardTreasure.js';
 import { AIManager } from './MarbleAI.js';
+import { buildCardActivationToast, formatCardActivationLog } from '../../System/Index/Marble/MarbleCardToastIndex.js';
 
 // ==========================================
 // 1. 특수 카드 (100번대 & 200번대) 발동/보유/저장 실행기
@@ -66,7 +67,8 @@ export function executeSpecialCard(ctx, card, onComplete = null) {
         // [101] 밑장빼기: 다음번 뽑을 차원 이동 카드가 2장이 됨
         case "spec_double_draw": {
             p.nextCardDoubleDraw = true;
-            RuntimePopup.showToast(`[${p.name}] ${uiText.SPEC_DOUBLE_DRAW_TOAST}`, 3400);
+            const tp = buildCardActivationToast({ card, actorName: p.name });
+            RuntimePopup.showToast(tp.otherMessage, 3400, null, { actorId: p.id, ...tp });
             ctx.refreshUI();
             scheduleGameTask(finish, 2000);
             break;
@@ -77,7 +79,8 @@ export function executeSpecialCard(ctx, card, onComplete = null) {
             if (ctx.reshuffleUsedCards) {
                 ctx.reshuffleUsedCards();
             }
-            RuntimePopup.showToast(`[${p.name}] ${uiText.SPEC_SHUFFLE_TOAST}`, 3400);
+            const tp = buildCardActivationToast({ card, actorName: p.name });
+            RuntimePopup.showToast(tp.otherMessage, 3400, null, { actorId: p.id, ...tp });
             ctx.refreshUI();
             scheduleGameTask(finish, 2000);
             break;
@@ -97,7 +100,8 @@ export function executeSpecialCard(ctx, card, onComplete = null) {
             checkAndDestroyRank2Privilege(p, ctx.tiles);
             ctx.updateRender();
             ctx.refreshUI();
-            RuntimePopup.showToast(`[${p.name}] ${uiText.SPEC_TAKE_DAYA_TOAST}`, 3600);
+            const tp = buildCardActivationToast({ card, actorName: p.name });
+            RuntimePopup.showToast(tp.otherMessage, 3600, null, { actorId: p.id, ...tp });
             scheduleGameTask(finish, 2000);
             break;
         }
@@ -105,7 +109,8 @@ export function executeSpecialCard(ctx, card, onComplete = null) {
         // [104] 에르핀의 주사위: 주사위 중 한 개가 에르핀 주사위로 변화
         case "spec_erpin_dice": {
             p.hasErpinDiceBuff = true;
-            RuntimePopup.showToast(uiText.ERPIN_DICE_USE || gText.ERPIN_DICE_TITLE, 3200, p.id);
+            const tp = buildCardActivationToast({ card, actorName: p.name });
+            RuntimePopup.showToast(tp.otherMessage, 3200, null, { actorId: p.id, ...tp });
             ctx.refreshUI();
             scheduleGameTask(finish, 2000);
             break;
@@ -115,10 +120,14 @@ export function executeSpecialCard(ctx, card, onComplete = null) {
         case "spec_bbangju_intrude": {
             const validTiles = ctx.tiles.filter(t => t.type !== 'card' && !t.isDisabled && t.type !== 'disabled' && t.id !== p.pos);
             const moveToTarget = (targetId) => {
-                if ((targetId < p.pos || targetId === BOARD_TILES.START) && targetId !== p.pos) {
-                    applyLapPassBonus(p, { showBlockedToast: true });
-                }
+                const fromPos = p.pos;
+                const passedStart = (targetId < p.pos || targetId === BOARD_TILES.START) && targetId !== p.pos;
+                const lapBonus = passedStart ? applyLapPassBonus(p, { showBlockedToast: true }) : 0;
                 p.pos = targetId;
+                ctx.emitMoveEvent?.(p, fromPos, targetId, 'card', { passedStart, lapBonus });
+                const destName = getTileName(ctx.tiles[targetId]) || '목적지';
+                const tp = buildCardActivationToast({ card, actorName: p.name, targetTileName: destName });
+                RuntimePopup.showToast(tp.otherMessage, 3200, null, { actorId: p.id, ...tp });
                 ctx.updateRender();
                 ctx.refreshUI();
                 scheduleGameTask(() => ctx.handleTileArrival(p), 1200);
@@ -165,22 +174,12 @@ export function executeSpecialCard(ctx, card, onComplete = null) {
             break;
         }
 
-        // [110] 시간가속: 시간대가 진행 중이면 즉시 남은 턴 2턴 단축 + 즉시 추가 1회 굴림 + 남은 현재 시간대 동안 주사위 2회 굴림, 아니면 인벤토리 보관 후 시간대 진행 시 사용
+        // [110] 시간가속: 인벤토리(손패)에 보관되며, 낮/밤 시간대 진행 중 내 턴에 사용할 수 있음
         case "spec_time_accel": {
-            const activeType = WorldGimmickManager.getActiveGimmickType();
-            if (activeType === 'day' || activeType === 'night') {
-                WorldGimmickManager.accelerateTime(2);
-                p.timeAccelBuffPhase = activeType;
-                p.timeAccelExtraRollAvailable = true;
-                ctx.refreshUI();
-                RuntimePopup.showToast(`[${p.name}] ${uiText.SPEC_TIME_ACCEL_TOAST}`, 3600);
-                scheduleGameTask(finish, 2000);
-            } else {
-                p.inventory.push({ ...card, _acquiredSeq: p.nextCardAcquireSeq ? p.nextCardAcquireSeq() : 0 });
-                RuntimePopup.showToast(`[${card.name}] ${uiText.CARD_STORED}`, 3200, p.id);
-                ctx.refreshUI();
-                scheduleGameTask(finish, 1800);
-            }
+            p.inventory.push({ ...card, _acquiredSeq: p.nextCardAcquireSeq ? p.nextCardAcquireSeq() : 0 });
+            RuntimePopup.showToast(`[${card.name}] ${uiText.CARD_STORED}`, 3200, p.id);
+            ctx.refreshUI();
+            scheduleGameTask(finish, 1800);
             break;
         }
 
@@ -215,7 +214,13 @@ export function executeSpecialCard(ctx, card, onComplete = null) {
                 const stolen = stealTreasureCardFromPlayer(ctx, p, targetPlayer);
                 if (stolen) {
                     recordMetricCount('treasureSpecialCardUseCounts', card.id);
-                    RuntimePopup.showToast(`[${p.name} ← ${targetPlayer.name}] ${uiText.SPEC_WOLF_DONE} [${stolen.name}]`, 3800);
+                    const tp = buildCardActivationToast({ card, actorName: p.name, targetPlayerName: targetPlayer.name });
+                    RuntimePopup.showToast(tp.otherMessage, 3800, null, {
+                        actorId: p.id,
+                        selfMessage: `🎯 ${targetPlayer.name}에게 효과 발동! (${uiText.SPEC_WOLF_DONE} [${stolen.name}])`,
+                        otherMessage: tp.otherMessage,
+                        logMessage: tp.logMessage
+                    });
                 }
                 ctx.refreshUI();
                 scheduleGameTask(finish, 2000);
@@ -260,19 +265,48 @@ export function executeSpecialCard(ctx, card, onComplete = null) {
             } else {
                 p.hasWishState = true;
             }
-            if (WorldGimmickManager.triggerHaloByCard) {
-                WorldGimmickManager.triggerHaloByCard(ctx.allPlayers, p, isJudgment ? 'dream' : 'wish', ctx);
-            }
+            const haloUiInfo = WorldGimmickManager.triggerHaloByCard
+                ? WorldGimmickManager.triggerHaloByCard(ctx.allPlayers, p, isJudgment ? 'dream' : 'wish', ctx)
+                : null;
             RuntimePopup.showToast(
                 `[${p.name}] ${isJudgment ? uiText.SPEC_JUDGMENT_TOAST : uiText.SPEC_WISH_TOAST}`,
                 3800
             );
             ctx.updateRender();
             ctx.refreshUI();
-            scheduleGameTask(() => {
+            const proceedRollAfterHalo = () => {
+                if (ctx.turnTimer) ctx.turnTimer.stop();
+                RuntimePopup.closeAll();
                 if (ctx.setWaitingAction) ctx.setWaitingAction(false);
                 ctx.executeRoll();
-            }, 2000);
+            };
+            if (haloUiInfo && typeof ctx.runNoticeSequence === 'function') {
+                const steps = [{
+                    title: haloUiInfo.title,
+                    desc: haloUiInfo.desc,
+                    titleColor: haloUiInfo.titleColor || null,
+                    tileId: haloUiInfo.tileId ?? 20,
+                    durationSec: 5
+                }];
+                if (haloUiInfo.worldNotice) {
+                    steps.push({ ...haloUiInfo.worldNotice, durationSec: 5 });
+                }
+                ctx.runNoticeSequence(steps, proceedRollAfterHalo);
+            } else {
+                if (haloUiInfo && typeof ctx.broadcastSootClimax === 'function') {
+                    ctx.broadcastSootClimax(haloUiInfo.title, haloUiInfo.desc, p.isAi() ? null : p.id, {
+                        titleColor: haloUiInfo.titleColor || null
+                    });
+                }
+                if (!p.isAi() && haloUiInfo) {
+                    if (ctx.turnTimer) ctx.turnTimer.start(getPlayerThinkTime(p), proceedRollAfterHalo);
+                    RuntimePopup.showNormalPopup(haloUiInfo.title, haloUiInfo.desc, true, proceedRollAfterHalo, {
+                        titleColor: haloUiInfo.titleColor || null
+                    });
+                } else {
+                    scheduleGameTask(proceedRollAfterHalo, 2000);
+                }
+            }
             break;
         }
 
@@ -396,7 +430,18 @@ export function useSpecialActiveCard(ctx, card, finalizeUse, onCancel = null) {
         }
         RuntimePopup.closeAll();
         finalizeUse();
-        const actorPrefix = ctx.player?.name ? `[${ctx.player.name}] ` : '';
-        RuntimePopup.showToast(`${actorPrefix}${uiText.SPEC_TIME_ACCEL_TOAST}`, 3600);
+        const phaseKr = activeType === 'night' ? '밤' : '낮';
+        const tp = buildCardActivationToast({
+            card,
+            actorName: ctx.player?.name || '플레이어',
+            phaseLabel: phaseKr,
+            turns: 2
+        });
+        RuntimePopup.showToast(tp.otherMessage, 3600, null, {
+            actorId: ctx.player?.id || null,
+            selfMessage: uiText.SPEC_TIME_ACCEL_TOAST,
+            otherMessage: tp.otherMessage,
+            logMessage: tp.logMessage
+        });
     }
 }

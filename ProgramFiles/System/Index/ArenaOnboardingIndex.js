@@ -24,6 +24,17 @@ export const ONBOARDING_LIMITS = {
     SESSION_NICK_STORAGE_KEY: 'rufo_nickname'
 };
 
+export const ARENA_PROJECT_INFO = {
+    VERSION_LABEL: '알파 1.0'
+};
+
+export const ARENA_LEGAL_NOTICE_LINES = [
+    '본 게임은 (주)에피드게임즈의 「트릭컬 리바이브」 IP를 기반으로 제작된 비공식 2차 창작 팬게임입니다.',
+    '원작 IP에 대한 모든 저작권 및 권리는 원저작권자 (주)에피드게임즈 에게 있으며, 사용된 리소스의 무단 추출 및 재배포를 금합니다.',
+    '본 게임은 상업적 목적 없이 비영리로 운영되며, 게임 및 제작자는 어떠한 수익 창출 / 광고 / 후원을 받지 않습니다.',
+    '또한, 원저작권자의 요청이 있을 경우 서비스를 종료하며, 운영자 사정에 따라 사전 공지 없이 주말농장에 갈 수도 있습니다.'
+];
+
 export function getNicknameMaxLength(_trimmedNick) {
     return ONBOARDING_LIMITS.MAX_NICKNAME_LENGTH;
 }
@@ -135,7 +146,23 @@ export const OnboardingLang = {
 
         // 공용 [정보] 팝업
         BTN_INFO: 'ℹ️ 정보',
-        INFO_MODAL_TITLE: 'ℹ️ 아레나 정보',
+        INFO_MODAL_TITLE: 'ℹ️ 프로젝트 정보',
+        INFO_SECTION_PROJECT: '🎲 루포의 보드게임 아레나',
+        INFO_PROJECT_NAME: '루포의 보드게임 아레나',
+        INFO_PROJECT_VERSION_LABEL: '현재 버전',
+        INFO_PROJECT_VERSION_VALUE: '알파 1.0',
+        INFO_PROJECT_DESC: '현재 버전 : 알파 1.0\n「트릭컬 리바이브」의 비공식 팬메이드 2차 창작 게임프로젝트입니다.\n비정기적으로 업데이트되며, 사정에의해 중단될수도 있습니다.',
+        INFO_PROJECT_DESC_LINES: [
+            '현재 버전 : 알파 1.0',
+            '「트릭컬 리바이브」의 비공식 팬메이드 2차 창작 게임프로젝트입니다.',
+            '비정기적으로 업데이트되며, 사정에의해 중단될수도 있습니다.'
+        ],
+        INFO_BTN_HELP: '❓ 도움말',
+        INFO_BTN_TERMS: '📜 이용약관',
+        HELP_MODAL_TITLE: '❓ 도움말',
+        HELP_MODAL_PLACEHOLDER_TITLE: '도움말을 준비 중인 것이다!',
+        HELP_MODAL_PLACEHOLDER_DESC: '아레나 이용 방법과 종목별 상세 안내는 추후 업데이트될 예정입니다. 궁금한 점이나 제안은 [정보 → 건의하기]로 남겨 주세요!',
+        TERMS_MODAL_TITLE: '📜 이용약관 및 저작권 안내',
         INFO_SECTION_CERT: '🪪 내 증명서 (닉네임 변경)',
         INFO_BTN_CHANGE_NICK: '변경',
         INFO_SECTION_FEEDBACK: '📢 버그 제보 및 건의하기',
@@ -184,7 +211,23 @@ export const OnboardingLang = {
         ERR_COUNTDOWN_LOCKED: 'Cannot open Info while the start countdown is active.',
 
         BTN_INFO: 'ℹ️ Info',
-        INFO_MODAL_TITLE: 'ℹ️ Arena Info',
+        INFO_MODAL_TITLE: 'ℹ️ Project Info',
+        INFO_SECTION_PROJECT: '🎲 Rufo\'s Board Game Arena',
+        INFO_PROJECT_NAME: 'Rufo\'s Board Game Arena',
+        INFO_PROJECT_VERSION_LABEL: 'Version',
+        INFO_PROJECT_VERSION_VALUE: 'Alpha 1.0',
+        INFO_PROJECT_DESC: 'Current Version : Alpha 1.0\nAn unofficial fan-made derivative game project based on Trickcal: Revive.\nUpdated irregularly and may be discontinued depending on circumstances.',
+        INFO_PROJECT_DESC_LINES: [
+            'Current Version : Alpha 1.0',
+            'An unofficial fan-made derivative game project based on Trickcal: Revive.',
+            'Updated irregularly and may be discontinued depending on circumstances.'
+        ],
+        INFO_BTN_HELP: '❓ Help',
+        INFO_BTN_TERMS: '📜 Terms',
+        HELP_MODAL_TITLE: '❓ Help',
+        HELP_MODAL_PLACEHOLDER_TITLE: 'Help guide is coming soon!',
+        HELP_MODAL_PLACEHOLDER_DESC: 'Detailed Arena and game guides will be added in a future update. Feel free to send questions or ideas via [Info → Suggestion].',
+        TERMS_MODAL_TITLE: '📜 Terms & Copyright Notice',
         INFO_SECTION_CERT: '🪪 My Certificate (Nickname)',
         INFO_BTN_CHANGE_NICK: 'Apply',
         INFO_SECTION_FEEDBACK: '📢 Bug Report & Suggestions',
@@ -233,7 +276,23 @@ export const OnboardingLang = {
         ERR_COUNTDOWN_LOCKED: 'カウントダウン中は情報ウィンドウを開けません。',
 
         BTN_INFO: 'ℹ️ 情報',
-        INFO_MODAL_TITLE: 'ℹ️ アリーナ情報',
+        INFO_MODAL_TITLE: 'ℹ️ プロジェクト情報',
+        INFO_SECTION_PROJECT: '🎲 ルポのボードゲームアリーナ',
+        INFO_PROJECT_NAME: 'ルポのボードゲームアリーナ',
+        INFO_PROJECT_VERSION_LABEL: 'バージョン',
+        INFO_PROJECT_VERSION_VALUE: 'Alpha 1.0',
+        INFO_PROJECT_DESC: '現在バージョン : Alpha 1.0\n『トリッカル・もちもちほっペ大作戦』の非公式ファンメイド二次創作ゲームプロジェクトです。\n不定期でアップデートされ、事情により中断される場合があります。',
+        INFO_PROJECT_DESC_LINES: [
+            '現在バージョン : Alpha 1.0',
+            '『トリッカル・もちもちほっペ大作戦』の非公式ファンメイド二次創作ゲームプロジェクトです。',
+            '不定期でアップデートされ、事情により中断される場合があります。'
+        ],
+        INFO_BTN_HELP: '❓ ヘルプ',
+        INFO_BTN_TERMS: '📜 利用規約',
+        HELP_MODAL_TITLE: '❓ ヘルプ',
+        HELP_MODAL_PLACEHOLDER_TITLE: 'ヘルプページを準備中なのだ！',
+        HELP_MODAL_PLACEHOLDER_DESC: 'アリーナの遊び方や各ゲームの詳しい案内は今後のアップデートで追加予定です。ご要望は[情報 → ご意見]からお送りください。',
+        TERMS_MODAL_TITLE: '📜 利用規約・著作権のご案内',
         INFO_SECTION_CERT: '🪪 自分の証明書 (ニックネーム変更)',
         INFO_BTN_CHANGE_NICK: '変更',
         INFO_SECTION_FEEDBACK: '📢 バグ報告・ご意見',

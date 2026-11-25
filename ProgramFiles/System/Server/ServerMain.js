@@ -369,7 +369,21 @@ export async function startArenaServer({
     };
 }
 
-const isDirectEntry = process.argv[1] && path.resolve(process.argv[1]) === __filename;
+export function isDirectServerEntry(
+    argv1 = process.argv[1],
+    pmExecPath = process.env.pm_exec_path,
+    currentFile = __filename
+) {
+    if (typeof argv1 === 'string' && argv1.length > 0 && path.resolve(argv1) === currentFile) {
+        return true;
+    }
+    if (typeof pmExecPath === 'string' && pmExecPath.length > 0 && path.resolve(pmExecPath) === currentFile) {
+        return true;
+    }
+    return false;
+}
+
+const isDirectEntry = isDirectServerEntry();
 if (isDirectEntry) {
     let instance = null;
     startArenaServer().then((srv) => {

@@ -1,5 +1,5 @@
-import { TimeSlotConfig } from '../System/Index/Marble/MarbleBoardIndex.js';
-import { GAME_CONSTANTS, MULTIPLIERS, getModeConfig } from '../System/Index/Marble/MarblePriceIndex.js';
+import { TimeSlotConfig } from '../../System/Index/Marble/MarbleBoardIndex.js';
+import { GAME_CONSTANTS, MULTIPLIERS, getModeConfig } from '../../System/Index/Marble/MarblePriceIndex.js';
 import { getActiveWorld } from './MarbleRuntime.js';
 
 function getTimeSlotModeBounds() {

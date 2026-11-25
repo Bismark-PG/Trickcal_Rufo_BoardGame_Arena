@@ -2,26 +2,28 @@
 // 아레나 최초 접속 시 공용 및 부팅 대상 멀티플레이 게임 리소스를 단계별로 프리로딩하는 허브
 
 import { getBootPreloadGames } from './GameRegistry.js';
-import { getMarblePreloadManifest, preloadMarbleAssets } from '../Marble/MarbleAssetLoader.js';
+import { getMarblePreloadManifest, preloadMarbleAssets } from '../Game/Marble/MarbleAssetLoader.js';
+import { getUnosPreloadManifest, preloadUnosAssets } from '../Game/Unos/UnosAssetLoader.js';
 import { ErrorTracker } from './ErrorTracker.js';
 
 const ARENA_COMMON_ASSETS = [
-    './Resource/Texture/Char/Char_Rufo_Sit.png',
-    './Resource/Texture/Logo_Trickcal.png',
-    './Resource/Texture/Char/Char_Erpin_Marble.png',
-    './Resource/Texture/Char/Char_Erpin_Unos.png',
-    './Resource/Texture/Char/Char_Dummy.png',
-    './Resource/Texture/Char/Char_Rufo_Close.png',
-    './Resource/Texture/Char/Char_Rufo_Dice.png',
-    './Resource/Texture/Char/Char_Rufo_Happy_1.png',
-    './Resource/Texture/Char/Char_Rufo_Happy_2.png',
-    './Resource/Texture/Char/Char_Rufo_Happy_3.png',
-    './Resource/Texture/Char/Char_Rufo_Idle.png',
-    './Resource/Texture/Char/Char_Rufo_Surprise.png',
-    './Resource/Texture/Char/Char_Rufo_Taunt_1.png',
-    './Resource/Texture/Char/Char_Rufo_Taunt_2.png',
-    './Resource/Texture/BG/BG_Throne_room.png',
-    './Resource/Texture/BG/BG_Broken_Altar_Special.png'
+    './Resource/Texture/Char/Char_Rufo_Sit.webp',
+    './Resource/Texture/Logo_Arena.webp',
+    './Resource/Texture/Char/Char_Erpin_Marble.webp',
+    './Resource/Texture/Char/Char_Erpin_Unos.webp',
+    './Resource/Texture/Minimi/Minimi_Rufo.webp',
+    './Resource/Texture/Char/Char_Rufo_Close.webp',
+    './Resource/Texture/Char/Char_Rufo_Dice.webp',
+    './Resource/Texture/Char/Char_Rufo_Happy_1.webp',
+    './Resource/Texture/Char/Char_Rufo_Happy_2.webp',
+    './Resource/Texture/Char/Char_Rufo_Happy_3.webp',
+    './Resource/Texture/Char/Char_Rufo_Idle.webp',
+    './Resource/Texture/Char/Char_Rufo_Surprise.webp',
+    './Resource/Texture/Char/Char_Rufo_Taunt_1.webp',
+    './Resource/Texture/Char/Char_Rufo_Taunt_2.webp',
+    './Resource/Texture/BG/BG_Throne_room.webp',
+    './Resource/Texture/BG/BG_Broken_Altar_Special.webp',
+    './Resource/Texture/UNOS/Card_Back.webp'
 ];
 
 const _commonImageCache = new Map();
@@ -45,6 +47,11 @@ export function registerGameAssetLoader(gameId, spec) {
 registerGameAssetLoader('marble', {
     getAssetCount: () => getMarblePreloadManifest().all.length,
     preload: preloadMarbleAssets
+});
+
+registerGameAssetLoader('unos', {
+    getAssetCount: () => getUnosPreloadManifest().all.length,
+    preload: preloadUnosAssets
 });
 
 export function getCachedCommonImage(src) {

@@ -16,7 +16,7 @@ import { GAME_CONSTANTS, getModeConfig, normalizeMarbleMode } from '../System/In
 import { NetworkClient } from '../System/NetworkClient.js';
 import { SystemLogManager } from '../System/Log/SystemLogManager.js';
 import { ErrorTracker } from '../System/ErrorTracker.js';
-import { MarbleGameEngine } from '../Marble/MarbleEngine.js';
+import { MarbleGameEngine } from '../Game/Marble/MarbleEngine.js';
 
 const SLOT_COLORS = ['#e74c3c', '#3498db', '#f1c40f', '#9b59b6', '#2ecc71', '#e67e22'];
 const MOCK_NAMES = ['에르핀', '네르', '다야', '티그', '루포', '슈로', '코미', '버터'];
@@ -1133,6 +1133,16 @@ export const RoomManager = {
                     const viewer = this.localEngine ? resolveViewer(this.localEngine) : currentViewerId;
                     if (event?.targetPlayerId && event.targetPlayerId !== viewer) {
                         return;
+                    }
+                    if (event?.type === 'TOAST' && (event.selfMessage || event.otherMessage) && event.actorId) {
+                        const personalMsg = event.actorId === viewer
+                            ? (event.selfMessage || event.message)
+                            : (event.otherMessage || event.message);
+                        event = {
+                            ...event,
+                            message: personalMsg,
+                            logMessage: event.logMessage || event.otherMessage || event.message
+                        };
                     }
                     if (event?.type === 'GAME_OVER') {
                         this.resetOfflineHostIdleStrikes();

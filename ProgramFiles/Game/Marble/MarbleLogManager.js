@@ -1,10 +1,10 @@
-// ProgramFiles/Marble/MarbleLogManager.js
+// ProgramFiles/Game/Marble/MarbleLogManager.js
 // 엘리아스 마블 게임 전용 경기 메트릭 추출, 마르코프 보물 기댓값 연산,
 // 1사이클 상세 로그 및 최근 100사이클 평균 밸런스 로그 생성 어댑터
 
-import { GAME_CONSTANTS, BUILDING_COSTS, getModeConfig, getActiveBoardSize } from '../System/Index/Marble/MarblePriceIndex.js';
-import { BOARD_TILES, SPECIAL_TERRITORY_IDS } from '../System/Index/Marble/MarbleBoardIndex.js';
-import { CardIndex } from '../System/Index/Marble/MarbleCardIndex.js';
+import { GAME_CONSTANTS, BUILDING_COSTS, getModeConfig, getActiveBoardSize } from '../../System/Index/Marble/MarblePriceIndex.js';
+import { BOARD_TILES, SPECIAL_TERRITORY_IDS } from '../../System/Index/Marble/MarbleBoardIndex.js';
+import { CardIndex } from '../../System/Index/Marble/MarbleCardIndex.js';
 import { processFinalSettlement, getSpecialTerritoryVillageToll } from './MarbleSettlement.js';
 
 const ALL_CARDS_CATALOG = (CardIndex.ko || []).map(c => ({

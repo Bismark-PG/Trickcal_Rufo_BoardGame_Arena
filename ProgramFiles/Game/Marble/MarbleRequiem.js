@@ -7,12 +7,12 @@ import {
     getActiveWorld,
     getGimmickText
 } from './MarbleRuntime.js';
-import { BOARD_TILES } from '../System/Index/Marble/MarbleBoardIndex.js';
-import { GAME_CONSTANTS, BUILDING_COSTS, MULTIPLIERS, getModeConfig } from '../System/Index/Marble/MarblePriceIndex.js';
+import { BOARD_TILES } from '../../System/Index/Marble/MarbleBoardIndex.js';
+import { GAME_CONSTANTS, BUILDING_COSTS, MULTIPLIERS, getModeConfig } from '../../System/Index/Marble/MarblePriceIndex.js';
 import { getPlayerThinkTime } from './MarbleCardTreasure.js';
 import { AIManager } from './MarbleAI.js';
 
-const MAKASHA_SUPPORT_AMOUNT = 1000000; // 마카샤 생존 지원금 100만 엘드르 달러
+export const MAKASHA_SUPPORT_AMOUNT = 1000000; // 마카샤 생존 지원금 100만 엘드르 달러
 
 export function ensureSootPnlEntry(wm, player, forcedRole = null) {
     if (!wm || !player?.id) return null;
@@ -311,7 +311,9 @@ export function checkAndTriggerClimax(ctx) {
             state.reincarnatedPlayer = null;
 
             // 마지막(6번째) 보물 획득자는 망가진 제단으로 강제 이동
+            const branch1PrevPos = player.pos;
             player.pos = BOARD_TILES.ALTAR;
+            ctx.emitMoveEvent?.(player, branch1PrevPos, BOARD_TILES.ALTAR, 'altar');
 
             // 망가진 제단이 모든 플레이어에게서 보물 카드를 강제 회수
             allPlayers.forEach(p => {
@@ -322,19 +324,14 @@ export function checkAndTriggerClimax(ctx) {
                 }
             });
 
-            // 모든 생존 플레이어가 마카샤로부터 100만 달러를 지급받음
-            const wm1 = getActiveWorld()?.metrics;
+            // 모든 생존 플레이어에게 자신의 다음 턴 시작 시 마카샤 100만 엘드르 달러 지급 예약 (발동 시점에는 공지만)
             allPlayers.forEach(p => {
                 if (!p.isBankrupt) {
-                    p.money += MAKASHA_SUPPORT_AMOUNT;
-                    if (wm1) {
-                        wm1.sootMakashaTotal = (wm1.sootMakashaTotal || 0) + MAKASHA_SUPPORT_AMOUNT;
-                        ensureSootPnlEntry(wm1, p, 'branch1').cash += MAKASHA_SUPPORT_AMOUNT;
-                    }
+                    p.pendingMakashaSupport = true;
                 }
             });
 
-            popupDesc = `${gText.REQ_BRANCH_1_DESC}\n\n${gText.REQ_MAKASHA_SUPPORT}\n\n${gText.REQ_SOOT_START}`;
+            popupDesc = `${gText.REQ_BRANCH_1_DESC}\n\n${gText.REQ_SOOT_START}`;
         }
         // ==========================================
         // 분기 2: 망가진 제단에 보물이 교환된 적이 없는 경우 (윤회 존재 분기)
@@ -355,6 +352,7 @@ export function checkAndTriggerClimax(ctx) {
 
             state.reincarnatedPlayer = bossPlayer;
             bossPlayer.isReincarnated = true; // [윤회] 상태 부여
+            bossPlayer.pendingMakashaSupport = false;
 
             // 모든 플레이어의 보물 카드는 로직상 분기 1과 동일하게 소멸 (단, UI 연출용으로만 그을음 종료 시까지 6개 표시)
             allPlayers.forEach(p => {
@@ -367,24 +365,22 @@ export function checkAndTriggerClimax(ctx) {
             // 분기 2 [윤회] 보유자는 501·502·503 포지티브 패시브 효과를 그을음 동안 유지
             bossPlayer.bowExtraRollAvailable = true;
 
-            // 윤회를 얻은 플레이어를 제외한 모든 생존 플레이어가 마카샤로부터 100만 달러를 지급받음
+            // 윤회를 얻은 플레이어를 제외한 모든 생존 플레이어에게 자신의 다음 턴 시작 시 마카샤 100만 지원금 지급 예약
             const wm2 = getActiveWorld()?.metrics;
             allPlayers.forEach(p => {
                 if (!p.isBankrupt && wm2) {
                     ensureSootPnlEntry(wm2, p, p === bossPlayer ? 'reincarnated' : 'opposed');
                 }
                 if (p !== bossPlayer && !p.isBankrupt) {
-                    p.money += MAKASHA_SUPPORT_AMOUNT;
-                    if (wm2) {
-                        wm2.sootMakashaTotal = (wm2.sootMakashaTotal || 0) + MAKASHA_SUPPORT_AMOUNT;
-                        ensureSootPnlEntry(wm2, p, 'opposed').cash += MAKASHA_SUPPORT_AMOUNT;
-                    }
+                    p.pendingMakashaSupport = true;
                 }
             });
 
             // 윤회 획득자는 망가진 제단으로 이동
+            const branch2PrevPos = bossPlayer.pos;
             bossPlayer.pos = BOARD_TILES.ALTAR;
-            popupDesc = `${gText.REQ_BRANCH_2_DESC}\n[${bossPlayer.name}]${gText.REQ_REINCARNATION}\n\n${gText.REQ_MAKASHA_SUPPORT}\n${gText.REQ_MAKASHA_EXCEPT_BOSS}\n\n${gText.REQ_SOOT_START}`;
+            ctx.emitMoveEvent?.(bossPlayer, branch2PrevPos, BOARD_TILES.ALTAR, 'altar');
+            popupDesc = `${gText.REQ_BRANCH_2_DESC}\n[${bossPlayer.name}]${gText.REQ_REINCARNATION}\n\n${gText.REQ_SOOT_START}`;
         }
 
         const worldMetrics = getActiveWorld()?.metrics;
@@ -395,22 +391,55 @@ export function checkAndTriggerClimax(ctx) {
             initSootAnalyticsExpectations(worldMetrics, allPlayers, ctx.tiles, currentGlobalTurn, hasPriorAltarTrade, state.reincarnatedPlayer);
         }
 
+        const reincarnatedBoss = !hasPriorAltarTrade ? state.reincarnatedPlayer : null;
+        const birthTitle = gText.REQ_REINCARNATION_BIRTH_TITLE || '🔥 윤회자 탄생!';
+        const birthDesc = reincarnatedBoss
+            ? `[${reincarnatedBoss.name}]${gText.REQ_REINCARNATION_BIRTH_DESC_SUFFIX || '님이 망가진 제단에서 모든 보물을 흡수하고 「윤회」 상태로 각성했습니다!'}`
+            : '';
+
         if (updateRender) updateRender();
         if (refreshUI) refreshUI();
 
-        const doneClimax = () => {
+        if (typeof ctx.broadcastSootClimax === 'function') {
+            ctx.broadcastSootClimax(popupTitle, popupDesc, player.isAi() ? null : player.id);
+        }
+
+        const finishEnd = () => {
             if (ctx.turnTimer) ctx.turnTimer.stop();
             RuntimePopup.closeAll();
             if (refreshUI) refreshUI();
             if (proceedEndTurn) proceedEndTurn();
         };
 
+        const showBirthStepOrEnd = () => {
+            if (!reincarnatedBoss) {
+                finishEnd();
+                return;
+            }
+            if (typeof ctx.broadcastSootClimax === 'function') {
+                ctx.broadcastSootClimax(birthTitle, birthDesc, player.isAi() ? null : player.id, {
+                    tileId: BOARD_TILES.ALTAR,
+                    titleColor: '#B83724'
+                });
+            }
+            if (player.isAi()) {
+                finishEnd();
+                return;
+            }
+            if (ctx.turnTimer) ctx.turnTimer.start(Math.max(12, getPlayerThinkTime(player)), finishEnd);
+            RuntimePopup.showNormalPopup(birthTitle, birthDesc, true, finishEnd, {
+                tileId: BOARD_TILES.ALTAR,
+                titleColor: '#B83724'
+            });
+        };
+
         if (player.isAi()) {
-            RuntimePopup.showToast(`${popupTitle} - ${gText.REQ_SOOT_START}`, 4200);
-            scheduleGameTask(doneClimax, 2800);
+            RuntimePopup.showToast(gText.REQ_SOOT_START_TOAST || '🔥 3턴간 세상에 [그을음]이 드리웁니다.', 3800);
+            scheduleGameTask(showBirthStepOrEnd, 2800);
         } else {
-            if (ctx.turnTimer) ctx.turnTimer.start(Math.max(15, getPlayerThinkTime(player)), doneClimax);
-            RuntimePopup.showNormalPopup(popupTitle, popupDesc, true, doneClimax);
+            RuntimePopup.showToast(gText.REQ_SOOT_START_TOAST || '🔥 3턴간 세상에 [그을음]이 드리웁니다.', 3800);
+            if (ctx.turnTimer) ctx.turnTimer.start(Math.max(15, getPlayerThinkTime(player)), showBirthStepOrEnd);
+            RuntimePopup.showNormalPopup(popupTitle, popupDesc, true, showBirthStepOrEnd);
         }
         return true;
     }
@@ -423,6 +452,7 @@ export function checkAndTriggerClimax(ctx) {
 export function triggerHaloByCard(allPlayers, cardUser, stateType, ctx = null) {
     const gText = getGimmickText();
     const state = rq();
+    const wasSoot = Boolean(state.isSootState);
 
     state.isSootState = false;
     state.isHaloState = true;
@@ -454,8 +484,33 @@ export function triggerHaloByCard(allPlayers, cardUser, stateType, ctx = null) {
         const currentTurn = ctx?.turnManager ? ctx.turnManager.globalTurn : (state.gimmickTriggeredGlobalTurn || 1);
         initHaloAnalyticsExpectation(worldMetrics, allPlayers, ctx?.tiles || [], currentTurn, true);
     }
-    const actorPrefix = cardUser?.name ? `[${cardUser.name}] ` : '';
-    RuntimePopup.showToast(`${actorPrefix}${gText.HALO_START_CARD}`, 3800);
+    if (wasSoot) {
+        RuntimePopup.showToast(gText.HALO_SOOT_ENDED_TOAST || '✨ 세상에 드리운 [그을음]이 물러갔습니다!', 3800);
+    }
+
+    const worldNotice = {
+        title: gText.HALO_WORLD_CHANGED_TITLE || '✨ 빛무리 강림!',
+        desc: gText.HALO_WORLD_CHANGED_DESC || '2턴간 세상이 [빛무리]로 변했습니다!\n그을음의 잔재가 물러가고 빛무리의 효과가 적용됩니다.',
+        titleColor: '#0A6770',
+        tileId: 20
+    };
+    const actorName = cardUser?.name || '플레이어';
+    if (stateType === 'dream') {
+        return {
+            title: gText.HALO_CARD_JUDGMENT_TITLE || '🦋 심판의 시간 : [빛무리] 강림!',
+            desc: `[${actorName}]${gText.HALO_CARD_JUDGMENT_DESC_SUFFIX || '님이 [심판의 시간] 카드를 발동하여 2턴간 [빛무리]가 시작됩니다!'}`,
+            titleColor: '#5E2B7A',
+            tileId: 20,
+            worldNotice
+        };
+    }
+    return {
+        title: gText.HALO_CARD_WISH_TITLE || '🌟 교주의 염원 : [빛무리] 강림!',
+        desc: `[${actorName}]${gText.HALO_CARD_WISH_DESC_SUFFIX || '님이 [교주의 염원] 카드를 발동하여 2턴간 [빛무리]가 시작됩니다!'}`,
+        titleColor: '#B35300',
+        tileId: 20,
+        worldNotice
+    };
 }
 
 // ==========================================
@@ -510,7 +565,20 @@ export function advanceRequiemOnTurnStart(currentPlayer, globalTurn, allPlayers,
                     worldMetrics.haloNaturalCount++;
                     initHaloAnalyticsExpectation(worldMetrics, allPlayers, tiles || [], globalTurn, false);
                 }
-                RuntimePopup.showToast(gText.HALO_START_NATURAL, 4000);
+                RuntimePopup.showToast(gText.HALO_SOOT_ENDED_TOAST || '✨ 세상에 드리운 [그을음]이 물러갔습니다!', 4000);
+                return {
+                    haloNaturalStarted: true,
+                    title: gText.HALO_NATURAL_TITLE || '✨ 세계 변화 : [빛무리] 강림!',
+                    desc: gText.HALO_NATURAL_DESC || '그을음 3턴이 모두 경과하여 혼란이 걷히고, 2턴간 [빛무리] 상태가 시작됩니다!',
+                    titleColor: '#0A6770',
+                    tileId: 20,
+                    worldNotice: {
+                        title: gText.HALO_WORLD_CHANGED_TITLE || '✨ 빛무리 강림!',
+                        desc: gText.HALO_WORLD_CHANGED_DESC || '2턴간 세상이 [빛무리]로 변했습니다!\n그을음의 잔재가 물러가고 빛무리의 효과가 적용됩니다.',
+                        titleColor: '#0A6770',
+                        tileId: 20
+                    }
+                };
             }
         } else if (state.isHaloState) {
             state.haloRemainingTurns--;
@@ -521,6 +589,7 @@ export function advanceRequiemOnTurnStart(currentPlayer, globalTurn, allPlayers,
             }
         }
     }
+    return null;
 }
 
 // ==========================================

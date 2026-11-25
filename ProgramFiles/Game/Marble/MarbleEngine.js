@@ -1,4 +1,4 @@
-// ProgramFiles/Marble/MarbleEngine.js
+// ProgramFiles/Game/Marble/MarbleEngine.js
 // 서버-권위적(Server-Authoritative) 및 오프라인 로컬 폴백 겸용 순수 엘리아스 마블 게임 엔진
 
 import { generateTiles, TurnManager, calculateToll, calculateTollBreakdown, calculatePurchaseCost, getTileSellValue } from './MarbleLogic.js';
@@ -8,11 +8,13 @@ import { BoardGimmickHandlers } from './MarbleBoardGimmick.js';
 import { handleTollPaymentProcess, executePlayerLoanBorrow } from './MarbleEconomy.js';
 import { processFinalSettlement, serializeSettlementResults } from './MarbleSettlement.js';
 import { AIManager } from './MarbleAI.js';
+import { formatCardActivationLog } from '../../System/Index/Marble/MarbleCardToastIndex.js';
 import { removeCardFromInventory, useActiveCard, openPlayerCardSelector, getUsableCards, canUseActiveCard } from './MarbleCard.js';
 import { getPlayerThinkTime, getPlayerDiceCount, isBowVillageForced } from './MarbleCardTreasure.js';
 import { getStartPassBonus, applyLapPassBonus } from './MarbleCardNormal.js';
 import {
     RequiemState,
+    MAKASHA_SUPPORT_AMOUNT,
     handleReincarnationTurnSkill,
     getPositiveEffectMultiplier,
     ensureSootPnlEntry,
@@ -26,18 +28,19 @@ import {
 import {
     createMarbleWorldState,
     runWithMarbleScope,
+    getTileName,
     formatMoney,
     getMarbleText,
     getCardUIText,
     getGimmickText
 } from './MarbleRuntime.js';
-import { LangState } from '../System/LanguageManager.js';
+import { LangState } from '../../System/LanguageManager.js';
 import {
     pickRandomBotName,
     AI_DIFFICULTIES,
     AI_ARCHETYPE_POOL,
     normalizeAiDifficulty
-} from '../System/GameRegistry.js';
+} from '../../System/GameRegistry.js';
 import {
     GAME_CONSTANTS,
     BUILDING_COSTS,
@@ -47,9 +50,10 @@ import {
     getMaxAllowedBuildLevel,
     getActiveBoardSize,
     stepActiveBoardPos
-} from '../System/Index/Marble/MarblePriceIndex.js';
-import { BOARD_TILES } from '../System/Index/Marble/MarbleBoardIndex.js';
-import { CARD_IDS } from '../System/Index/Marble/MarbleCardIndex.js';
+} from '../../System/Index/Marble/MarblePriceIndex.js';
+import { BOARD_TILES } from '../../System/Index/Marble/MarbleBoardIndex.js';
+import { CARD_IDS } from '../../System/Index/Marble/MarbleCardIndex.js';
+import { MARBLE_MINIMI_POOL } from './MarbleAssetLoader.js';
 
 const DEFAULT_PLAYER_COLORS = ['#e74c3c', '#3498db', '#f1c40f', '#9b59b6'];
 
@@ -266,9 +270,14 @@ export class MarbleGameEngine {
         this._promptSeq = 0;
         this.pendingPrompt = null;
         this._arrivalTileId = null;
+        this._diceRollSeq = 0;
+        this._moveSeq = 0;
+        this._noticeSeq = 0;
+        this._activeNoticeBarrier = null;
 
         this.diceState = {
             visible: false,
+            rollSeq: 0,
             title: '',
             d1: 1,
             d2: 1,
@@ -350,13 +359,14 @@ export class MarbleGameEngine {
 
     _createRuntimePort() {
         return {
-            showToast: (message, duration = 3200, targetPlayerId = null) => {
+            showToast: (message, duration = 3200, targetPlayerId = null, extra = null) => {
                 if (this.destroyed || !this.callbacks.onEvent) return;
                 this.callbacks.onEvent({
                     type: 'TOAST',
                     message,
                     duration,
-                    targetPlayerId: targetPlayerId ?? null
+                    targetPlayerId: targetPlayerId ?? null,
+                    ...(extra && typeof extra === 'object' ? extra : {})
                 });
             },
             closeAll: () => {
@@ -395,6 +405,7 @@ export class MarbleGameEngine {
                     desc,
                     showCloseBtn: Boolean(showCloseBtn),
                     isNormalAlert: Boolean(showCloseBtn),
+                    ...(options?.tileId !== undefined ? { tileId: options.tileId } : {}),
                     confirmText: options?.confirmText || null,
                     titleColor: options?.titleColor || null,
                     buttonColor: options?.buttonColor || null,
@@ -430,7 +441,7 @@ export class MarbleGameEngine {
                         const lvl = Number(data?.level);
                         if (!Number.isInteger(lvl) || lvl < 0 || lvl > effectiveMaxLvl) return;
                         if (costs[lvl] === undefined || playerMoney < costs[lvl]) {
-                            this.port.showToast(mText.NOT_ENOUGH_MONEY, 2000);
+                            this.port.showToast(mText.NOT_ENOUGH_MONEY, 2000, activePlayer?.id || null);
                             return;
                         }
                         if (typeof onBuyCallback === 'function') onBuyCallback(lvl);
@@ -484,7 +495,7 @@ export class MarbleGameEngine {
                             }
                         });
                         if (sum < requiredAmount || selected.length === 0) {
-                            this.port.showToast(mText.NOT_ENOUGH_MONEY, 2000);
+                            this.port.showToast(mText.NOT_ENOUGH_MONEY, 2000, this.getCurrentPlayer()?.id || null);
                             return;
                         }
                         if (typeof onConfirm === 'function') onConfirm(selected);
@@ -614,6 +625,22 @@ export class MarbleGameEngine {
             return modeCfg.initialMoneyByOrder?.[idx] ?? modeCfg.initialMoney ?? this.initialMoney;
         };
 
+        const shuffleMinimiPool = () => {
+            const pool = [...MARBLE_MINIMI_POOL];
+            for (let i = pool.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [pool[i], pool[j]] = [pool[j], pool[i]];
+            }
+            return pool;
+        };
+        const minimiPool = shuffleMinimiPool();
+        const assignMinimi = (playerObj, idx) => {
+            const pick = minimiPool[idx % minimiPool.length] || MARBLE_MINIMI_POOL[0];
+            playerObj.minimiPath = pick.path;
+            playerObj.minimiPegX = pick.pegX;
+            return playerObj;
+        };
+
         if (room && Array.isArray(room.slots)) {
             const activeSlots = room.slots.filter(s => s.type !== 'empty');
             if (activeSlots.length > 0) {
@@ -655,7 +682,7 @@ export class MarbleGameEngine {
                         resolvedAiDiff
                     );
                     p.isConnected = slot.type === 'human' ? slot.isConnected !== false : true;
-                    return p;
+                    return assignMinimi(p, idx);
                 });
             }
         }
@@ -669,10 +696,10 @@ export class MarbleGameEngine {
         const fallbackDiff = this.defaultAiDifficulty || 'spicy';
 
         return [
-            new Player('p1', text.PLAYER_ME, '#e74c3c', getOrderInitialMoney(0), 1, null, null),
-            new Player('npc1', pickBot(), '#3498db', getOrderInitialMoney(1), 2, aiPool[0], fallbackDiff),
-            new Player('npc2', pickBot(), '#f1c40f', getOrderInitialMoney(2), 3, aiPool[1], fallbackDiff),
-            new Player('npc3', pickBot(), '#9b59b6', getOrderInitialMoney(3), 4, aiPool[2], fallbackDiff)
+            assignMinimi(new Player('p1', text.PLAYER_ME, '#e74c3c', getOrderInitialMoney(0), 1, null, null), 0),
+            assignMinimi(new Player('npc1', pickBot(), '#3498db', getOrderInitialMoney(1), 2, aiPool[0], fallbackDiff), 1),
+            assignMinimi(new Player('npc2', pickBot(), '#f1c40f', getOrderInitialMoney(2), 3, aiPool[1], fallbackDiff), 2),
+            assignMinimi(new Player('npc3', pickBot(), '#9b59b6', getOrderInitialMoney(3), 4, aiPool[2], fallbackDiff), 3)
         ];
     }
 
@@ -771,6 +798,8 @@ export class MarbleGameEngine {
             id: p.id,
             name: p.name,
             color: p.color,
+            minimiPath: p.minimiPath || './Resource/Texture/Minimi/Minimi_Erpin.webp',
+            minimiPegX: p.minimiPegX || 0.406,
             isAi: p.isAi(),
             slotIndex: idx,
             d1: 1,
@@ -888,7 +917,9 @@ export class MarbleGameEngine {
             this.turnOrderState.stage = 'TIE_REROLL';
             this.turnOrderState.round += 1;
             this.turnOrderState.rerollSecondsLeft = 2;
-            this.turnOrderState.tieNotice = `${mText.TURN_ORDER_TIE_NOTICE} (${tiedGroups.join(', ')}${mText.TURN_ORDER_RANK_SUFFIX})`;
+            const tieBandStr = tiedGroups.join(', ');
+            this.turnOrderState.tieBands = tieBandStr;
+            this.turnOrderState.tieNotice = `${mText.TURN_ORDER_TIE_NOTICE || '동점자 발생!'} ${tieBandStr}위 결정 재굴림 진행중`;
             const roundToRun = this.turnOrderState.round;
             for (const entry of this.turnOrderState.players) {
                 if (entry.tied) entry.rolled = false;
@@ -988,7 +1019,88 @@ export class MarbleGameEngine {
         const player = this.allPlayers.find(p => p.id === playerId);
         if (!player || player.isAi()) return;
         player.isConnected = Boolean(connected);
+        if (!player.isConnected && this._activeNoticeBarrier) {
+            this._activeNoticeBarrier.expectedIds.delete(playerId);
+            if (this._activeNoticeBarrier.expectedIds.size > 0 &&
+                [...this._activeNoticeBarrier.expectedIds].every(id => this._activeNoticeBarrier.ackedIds.has(id))) {
+                const fin = this._activeNoticeBarrier.finishStep;
+                this._activeNoticeBarrier = null;
+                fin();
+            } else if (this._activeNoticeBarrier.expectedIds.size === 0) {
+                const fin = this._activeNoticeBarrier.finishStep;
+                this._activeNoticeBarrier = null;
+                fin();
+            }
+        }
         this.emitState();
+    }
+
+    // 빛무리 등 2단계 전역 공지 시퀀스 (모든 접속 인간 플레이어 확인 시 즉시 진행, 미확인 시 5초 후 자동 진행 및 조작 잠금)
+    runGlobalNoticeSequence(steps, onComplete) {
+        if (this.destroyed || this.isGameOver) return;
+        const list = Array.isArray(steps) ? steps.filter(Boolean) : [];
+        const connectedHumans = (this.allPlayers || []).filter(p => !p.isAi() && !p.isKickedForAfk && p.isConnected !== false);
+        if (list.length === 0 || connectedHumans.length === 0) {
+            if (typeof onComplete === 'function') onComplete();
+            return;
+        }
+
+        let seqIdx = 0;
+        const runStep = () => {
+            if (this.destroyed || this.isGameOver) return;
+            if (seqIdx >= list.length) {
+                this._activeNoticeBarrier = null;
+                this.isWaitingAction = false;
+                if (this.callbacks.onEvent) {
+                    this.callbacks.onEvent({ type: 'SOOT_CLIMAX_CLEAR' });
+                }
+                if (typeof onComplete === 'function') onComplete();
+                return;
+            }
+            const step = list[seqIdx++];
+            const stepSec = Math.max(1, Number(step.durationSec) || 5);
+            const noticeId = `gnotice_${++this._noticeSeq}_${seqIdx}`;
+            let finished = false;
+            const finishStep = () => {
+                if (finished || this.destroyed) return;
+                finished = true;
+                this._activeNoticeBarrier = null;
+                this.turnTimer.stop();
+                runStep();
+            };
+
+            const expectedNow = (this.allPlayers || [])
+                .filter(p => !p.isAi() && !p.isKickedForAfk && p.isConnected !== false)
+                .map(p => p.id);
+            if (expectedNow.length === 0) {
+                finishStep();
+                return;
+            }
+
+            this.isWaitingAction = true;
+            this._activeNoticeBarrier = {
+                noticeId,
+                expectedIds: new Set(expectedNow),
+                ackedIds: new Set(),
+                finishStep
+            };
+            this.turnTimer.start(stepSec, finishStep);
+            if (this.callbacks.onEvent) {
+                this.callbacks.onEvent({
+                    type: 'SOOT_CLIMAX_ANNOUNCE',
+                    noticeId,
+                    title: step.title || '',
+                    desc: step.desc || '',
+                    titleColor: step.titleColor || null,
+                    tileId: step.tileId ?? null,
+                    confirmText: step.confirmText || '확인',
+                    excludePlayerId: null
+                });
+            }
+            this.emitState();
+        };
+
+        runStep();
     }
 
     _handleHumanTimeout() {
@@ -1076,6 +1188,21 @@ export class MarbleGameEngine {
     handleAction(playerId, action) {
         if (this.destroyed || this.isGameOver || !action || !action.type) {
             return { ok: false, error: 'GAME_INACTIVE' };
+        }
+        if (action.type === 'CONFIRM_NOTICE') {
+            const barrier = this._activeNoticeBarrier;
+            if (!barrier || (action.noticeId && barrier.noticeId !== action.noticeId)) {
+                return { ok: false, error: 'NO_ACTIVE_NOTICE' };
+            }
+            if (barrier.expectedIds.has(playerId)) {
+                barrier.ackedIds.add(playerId);
+                if ([...barrier.expectedIds].every(id => barrier.ackedIds.has(id))) {
+                    const fin = barrier.finishStep;
+                    this._activeNoticeBarrier = null;
+                    this.runSynced(fin);
+                }
+            }
+            return { ok: true };
         }
         if (action.type === 'TURN_ORDER_ROLL') {
             if (!this.turnOrderState || !this.turnOrderState.visible) {
@@ -1240,9 +1367,50 @@ export class MarbleGameEngine {
             handleTileArrival: (p) => this.handleTileArrival(p),
             handleTollPayment: (p, t, cb) => this.handleTollPayment(p, t, cb),
             executeRoll: () => this.executeRoll(),
+            emitMoveEvent: (p, fromPos, toPos, moveKind = 'step', moveExtra = {}) => this.emitMoveEvent(p, fromPos, toPos, moveKind, moveExtra),
             setWaitingAction: (val) => { this.isWaitingAction = val; },
+            runNoticeSequence: (steps, onComplete) => this.runGlobalNoticeSequence(steps, onComplete),
+            broadcastSootClimax: (title, desc, excludePlayerId = null, extra = null) => {
+                if (this.destroyed || !this.callbacks.onEvent) return;
+                this.callbacks.onEvent({
+                    type: 'SOOT_CLIMAX_ANNOUNCE',
+                    title,
+                    desc,
+                    excludePlayerId: excludePlayerId || null,
+                    ...(extra || {})
+                });
+            },
             ...extra
         };
+    }
+
+    emitMoveEvent(player, fromPos, toPos, moveKind = 'step', extra = {}) {
+        if (this.destroyed || !this.callbacks.onEvent || !player) return;
+        this.callbacks.onEvent({
+            type: 'PLAYER_MOVE',
+            playerId: player.id,
+            fromPos,
+            toPos,
+            moveKind,
+            steps: extra.steps ?? null,
+            passedStart: Boolean(extra.passedStart),
+            lapBonus: extra.lapBonus ?? null,
+            mode: this.world?.gameMode || 'ember',
+            moveSeq: ++this._moveSeq
+        });
+    }
+
+    _estimateStepArrivalDelayMs(player, steps, passedStart) {
+        const activeCount = Math.max(1, (this.tiles || []).filter(t => t && !t.isDisabled).length || 40);
+        const absSteps = Math.max(1, Math.abs(Number(steps) || 1));
+        const baseTotalMs = absSteps <= 12
+            ? Math.min(2400, Math.max(850, absSteps * 190))
+            : Math.round(2280 + ((absSteps - 12) / Math.max(1, activeCount - 13)) * (3000 - 2280));
+        const baseStepMs = baseTotalMs / absSteps;
+        const finalDelta = Math.max(260, baseStepMs * 1.45) - baseStepMs + 280;
+        const startDelta = passedStart ? (Math.max(320, baseStepMs * 2.0) - baseStepMs + 280) : 0;
+        const camResetExtra = (!player?.isAi?.()) ? 420 : 120;
+        return Math.max(1300, Math.round(baseTotalMs + finalDelta + startDelta + camResetExtra));
     }
 
     _recordRankCheckpoint(phase = 'TURN') {
@@ -1339,7 +1507,7 @@ export class MarbleGameEngine {
         this.totalPlayerTurns++;
 
         // 플레이어 자신의 턴 시작 시 그을음/빛무리 턴 카운트 차감 및 자연 전환 처리
-        WorldGimmickManager.advancePlayerTurn(player, this.turnManager.globalTurn, this.allPlayers, this.tiles);
+        const turnReqResult = WorldGimmickManager.advancePlayerTurn(player, this.turnManager.globalTurn, this.allPlayers, this.tiles);
         const activeGimmickType = WorldGimmickManager.getActiveGimmickType() || 'none';
         if (this.world?.metrics?.gimmickTurnCounts) {
             this.world.metrics.gimmickTurnCounts[activeGimmickType] =
@@ -1370,6 +1538,75 @@ export class MarbleGameEngine {
         this.port.closeAll();
         this.emitState();
 
+        const continueAfterNaturalHalo = () => {
+            if (this.destroyed || this.isGameOver || !player || player.isBankrupt) return;
+            // 그을음 발동 후 자신의 첫 턴 시작 시 마카샤 지원금(100만 엘드르 달러) 1회 지급 (윤회 플레이어 제외)
+            if (player.pendingMakashaSupport && !player.isBankrupt && !player.isReincarnated) {
+                player.pendingMakashaSupport = false;
+                player.money += MAKASHA_SUPPORT_AMOUNT;
+                const wm = this.world?.metrics;
+                if (wm) {
+                    wm.sootMakashaTotal = (wm.sootMakashaTotal || 0) + MAKASHA_SUPPORT_AMOUNT;
+                    const entry = ensureSootPnlEntry(wm, player);
+                    if (entry) entry.cash += MAKASHA_SUPPORT_AMOUNT;
+                }
+                this.emitState();
+
+                if (!player.isAi()) {
+                    const gText = getGimmickText(this.lang);
+                    this.isWaitingAction = true;
+                    let makashaDoneHandled = false;
+                    const finishMakashaPopup = () => {
+                        if (makashaDoneHandled || this.destroyed) return;
+                        makashaDoneHandled = true;
+                        this.turnTimer.stop();
+                        this.port.closeAll();
+                        this.isWaitingAction = false;
+                        this._continueStartTurnAfterMakasha(player);
+                    };
+                    this.turnTimer.start(Math.max(10, getPlayerThinkTime(player)), finishMakashaPopup);
+                    this.port.showNormalPopup(
+                        gText.MAKASHA_SUPPORT_TITLE || '✨ 마카샤의 세계 진정 지원금',
+                        gText.MAKASHA_SUPPORT_DESC || '마카샤가 [그을음]으로 폭주한 세계를 진정시키기 위해 지원금 1,000,000 엘드르 달러를 지급했습니다!',
+                        true,
+                        finishMakashaPopup
+                    );
+                    this.emitState();
+                    return;
+                }
+            } else if (player.pendingMakashaSupport) {
+                player.pendingMakashaSupport = false;
+            }
+
+            this._continueStartTurnAfterMakasha(player);
+        };
+
+        if (turnReqResult?.haloNaturalStarted) {
+            const steps = [{
+                title: turnReqResult.title,
+                desc: turnReqResult.desc,
+                titleColor: turnReqResult.titleColor || '#0A6770',
+                tileId: turnReqResult.tileId ?? 20,
+                durationSec: 5
+            }];
+            if (turnReqResult.worldNotice) {
+                steps.push({ ...turnReqResult.worldNotice, durationSec: 5 });
+            }
+            const hasHuman = (this.allPlayers || []).some(p => !p.isAi() && !p.isKickedForAfk && p.isConnected !== false);
+            if (hasHuman) {
+                this.runGlobalNoticeSequence(steps, continueAfterNaturalHalo);
+                return;
+            }
+        }
+
+        continueAfterNaturalHalo();
+    }
+
+    _continueStartTurnAfterMakasha(player) {
+        if (this.destroyed || this.isGameOver || !player || player.isBankrupt) return;
+        const cText = getCardUIText(this.lang);
+        const mText = getMarbleText(this.lang);
+
         if (player.money <= 0 && !player.isBankrupt) {
             if (player.tracker) player.tracker.turnStartCrisisCount = (player.tracker.turnStartCrisisCount || 0) + 1;
             const emergencyLoanAmount = Math.round((GAME_CONSTANTS.START_BONUS * this.turnManager.globalTurn) / 10);
@@ -1378,17 +1615,37 @@ export class MarbleGameEngine {
                 const decision = AIManager.decideTurnStartCrisis(player, this.tiles, emergencyLoanAmount, this.turnManager.globalTurn);
                 if (decision.action === 'sell' && decision.tiles && decision.tiles.length > 0) {
                     player.sellProperties(decision.tiles, getTileSellValue);
-                    this.port.showToast(`${player.name}${getGimmickText(this.lang).AI_CRISIS_SELL}`, 3200);
+                    this.port.showToast(`${player.name}${getGimmickText(this.lang).AI_CRISIS_SELL}`, 3200, player.id);
                     this.emitState();
                     this.schedule(() => this.processBbangju(player), 1000);
                 } else if (decision.action === 'loan' && player.loanCount < GAME_CONSTANTS.LOAN_MAX_COUNT) {
                     executePlayerLoanBorrow(player, emergencyLoanAmount, 'turn_crisis', this.turnManager.globalTurn);
-                    this.port.showToast(`${player.name} ${mText.LOAN_EXECUTE}`, 3000);
+                    this.port.showToast(
+                        `${player.name}님이 긴급대출을 실행했습니다!`,
+                        3000,
+                        null,
+                        {
+                            actorId: player.id,
+                            selfMessage: `🏦 ${formatMoney(emergencyLoanAmount)} 긴급 대출 실행!`,
+                            otherMessage: `${player.name}님이 긴급대출을 실행했습니다!`,
+                            logMessage: `${player.name}님이 긴급대출을 실행했습니다!`
+                        }
+                    );
                     this.emitState();
                     this.schedule(() => this.processBbangju(player), 1000);
                 } else {
                     if (player.goBankrupt(this.tiles)) {
-                        this.port.showToast(`${player.name} ${mText.BANKRUPT}`, 3600);
+                        this.port.showToast(
+                            `${player.name}님이 파산하였습니다!`,
+                            3600,
+                            null,
+                            {
+                                actorId: player.id,
+                                selfMessage: '💥 파산! 더 이상 자금을 지불할 수 없습니다.',
+                                otherMessage: `${player.name}님이 파산하였습니다!`,
+                                logMessage: `${player.name}님이 파산하였습니다!`
+                            }
+                        );
                     }
                     this.emitState();
                     this.schedule(() => this.proceedEndTurn(), 2500);
@@ -1400,7 +1657,17 @@ export class MarbleGameEngine {
                 this.turnTimer.stop();
                 this.port.closeAll();
                 if (player.goBankrupt(this.tiles)) {
-                    this.port.showToast(`${player.name} ${mText.BANKRUPT}`, 3600);
+                    this.port.showToast(
+                        `${player.name}님이 파산하였습니다!`,
+                        3600,
+                        null,
+                        {
+                            actorId: player.id,
+                            selfMessage: '💥 파산! 더 이상 자금을 지불할 수 없습니다.',
+                            otherMessage: `${player.name}님이 파산하였습니다!`,
+                            logMessage: `${player.name}님이 파산하였습니다!`
+                        }
+                    );
                     this.emitState();
                     this.schedule(() => this.proceedEndTurn(), 2500);
                 } else {
@@ -1430,6 +1697,7 @@ export class MarbleGameEngine {
                                     this.turnTimer.stop();
                                     player.sellProperties(selectedTiles, getTileSellValue);
                                     this.port.closeAll();
+                                    this.port.showToast(mText.TOAST_SELL_DONE, 3200, player.id);
                                     this.emitState();
                                     this.schedule(() => this.processBbangju(player), 1000);
                                 },
@@ -1443,13 +1711,23 @@ export class MarbleGameEngine {
 
                 if (canLoan) {
                     choiceBtns.push({
-                        text: `${cText.CRISIS_TURN_LOAN_BTN} (+${formatMoney(emergencyLoanAmount)})`,
+                        text: `${cText.CRISIS_TURN_LOAN_BTN}\n(+${formatMoney(emergencyLoanAmount)})`,
                         color: '#2ecc71',
                         action: () => {
                             this.turnTimer.stop();
                             this.port.closeAll();
                             executePlayerLoanBorrow(player, emergencyLoanAmount, 'turn_crisis', this.turnManager.globalTurn);
-                            this.port.showToast(`${formatMoney(emergencyLoanAmount)} ${cText.CRISIS_LOAN_DONE}`, 2500);
+                            this.port.showToast(
+                                `${player.name}님이 긴급대출을 실행했습니다!`,
+                                2500,
+                                null,
+                                {
+                                    actorId: player.id,
+                                    selfMessage: `🏦 ${formatMoney(emergencyLoanAmount)} 긴급 대출 실행!`,
+                                    otherMessage: `${player.name}님이 긴급대출을 실행했습니다!`,
+                                    logMessage: `${player.name}님이 긴급대출을 실행했습니다!`
+                                }
+                            );
                             this.emitState();
                             this.schedule(() => this.processBbangju(player), 1000);
                         }
@@ -1505,18 +1783,29 @@ export class MarbleGameEngine {
                     });
                     this.port.showChoicePopup(gText.BBANGJU_REQ_TITLE, reqDesc, [
                         {
-                            text: gText.BTN_ACCEPT,
-                            color: '#3498db',
+                            text: gText.BBANGJU_REQ_YES_BTN || gText.BTN_ACCEPT,
+                            color: '#2ecc71',
                             action: () => {
                                 this.turnTimer.stop();
                                 this.port.closeAll();
                                 this.isWaitingAction = false;
                                 player.bbangjuSupportTurns = 3;
+                                this.port.showToast(
+                                    `[${player.name}] 빵주 제작 지원을 수락했습니다.`,
+                                    2600,
+                                    null,
+                                    {
+                                        actorId: player.id,
+                                        selfMessage: gText.BBANGJU_REQ_YES_TOAST || '🚀 고마워~ 좋~은곳에 잘 써줄게~ 후후...',
+                                        otherMessage: `🚀 ${player.name}님이 엘레나의 빵주 제작 지원을 수락했습니다.`,
+                                        logMessage: `🚀 ${player.name}님이 엘레나의 빵주 제작 지원을 수락하였습니다.`
+                                    }
+                                );
                                 this.processBbangjuInstallment(player);
                             }
                         },
                         {
-                            text: gText.BTN_REJECT,
+                            text: gText.BBANGJU_REQ_NO_BTN || gText.BTN_REJECT,
                             color: '#e74c3c',
                             action: () => {
                                 this.turnTimer.stop();
@@ -1551,7 +1840,7 @@ export class MarbleGameEngine {
                 this.port.showToast(payToast, 2000);
             } else {
                 player.bbangjuSupportTurns = 0;
-                this.port.showToast(gText.BBANGJU_CANCEL, 2000);
+                this.port.showToast(gText.BBANGJU_CANCEL, 2000, player.id);
             }
             this.emitState();
             this.schedule(() => this.continueTurnPhase(player), 1000);
@@ -1594,7 +1883,7 @@ export class MarbleGameEngine {
                 recordHaloPositiveGain(player, profit - GAME_CONSTANTS.THEATER_TURN_PROFIT);
             }
             player.tracker.theaterProfitCount++;
-            this.port.showToast(`${gText.THEATER_PROFIT_TOAST} (+${formatMoney(profit)})`, 2000);
+            this.port.showToast(`${gText.THEATER_PROFIT_TOAST} (+${formatMoney(profit)})`, 2000, player.id);
             this.emitState();
         }
 
@@ -1610,7 +1899,7 @@ export class MarbleGameEngine {
             if (player.tracker) {
                 player.tracker.bbangjuChiefAllowanceTotal = (player.tracker.bbangjuChiefAllowanceTotal || 0) + allowance;
             }
-            this.port.showToast(`[${player.name}] ${gText.BBANGJU_CHIEF_ALLOWANCE_TOAST || '정비반장 직무 수당 지급'} (+${formatMoney(allowance)})`, 2000);
+            this.port.showToast(`${gText.BBANGJU_CHIEF_ALLOWANCE_TOAST || '정비반장 직무 수당 지급'} (+${formatMoney(allowance)})`, 2000, player.id);
             this.emitState();
         }
 
@@ -1641,10 +1930,10 @@ export class MarbleGameEngine {
             const res = player.repayLoanByPercent(pctOrMode);
             if (res.ok) {
                 if (res.fullCleared) {
-                    this.port.showToast(`[${player.name}] ${mText.LOAN_REPAY_FULL_TOAST} (${formatMoney(res.paid)})`, 2800);
+                    this.port.showToast(`${mText.LOAN_REPAY_FULL_TOAST} (${formatMoney(res.paid)})`, 2800, player.id);
                 } else {
                     const labelPct = pctOrMode === 'all' ? '100%' : `${pctOrMode}%`;
-                    this.port.showToast(`[${player.name}] ${mText.LOAN_REPAY_TOAST} ${formatMoney(res.paid)} (${labelPct})`, 2600);
+                    this.port.showToast(`${mText.LOAN_REPAY_TOAST} ${formatMoney(res.paid)} (${labelPct})`, 2600, player.id);
                 }
                 this.emitState();
             }
@@ -1672,10 +1961,10 @@ export class MarbleGameEngine {
         const settleRatePct = Number((((player.getLoanSettlementRate ? player.getLoanSettlementRate(this.world.gameMode) : GAME_CONSTANTS.LOAN_SETTLEMENT_RATE) || 0.025) * 100).toFixed(1));
         const desc = [
             mText.LOAN_REPAY_DESC,
+            `(게임 종료 시 미상환 원금에는 ${settleRatePct}%의 이율로 경과한 턴당 곱산되어 적용됩니다.)`,
             '',
             `대출 원금: ${formatMoney(player.loanPrincipal || 0)} | 고정 이자(${fixedRatePct}%): ${formatMoney(Math.round(player.loanInterest || 0))}`,
-            `총 상환 잔액: ${formatMoney(totalDebt)} | 보유 소지금: ${formatMoney(player.money)}`,
-            `(미상환 시 정산 이율: 경과 턴당 ${settleRatePct}%)`
+            `총 상환 잔액: ${formatMoney(totalDebt)} | 보유 소지금: ${formatMoney(player.money)}`
         ].join('\n');
 
         const btnConfigs = allOptions.map(opt => {
@@ -1831,7 +2120,17 @@ export class MarbleGameEngine {
                 CARD_IDS.SPEC_ERPIN_DICE
             ].filter(Boolean));
             const toastTarget = secretAiCards.has(cardToUse.id) ? player.id : null;
-            this.port.showToast(`${player.name} 카드 사용! [${cardToUse.name}]`, 3200, toastTarget);
+            this.port.showToast(
+                `${player.name} 카드 사용! [${cardToUse.name}]`,
+                3200,
+                toastTarget,
+                toastTarget ? null : {
+                    actorId: player.id,
+                    selfMessage: `${player.name} 카드 사용! [${cardToUse.name}]`,
+                    otherMessage: `${player.name} 카드 사용! [${cardToUse.name}]`,
+                    logMessage: formatCardActivationLog(player.name, cardToUse)
+                }
+            );
             useActiveCard(
                 this._buildActionContext(player),
                 cardToUse,
@@ -1900,9 +2199,11 @@ export class MarbleGameEngine {
         const dirLabel = isUp ? (cText.SHAYDI_GAME_UP || '업') : (cText.SHAYDI_GAME_DOWN || '다운');
         const escaped = isUp ? (finalSum > targetNum) : (finalSum < targetNum);
 
+        const voidRollSeq = ++this._diceRollSeq;
         this.diceState = {
             visible: true,
-            title: `${cText.SHAYDI_GAME_TITLE || '셰이디의 장난'} (${targetNum} ${dirLabel})`,
+            rollSeq: voidRollSeq,
+            title: `${player.name}${mText.DICE_THROW_TITLE_SUFFIX || '의 주사위 던지기!'}`,
             d1,
             d2,
             d3: 0,
@@ -1920,7 +2221,8 @@ export class MarbleGameEngine {
             if (this.destroyed || this.isGameOver) return;
             this.diceState = {
                 visible: true,
-                title: `${mText.RESULT} ${finalSum} (${targetNum} ${dirLabel})`,
+                rollSeq: voidRollSeq,
+                title: `${player.name}${mText.DICE_THROW_TITLE_SUFFIX || '의 주사위 던지기!'}`,
                 d1,
                 d2,
                 d3: 0,
@@ -1952,25 +2254,60 @@ export class MarbleGameEngine {
                 if (wm) wm.voidEscapeSuccessCount = (wm.voidEscapeSuccessCount || 0) + 1;
                 if (player.tracker) player.tracker.voidEscapeSuccessCount = (player.tracker.voidEscapeSuccessCount || 0) + 1;
 
-                this.port.showToast(`[${player.name}] ${cText.SHAYDI_ESCAPE_SUCCESS || '셰이디의 장난 돌파! 차원에서 즉시 탈출해 이동합니다!'}`, 3200);
+                this.port.showToast(
+                    `${player.name}님이 셰이디의 차원에서 벗어났습니다!`,
+                    3200,
+                    null,
+                    {
+                        actorId: player.id,
+                        selfMessage: '[장난 돌파 성공] 제법인걸~? 좋아, 약속이니까 이번엔 보내줄게~',
+                        otherMessage: `${player.name}님이 셰이디의 차원에서 벗어났습니다!`,
+                        logMessage: `${player.name}님이 셰이디의 차원에서 벗어났습니다!`
+                    }
+                );
                 player._rollingMoveInProgress = true;
                 if (player.tracker) {
                     player.tracker.totalMovedSpaces = (player.tracker.totalMovedSpaces || 0) + finalSum;
                 }
-                if (player.move(finalSum, this.tiles)) {
-                    applyLapPassBonus(player, {
+                this.port.showToast(
+                    `🎲 ${player.name}님이 ${finalSum}칸만큼 이동!`,
+                    2600,
+                    null,
+                    {
+                        actorId: player.id,
+                        selfMessage: `🎲 ${finalSum}칸만큼 이동합니다!`,
+                        otherMessage: `🎲 ${player.name}님이 ${finalSum}칸만큼 이동!`,
+                        logMessage: `🎲 ${player.name}님이 ${finalSum}칸만큼 이동하였습니다!`
+                    }
+                );
+                const prevPos = player.pos;
+                const passedStart = player.move(finalSum, this.tiles);
+                const lapBonus = passedStart
+                    ? applyLapPassBonus(player, {
                         label: mText.TOAST_START,
                         showBlockedToast: true
-                    });
-                }
+                    })
+                    : 0;
+                this.emitMoveEvent(player, prevPos, player.pos, 'step', {
+                    steps: finalSum,
+                    passedStart,
+                    lapBonus
+                });
                 this.emitState();
 
+                const arrivalDelayMs = this._estimateStepArrivalDelayMs(player, finalSum, passedStart);
+                this.schedule(() => {
+                    if (this.destroyed || this.isGameOver) return;
+                    this.diceState.visible = false;
+                    this.diceState.phase = 'HIDE';
+                    this.emitState();
+                }, 1300);
                 this.schedule(() => {
                     if (this.destroyed || this.isGameOver) return;
                     this.diceState.visible = false;
                     this.diceState.phase = 'HIDE';
                     this.handleTileArrival(player);
-                }, 1300);
+                }, arrivalDelayMs);
                 return;
             }
 
@@ -1992,7 +2329,17 @@ export class MarbleGameEngine {
 
             player.bowExtraRollAvailable = false;
             player.timeAccelExtraRollAvailable = false;
-            this.port.showToast(`[${player.name}] ${cText.SHAYDI_ESCAPE_FAIL || '탈출 실패! 이번 턴은 휴식합니다.'}`, 2800);
+            this.port.showToast(
+                `${player.name}님이 셰이디의 차원에서 벗어나지 못했습니다.`,
+                2800,
+                null,
+                {
+                    actorId: player.id,
+                    selfMessage: '[장난 돌파 실패] 아쉽네~ 그럼 벌칙으로 여기에 좀 더 있어줘야겠어~',
+                    otherMessage: `${player.name}님이 셰이디의 차원에서 벗어나지 못했습니다.`,
+                    logMessage: `${player.name}님이 셰이디의 차원에서 벗어나지 못했습니다.`
+                }
+            );
             this.emitState();
 
             this.schedule(() => {
@@ -2030,7 +2377,7 @@ export class MarbleGameEngine {
                 if (currentPlayer.tracker) {
                     currentPlayer.tracker.doubleBonusRolls = (currentPlayer.tracker.doubleBonusRolls || 0) + 1;
                 }
-                this.port.showToast(`[${currentPlayer.name}] ${cText.DOUBLE_BONUS_ROLL}`, 3200);
+                this.port.showToast(cText.DOUBLE_BONUS_ROLL, 3200, currentPlayer.id);
                 this.emitState();
                 this.schedule(() => this.startPreRollPhase(currentPlayer), 1000);
                 return;
@@ -2045,10 +2392,10 @@ export class MarbleGameEngine {
                 currentPlayer._nextRollIsDoubleBonus = false;
                 if (currentPlayer.bowExtraRollAvailable) {
                     currentPlayer.bowExtraRollAvailable = false;
-                    this.port.showToast(`[${currentPlayer.name}] ${cText.TREASURE_BOW_EXTRA_ROLL}`, 3200);
+                    this.port.showToast(cText.TREASURE_BOW_EXTRA_ROLL, 3200, currentPlayer.id);
                 } else {
                     currentPlayer.timeAccelExtraRollAvailable = false;
-                    this.port.showToast(`[${currentPlayer.name}] ${cText.SPEC_TIME_ACCEL_EXTRA_ROLL}`, 3200);
+                    this.port.showToast(cText.SPEC_TIME_ACCEL_EXTRA_ROLL, 3200, currentPlayer.id);
                 }
                 this.emitState();
                 this.schedule(() => this.startPreRollPhase(currentPlayer), 1000);
@@ -2133,9 +2480,11 @@ export class MarbleGameEngine {
         const d3 = useRufo ? 6 : 0;
         const erpinTriggered = Boolean(useErpin && (d1 === 1 || d2 === 1));
 
+        const rollSeq = ++this._diceRollSeq;
         this.diceState = {
             visible: true,
-            title: `${player.name} ${mText.ROLLING}`,
+            rollSeq,
+            title: `${player.name}${mText.DICE_THROW_TITLE_SUFFIX || '의 주사위 던지기!'}`,
             d1,
             d2,
             d3,
@@ -2154,7 +2503,8 @@ export class MarbleGameEngine {
             const finishRollProcess = (finalSum) => {
                 this.diceState = {
                     visible: true,
-                    title: `${mText.RESULT} ${finalSum}`,
+                    rollSeq,
+                    title: `${player.name}${mText.DICE_THROW_TITLE_SUFFIX || '의 주사위 던지기!'}`,
                     d1,
                     d2,
                     d3,
@@ -2180,7 +2530,7 @@ export class MarbleGameEngine {
 
                 if (useRufo && !player._rufoToastShownThisTurn) {
                     player._rufoToastShownThisTurn = true;
-                    this.port.showToast(`[${player.name}] ${cText.RUFO_DICE_USE}`, 3200);
+                    this.port.showToast(cText.RUFO_DICE_USE, 3200, player.id);
                 }
                 if (useErpin) {
                     player.hasErpinDiceBuff = false;
@@ -2191,13 +2541,33 @@ export class MarbleGameEngine {
                     if (isDoubleRoll) {
                         player.islandTurns = 0;
                         escapedVolcanica = true;
-                        this.port.showToast(`[${player.name}] ${mText.TOAST_ESCAPE_SUCCESS}`, 3200);
+                        this.port.showToast(
+                            `${player.name}님이 볼케니카에서 탈출했습니다!`,
+                            3200,
+                            null,
+                            {
+                                actorId: player.id,
+                                selfMessage: '주사위 더블! 볼케니카를 뒤로하고 떠납니다.',
+                                otherMessage: `${player.name}님이 볼케니카에서 탈출했습니다!`,
+                                logMessage: `${player.name}님이 볼케니카에서 탈출했습니다!`
+                            }
+                        );
                     } else {
                         player.islandTurns--;
                         player.bowExtraRollAvailable = false;
                         player.timeAccelExtraRollAvailable = false;
                         player._turnPendingDoubleBonus = false;
-                        this.port.showToast(`[${player.name}] ${mText.TOAST_ESCAPE_FAIL}`, 3200);
+                        this.port.showToast(
+                            `${player.name}님이 볼케니카에서 조금 더 휴식을 취합니다.`,
+                            3200,
+                            null,
+                            {
+                                actorId: player.id,
+                                selfMessage: '탈출 실패! 푹 쉴 수 있습니다...',
+                                otherMessage: `${player.name}님이 볼케니카에서 조금 더 휴식을 취합니다.`,
+                                logMessage: `${player.name}님이 볼케니카에서 조금 더 휴식을 취합니다.`
+                            }
+                        );
                         this.emitState();
                         this.schedule(() => {
                             this.diceState.visible = false;
@@ -2219,19 +2589,45 @@ export class MarbleGameEngine {
                 if (player.tracker) {
                     player.tracker.totalMovedSpaces = (player.tracker.totalMovedSpaces || 0) + finalSum;
                 }
-                if (player.move(finalSum, this.tiles)) {
-                    applyLapPassBonus(player, {
+                this.port.showToast(
+                    `🎲 ${player.name}님이 ${finalSum}칸만큼 이동!`,
+                    2600,
+                    null,
+                    {
+                        actorId: player.id,
+                        selfMessage: `🎲 ${finalSum}칸만큼 이동합니다!`,
+                        otherMessage: `🎲 ${player.name}님이 ${finalSum}칸만큼 이동!`,
+                        logMessage: `🎲 ${player.name}님이 ${finalSum}칸만큼 이동하였습니다!`
+                    }
+                );
+                const prevPos = player.pos;
+                const passedStart = player.move(finalSum, this.tiles);
+                const lapBonus = passedStart
+                    ? applyLapPassBonus(player, {
                         label: mText.TOAST_START,
                         showBlockedToast: true
-                    });
-                }
+                    })
+                    : 0;
+                this.emitMoveEvent(player, prevPos, player.pos, 'step', {
+                    steps: finalSum,
+                    passedStart,
+                    lapBonus
+                });
                 this.emitState();
 
+                const arrivalDelayMs = this._estimateStepArrivalDelayMs(player, finalSum, passedStart);
                 this.schedule(() => {
+                    if (this.destroyed || this.isGameOver) return;
+                    this.diceState.visible = false;
+                    this.diceState.phase = 'HIDE';
+                    this.emitState();
+                }, 1300);
+                this.schedule(() => {
+                    if (this.destroyed || this.isGameOver) return;
                     this.diceState.visible = false;
                     this.diceState.phase = 'HIDE';
                     this.handleTileArrival(player);
-                }, 1300);
+                }, arrivalDelayMs);
             };
 
             if (erpinTriggered) {
@@ -2260,6 +2656,7 @@ export class MarbleGameEngine {
                     });
 
                     const btnConfigs = [1, 2, 3, 4, 5, 6].map(v => ({
+                        row: 1,
                         text: `${v}`,
                         color: '#9b59b6',
                         action: () => {
@@ -2313,8 +2710,10 @@ export class MarbleGameEngine {
         const cText = getCardUIText(this.lang);
         const gText = getGimmickText(this.lang);
 
-        const minBuyCost = calculatePurchaseCost(tile, 0, player);
-        if (!tile.owner && tile.basePrice > 0 && player.money < minBuyCost) {
+        const rawMinBuyCost = calculatePurchaseCost(tile, 0, player);
+        const hasSistCardOrBuff = tile.type === 'normal' && (Boolean(player.hasSistDiscountBuff) || player.inventory.some(c => c.id === CARD_IDS.SIST_DEAL));
+        const effectiveMinBuyCost = hasSistCardOrBuff ? Math.round(rawMinBuyCost * 0.5) : rawMinBuyCost;
+        if (!tile.owner && tile.basePrice > 0 && player.money < effectiveMinBuyCost) {
             this.port.showToast(mText.TOAST_NO_MONEY_BUY, 2800, player.id);
             this.emitState();
             this.schedule(() => this.proceedEndTurn(), 2000);
@@ -2383,56 +2782,72 @@ export class MarbleGameEngine {
                     return;
                 }
 
-                this.turnTimer.start(getPlayerThinkTime(player, GAME_CONSTANTS.BUY_THINK_TIME), () => this.proceedEndTurn());
-                this.port.showBuyPopup(
-                    tile,
-                    calcCosts,
-                    player.money,
-                    (selectedLvl) => {
-                        let lvl = (forceVillage && selectedLvl < 2) ? 2 : selectedLvl;
-                        if (lvl > maxAllowedLvl) lvl = maxAllowedLvl;
-                        const targetCost = calcCosts[lvl];
-
-                        if (tile.type === 'normal' && player.hasSistDiscountBuff) {
-                            player.hasSistDiscountBuff = false;
-                            this._buyTerritoryWithMetrics(player, tile, lvl, Math.round(targetCost * 0.5), true);
+                const openBuyUiWithCosts = (useDiscountPrice) => {
+                    const displayCosts = useDiscountPrice
+                        ? calcCosts.map(c => Math.round(c * 0.5))
+                        : calcCosts;
+                    if (forceVillage && player.money < displayCosts[2]) {
+                        this.port.showToast(cText.TREASURE_BOW_VILLAGE_FAIL, 3000, player.id);
+                        this.emitState();
+                        this.schedule(() => this.proceedEndTurn(), 2000);
+                        return;
+                    }
+                    this.turnTimer.start(getPlayerThinkTime(player, GAME_CONSTANTS.BUY_THINK_TIME), () => this.proceedEndTurn());
+                    this.port.showBuyPopup(
+                        tile,
+                        displayCosts,
+                        player.money,
+                        (selectedLvl) => {
+                            let lvl = (forceVillage && selectedLvl < 2) ? 2 : selectedLvl;
+                            if (lvl > maxAllowedLvl) lvl = maxAllowedLvl;
+                            const targetCost = displayCosts[lvl];
+                            const consumedSist = Boolean(useDiscountPrice && tile.type === 'normal' && player.hasSistDiscountBuff);
+                            if (consumedSist) {
+                                player.hasSistDiscountBuff = false;
+                            }
+                            this._buyTerritoryWithMetrics(player, tile, lvl, targetCost, consumedSist);
                             this.port.closeAll();
                             this.proceedEndTurn();
-                            return;
-                        }
+                        },
+                        () => this.proceedEndTurn(),
+                        maxAllowedLvl
+                    );
+                    this.emitState();
+                };
 
-                        if (tile.type === 'normal' && player.inventory.some(c => c.id === CARD_IDS.SIST_DEAL)) {
-                            this.port.showChoicePopup(cText.USE_DISCOUNT_TITLE, cText.USE_DISCOUNT_DESC, [
-                                {
-                                    text: mText.BTN_USE,
-                                    color: '#3498db',
-                                    action: () => {
-                                        removeCardFromInventory(player, CARD_IDS.SIST_DEAL);
-                                        this._buyTerritoryWithMetrics(player, tile, lvl, Math.round(targetCost * 0.5), true);
-                                        this.port.closeAll();
-                                        this.proceedEndTurn();
-                                    }
-                                },
-                                {
-                                    text: mText.BTN_HOLD,
-                                    color: '#7f8c8d',
-                                    action: () => {
-                                        this._buyTerritoryWithMetrics(player, tile, lvl, targetCost, false);
-                                        this.port.closeAll();
-                                        this.proceedEndTurn();
-                                    }
-                                }
-                            ]);
-                        } else {
-                            this._buyTerritoryWithMetrics(player, tile, lvl, targetCost, false);
-                            this.port.closeAll();
-                            this.proceedEndTurn();
+                // 각 칸 도착 > 시스트의 거래 보유 여부 선확인 > 사용 시 50% 할인가격으로 구매 UI 표시 / 미사용 시 일반가격 표시
+                if (tile.type === 'normal' && !player.hasSistDiscountBuff && player.inventory.some(c => c.id === CARD_IDS.SIST_DEAL)) {
+                    this.turnTimer.start(getPlayerThinkTime(player, GAME_CONSTANTS.BUY_THINK_TIME), () => {
+                        this.port.closeAll();
+                        openBuyUiWithCosts(false);
+                    });
+                    this.port.showChoicePopup(cText.USE_DISCOUNT_TITLE, cText.USE_DISCOUNT_DESC, [
+                        {
+                            text: mText.BTN_USE,
+                            color: '#3498db',
+                            action: () => {
+                                this.turnTimer.stop();
+                                removeCardFromInventory(player, CARD_IDS.SIST_DEAL);
+                                player.hasSistDiscountBuff = true;
+                                this.port.closeAll();
+                                openBuyUiWithCosts(true);
+                            }
+                        },
+                        {
+                            text: mText.BTN_HOLD,
+                            color: '#7f8c8d',
+                            action: () => {
+                                this.turnTimer.stop();
+                                this.port.closeAll();
+                                openBuyUiWithCosts(false);
+                            }
                         }
-                    },
-                    () => this.proceedEndTurn(),
-                    maxAllowedLvl
-                );
-                this.emitState();
+                    ]);
+                    this.emitState();
+                    return;
+                }
+
+                openBuyUiWithCosts(tile.type === 'normal' && Boolean(player.hasSistDiscountBuff));
                 return;
             }
         }
@@ -2441,8 +2856,45 @@ export class MarbleGameEngine {
     }
 
     _buyTerritoryWithMetrics(player, tile, level, finalCost, usedSist = false) {
+        const prevOwner = tile.owner;
+        const prevLevel = Number(tile.level);
         const bought = player.buyProperty(tile, level, finalCost);
         if (!bought) return false;
+        const mText = getMarbleText(this.lang);
+        const tileName = getTileName(tile, this.world);
+        const lvNames = [mText.BLD_0, mText.BLD_1, mText.BLD_2, mText.BLD_3, mText.BLD_4];
+        const lvLabel = lvNames[level] || '';
+        const isNewBuy = prevOwner !== player;
+
+        // 1) 신규 영토 매입 시 먼저 매입 토스트 출력
+        if (isNewBuy) {
+            this.port.showToast(
+                `🏞️ ${player.name}님이 ${tileName} 토지를 매입했습니다!`,
+                2800,
+                null,
+                {
+                    actorId: player.id,
+                    selfMessage: `🏞️ ${tileName} 토지를 매입하였습니다!`,
+                    otherMessage: `🏞️ ${player.name}님이 ${tileName} 토지를 매입했습니다!`,
+                    logMessage: `🏞️ ${player.name}님이 ${tileName} 토지를 매입하였습니다!`
+                }
+            );
+        }
+
+        // 2) 건물(오두막~조각상, level >= 1)을 함께/추가 건설했다면 매입 다음에 건설 토스트 출력
+        if (level >= 1 && (isNewBuy || level > prevLevel)) {
+            this.port.showToast(
+                `🏗️ ${player.name}님이 ${tileName}에 ${lvLabel}을 건설했습니다!`,
+                2800,
+                null,
+                {
+                    actorId: player.id,
+                    selfMessage: `🏗️ ${tileName}에 ${lvLabel}을 건설하였습니다!`,
+                    otherMessage: `🏗️ ${player.name}님이 ${tileName}에 ${lvLabel}을 건설했습니다!`,
+                    logMessage: `🏗️ ${player.name}님이 ${tileName}에 ${lvLabel}을 건설하였습니다!`
+                }
+            );
+        }
         const wm = this.world?.metrics;
         if (wm && RequiemState.isSootState && !player.isReincarnated) {
             const noSootRawCost = calculatePurchaseCost(tile, level, player, { ignoreSoot: true });
@@ -2470,7 +2922,7 @@ export class MarbleGameEngine {
             const immuneCard = immuneList.find(c => c.targetId === tile.id);
             if (immuneCard) {
                 this.port.closeAll();
-                this.port.showToast(`[${immuneCard.name}] ${cText.IMMUNE_APPLIED}`, 3000);
+                this.port.showToast(`[${immuneCard.name}] ${cText.IMMUNE_APPLIED}`, 3000, player.id);
                 this.emitState();
                 this.schedule(finishPayment, 2000);
                 return;
@@ -2479,14 +2931,14 @@ export class MarbleGameEngine {
 
         if (player.hasVipShield) {
             player.hasVipShield = false;
-            this.port.showToast(mText.CARD_USE_FREE, 2500);
+            this.port.showToast(cText.IMMUNE_APPLIED || '카드 효과로 통행료가 면제되었습니다!', 2500, player.id);
             this.emitState();
             this.schedule(finishPayment, 2000);
             return;
         }
         if (player.inventory.some(c => c.id === CARD_IDS.VIP_CARD)) {
             removeCardFromInventory(player, CARD_IDS.VIP_CARD);
-            this.port.showToast(mText.CARD_USE_FREE, 2500);
+            this.port.showToast(cText.IMMUNE_APPLIED || '카드 효과로 통행료가 면제되었습니다!', 2500, player.id);
             this.emitState();
             this.schedule(finishPayment, 2000);
             return;
@@ -2655,6 +3107,8 @@ export class MarbleGameEngine {
                     id: p.id,
                     name: p.name,
                     color: p.color,
+                    minimiPath: p.minimiPath || './Resource/Texture/Minimi/Minimi_Erpin.webp',
+                    minimiPegX: p.minimiPegX || 0.406,
                     money: p.money,
                     pos: p.pos,
                     territoryCount: p.territoryCount,
@@ -2675,6 +3129,7 @@ export class MarbleGameEngine {
                     hasDreamState: Boolean(p.hasDreamState),
                     hasMountainBuff: Boolean(p.hasMountainBuff),
                     hasFirstLapPassed: Boolean(p.hasFirstLapPassed),
+                    lapPassCount: p.tracker?.lapPassCount || 0,
                     hasVisitedAltar: Boolean(p.hasVisitedAltar),
                     altarVisitCount: p.altarVisitCount || 0,
                     hasRufoDiceBuff: (isViewer || this.isGameOver) ? Boolean(p.hasRufoDiceBuff) : false,

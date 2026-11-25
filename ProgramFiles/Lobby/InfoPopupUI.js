@@ -5,6 +5,7 @@ import { LangState } from '../System/LanguageManager.js';
 import { AudioManager, SettingsManager } from '../System/System.js';
 import {
     ONBOARDING_LIMITS,
+    ARENA_LEGAL_NOTICE_LINES,
     NICKNAME_POOLS,
     OnboardingLang,
     getNicknameMaxLength
@@ -299,13 +300,17 @@ export async function applyCertificateNickname({
 }
 
 /**
- * 열려 있는 공용 [정보] 팝업 및 하위 피드백 모달을 닫는다.
+ * 열려 있는 공용 [정보] 팝업 및 하위 도움말·이용약관·피드백 모달을 닫는다.
  * @param {HTMLElement} container
  */
 export function closeInfoPopup(container) {
     if (!container) return;
     const infoModal = container.querySelector('#modal-arena-info');
     if (infoModal && infoModal.parentNode) infoModal.remove();
+    const helpModal = container.querySelector('#modal-arena-help');
+    if (helpModal && helpModal.parentNode) helpModal.remove();
+    const termsModal = container.querySelector('#modal-arena-terms');
+    if (termsModal && termsModal.parentNode) termsModal.remove();
     const fbModal = container.querySelector('#modal-arena-feedback');
     if (fbModal && fbModal.parentNode) fbModal.remove();
 }
@@ -411,7 +416,7 @@ export function bindSettingsNicknameHandlers({
 }
 
 /**
- * 아레나 전 씬(MainMenu, LobbyUI, GameRoom) 공용 트릭다이스 테마 [설정] 모달 HTML 생성
+ * 아레나 전 씬(MainMenu, LobbyUI, GameRoom) 공용 보드게임 아레나 스타일 [설정] 모달 HTML 생성
  */
 export function renderArenaSettingsModalHtml({
     popupId = 'popup-settings',
@@ -544,7 +549,109 @@ export function bindArenaSettingsHandlers({
 }
 
 /**
- * 아레나 공용 [정보] 팝업을 연다. (MainMenu, LobbyUI, GameRoom 공용 — 버그 제보 및 건의하기 전용)
+ * 공용 [정보 → 도움말] 임시 안내 팝업을 연다.
+ * @param {HTMLElement} container
+ */
+export function openHelpModal(container) {
+    if (!container || typeof document === 'undefined') return;
+    const prev = container.querySelector('#modal-arena-help');
+    if (prev && prev.parentNode) prev.remove();
+
+    const lang = LangState.current;
+    const text = OnboardingLang[lang] || OnboardingLang.ko;
+
+    const modal = document.createElement('div');
+    modal.id = 'modal-arena-help';
+    modal.className = 'arena-modal-backdrop open';
+    modal.style.zIndex = '12100';
+
+    modal.innerHTML = `
+        <div class="arena-modal-box" style="width: 600px; display: flex; flex-direction: column; gap: 18px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h2 style="margin: 0; font-size: 30px; font-weight: 900; color: #4E2812;">${escapeHtmlSafe(text.HELP_MODAL_TITLE)}</h2>
+                <button id="help-btn-close-x" type="button" class="btn-wood" style="width: 42px; height: 42px; border-radius: 50%; font-size: 20px; padding: 0;">✕</button>
+            </div>
+            <div style="background: rgba(110, 61, 30, 0.08); border: 2px dashed rgba(138, 86, 44, 0.35); border-radius: 18px; padding: 26px 24px; text-align: center;">
+                <div style="font-size: 42px; margin-bottom: 10px;">🚧</div>
+                <div style="font-size: 22px; font-weight: 900; color: #4E2812; margin-bottom: 10px;">
+                    ${escapeHtmlSafe(text.HELP_MODAL_PLACEHOLDER_TITLE)}
+                </div>
+                <p style="margin: 0; font-size: 16px; font-weight: bold; line-height: 1.6; word-break: keep-all; color: #6E3D1E;">
+                    ${escapeHtmlSafe(text.HELP_MODAL_PLACEHOLDER_DESC)}
+                </p>
+            </div>
+            <div style="display: flex; justify-content: flex-end;">
+                <button id="help-btn-close" type="button" class="btn-orange" style="padding: 12px 32px; font-size: 19px;">${escapeHtmlSafe(text.INFO_BTN_CLOSE)}</button>
+            </div>
+        </div>
+    `;
+
+    const mountTarget = container.querySelector('.arena-stage') || container;
+    mountTarget.appendChild(modal);
+
+    const closeHelp = () => modal.remove();
+    const closeBtn = modal.querySelector('#help-btn-close');
+    const closeXBtn = modal.querySelector('#help-btn-close-x');
+    if (closeBtn) closeBtn.onclick = closeHelp;
+    if (closeXBtn) closeXBtn.onclick = closeHelp;
+    modal.onclick = (e) => {
+        if (e.target === modal) closeHelp();
+    };
+}
+
+/**
+ * 공용 [정보 → 이용약관] 비영리 2차 창작 및 저작권 안내 팝업을 연다.
+ * @param {HTMLElement} container
+ */
+export function openTermsModal(container) {
+    if (!container || typeof document === 'undefined') return;
+    const prev = container.querySelector('#modal-arena-terms');
+    if (prev && prev.parentNode) prev.remove();
+
+    const lang = LangState.current;
+    const text = OnboardingLang[lang] || OnboardingLang.ko;
+
+    const linesHtml = ARENA_LEGAL_NOTICE_LINES.map((line, idx) => `
+        <p style="margin: ${idx === ARENA_LEGAL_NOTICE_LINES.length - 1 ? '0' : '0 0 10px 0'}; font-size: 16px; font-weight: 700; line-height: 1.8; letter-spacing: -0.2px; white-space: nowrap; color: ${idx === 2 ? '#A93022' : '#46230F'};">
+            ${escapeHtmlSafe(line)}
+        </p>
+    `).join('');
+
+    const modal = document.createElement('div');
+    modal.id = 'modal-arena-terms';
+    modal.className = 'arena-modal-backdrop open';
+    modal.style.zIndex = '12100';
+
+    modal.innerHTML = `
+        <div class="arena-modal-box" style="width: 1200px; max-width: calc(100% - 80px); display: flex; flex-direction: column; gap: 18px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h2 style="margin: 0; font-size: 30px; font-weight: 900; color: #4E2812;">${escapeHtmlSafe(text.TERMS_MODAL_TITLE)}</h2>
+                <button id="terms-btn-close-x" type="button" class="btn-wood" style="width: 42px; height: 42px; border-radius: 50%; font-size: 20px; padding: 0;">✕</button>
+            </div>
+            <div style="background: rgba(110, 61, 30, 0.08); border: 2px dashed rgba(138, 86, 44, 0.35); border-radius: 18px; padding: 24px 28px;">
+                ${linesHtml}
+            </div>
+            <div style="display: flex; justify-content: flex-end;">
+                <button id="terms-btn-close" type="button" class="btn-orange" style="padding: 12px 32px; font-size: 19px;">${escapeHtmlSafe(text.INFO_BTN_CLOSE)}</button>
+            </div>
+        </div>
+    `;
+
+    const mountTarget = container.querySelector('.arena-stage') || container;
+    mountTarget.appendChild(modal);
+
+    const closeTerms = () => modal.remove();
+    const closeBtn = modal.querySelector('#terms-btn-close');
+    const closeXBtn = modal.querySelector('#terms-btn-close-x');
+    if (closeBtn) closeBtn.onclick = closeTerms;
+    if (closeXBtn) closeXBtn.onclick = closeTerms;
+    modal.onclick = (e) => {
+        if (e.target === modal) closeTerms();
+    };
+}
+
+/**
+ * 아레나 공용 [정보] 팝업을 연다. (MainMenu, LobbyUI, GameRoom 공용 — 프로젝트 정보·도움말·이용약관·버그 제보/건의)
  * @param {HTMLElement} container
  * @param {{ gameId?: string }} [options]
  */
@@ -554,6 +661,14 @@ export function openInfoPopup(container, { gameId = 'arena' } = {}) {
 
     const lang = LangState.current;
     const text = OnboardingLang[lang] || OnboardingLang.ko;
+    const projectDescLines = Array.isArray(text.INFO_PROJECT_DESC_LINES)
+        ? text.INFO_PROJECT_DESC_LINES
+        : String(text.INFO_PROJECT_DESC || '').split('\n');
+    const projectDescHtml = projectDescLines.map((line, idx) => `
+        <p style="margin: 0; font-size: ${idx === 0 ? '16px' : '15px'}; font-weight: ${idx === 0 ? '900' : '700'}; line-height: 1.55; word-break: keep-all; color: ${idx === 0 ? '#4E2812' : '#6E3D1E'};">
+            ${escapeHtmlSafe(line)}
+        </p>
+    `).join('');
 
     const modal = document.createElement('div');
     modal.id = 'modal-arena-info';
@@ -561,23 +676,37 @@ export function openInfoPopup(container, { gameId = 'arena' } = {}) {
     modal.style.zIndex = '12000';
 
     modal.innerHTML = `
-        <div id="modal-arena-info-card" class="arena-modal-box" style="width: 660px; display: flex; flex-direction: column; gap: 20px;">
+        <div id="modal-arena-info-card" class="arena-modal-box" style="width: 680px; display: flex; flex-direction: column; gap: 18px;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <h2 style="margin: 0; font-size: 32px; font-weight: 900; color: #4E2812;">${escapeHtmlSafe(text.INFO_MODAL_TITLE)}</h2>
                 <button id="info-btn-close-x" type="button" class="btn-wood" style="width: 42px; height: 42px; border-radius: 50%; font-size: 20px; padding: 0;">✕</button>
             </div>
 
+            <!-- 프로젝트 정보 · 도움말 · 이용약관 -->
+            <div style="background: rgba(110, 61, 30, 0.08); border: 2px dashed rgba(138, 86, 44, 0.35); border-radius: 18px; padding: 20px 24px;">
+                <div style="font-size: 21px; font-weight: 900; color: #4E2812; margin-bottom: 8px;">
+                    ${escapeHtmlSafe(text.INFO_SECTION_PROJECT)}
+                </div>
+                <div style="margin: 0 0 16px 0; display: flex; flex-direction: column; gap: 4px;">
+                    ${projectDescHtml}
+                </div>
+                <div style="display: flex; gap: 14px;">
+                    <button id="info-btn-help" type="button" class="btn-blue" style="flex: 1; padding: 13px 16px; font-size: 19px;">${escapeHtmlSafe(text.INFO_BTN_HELP)}</button>
+                    <button id="info-btn-terms" type="button" class="btn-wood" style="flex: 1; padding: 13px 16px; font-size: 19px;">${escapeHtmlSafe(text.INFO_BTN_TERMS)}</button>
+                </div>
+            </div>
+
             <!-- 버그 제보 및 건의하기 -->
-            <div style="background: rgba(110, 61, 30, 0.08); border: 2px dashed rgba(138, 86, 44, 0.35); border-radius: 18px; padding: 22px 24px;">
-                <div style="font-size: 22px; font-weight: 900; color: #4E2812; margin-bottom: 6px;">
+            <div style="background: rgba(110, 61, 30, 0.08); border: 2px dashed rgba(138, 86, 44, 0.35); border-radius: 18px; padding: 20px 24px;">
+                <div style="font-size: 21px; font-weight: 900; color: #4E2812; margin-bottom: 6px;">
                     ${escapeHtmlSafe(text.INFO_SECTION_FEEDBACK)}
                 </div>
-                <p style="margin: 0 0 18px 0; font-size: 16px; font-weight: bold; color: #6E3D1E;">
+                <p style="margin: 0 0 16px 0; font-size: 15px; font-weight: bold; color: #6E3D1E;">
                     ${escapeHtmlSafe(text.INFO_FEEDBACK_DESC)}
                 </p>
                 <div style="display: flex; gap: 14px;">
-                    <button id="info-btn-bug-report" type="button" class="btn-orange" style="flex: 1; padding: 14px 16px; font-size: 20px;">${escapeHtmlSafe(text.INFO_BTN_BUG)}</button>
-                    <button id="info-btn-suggestion" type="button" class="btn-green" style="flex: 1; padding: 14px 16px; font-size: 20px;">${escapeHtmlSafe(text.INFO_BTN_SUGGEST)}</button>
+                    <button id="info-btn-bug-report" type="button" class="btn-orange" style="flex: 1; padding: 13px 16px; font-size: 19px;">${escapeHtmlSafe(text.INFO_BTN_BUG)}</button>
+                    <button id="info-btn-suggestion" type="button" class="btn-green" style="flex: 1; padding: 13px 16px; font-size: 19px;">${escapeHtmlSafe(text.INFO_BTN_SUGGEST)}</button>
                 </div>
             </div>
 
@@ -590,6 +719,8 @@ export function openInfoPopup(container, { gameId = 'arena' } = {}) {
     const mountTarget = container.querySelector('.arena-stage') || container;
     mountTarget.appendChild(modal);
 
+    const helpBtn = modal.querySelector('#info-btn-help');
+    const termsBtn = modal.querySelector('#info-btn-terms');
     const bugBtn = modal.querySelector('#info-btn-bug-report');
     const suggestBtn = modal.querySelector('#info-btn-suggestion');
     const closeBtn = modal.querySelector('#info-btn-close');
@@ -602,6 +733,12 @@ export function openInfoPopup(container, { gameId = 'arena' } = {}) {
         if (e.target === modal) closeSelf();
     };
 
+    if (helpBtn) {
+        helpBtn.onclick = () => openHelpModal(container);
+    }
+    if (termsBtn) {
+        termsBtn.onclick = () => openTermsModal(container);
+    }
     if (bugBtn) {
         bugBtn.onclick = () => {
             closeSelf();
