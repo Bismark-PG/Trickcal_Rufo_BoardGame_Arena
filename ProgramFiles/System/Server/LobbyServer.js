@@ -4,6 +4,7 @@
 import crypto from 'node:crypto';
 import {
     getGameMeta,
+    isGameLobbyOpen,
     pickRandomBotName,
     AI_DIFFICULTIES,
     normalizeAiDifficulty,
@@ -471,7 +472,7 @@ export class LobbyServer {
             case 'CREATE_ROOM': {
                 const gameId = String(msg.gameId || 'marble');
                 const meta = getGameMeta(gameId);
-                if (!meta || (!meta.lobbyEnabled && meta.status !== 'active')) {
+                if (!isGameLobbyOpen(meta)) {
                     this._sendReply(client, msg, false, null, 'GAME_NOT_AVAILABLE');
                     return;
                 }

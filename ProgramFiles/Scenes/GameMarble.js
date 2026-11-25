@@ -194,7 +194,7 @@ export function initMarble(container, sceneParams = null) {
                 position: absolute;
                 inset: 0;
                 pointer-events: none;
-                z-index: 6;
+                z-index: 30;
             }
             .hud-npc-stack, .hud-my-wrap, .hud-turn-card, .hud-action-dock {
                 pointer-events: auto;
@@ -409,7 +409,7 @@ export function initMarble(container, sceneParams = null) {
                 top: 50%;
                 left: 50%;
                 transform: translate(-50%, -50%);
-                z-index: 30;
+                z-index: 40;
                 background: linear-gradient(180deg, #8F542B 0%, #6E3D1E 100%);
                 border: 5px solid #4E2812;
                 border-radius: 26px;
@@ -495,7 +495,7 @@ export function initMarble(container, sceneParams = null) {
                 top: 49%;
                 left: 50%;
                 transform: translate(-50%, -50%);
-                z-index: 38;
+                z-index: 15;
                 pointer-events: none;
                 text-align: center;
             }
@@ -828,6 +828,7 @@ export function initMarble(container, sceneParams = null) {
         const panCssY = -(canvasFocusY - 540) * BOARD_CSS_SCALE * frac;
         boardTiltEl.style.transform = `translate(${boardShakeOffset.x.toFixed(1)}px, ${liftY.toFixed(1)}px)`;
         boardPlaneEl.style.transform = `scale(${zoom.toFixed(4)}) rotateX(60deg) rotateZ(45deg) translate3d(${panCssX.toFixed(1)}px, ${panCssY.toFixed(1)}px, 0px)`;
+        syncDiceOverlayPosition();
     };
 
     const resetBoardCameraSmooth = (durationMs = 440, onDone = null) => {
@@ -1042,7 +1043,7 @@ export function initMarble(container, sceneParams = null) {
 
         const frame = (now) => {
             if (isCleanedUp) return;
-            const elapsed = Math.min(totalMs, now - startTs);
+            const elapsed = Math.max(0, Math.min(totalMs, now - startTs));
             if (elapsed >= totalMs) {
                 moveAnimRafId = null;
                 moveAnimState = null;
@@ -1171,7 +1172,7 @@ export function initMarble(container, sceneParams = null) {
 
         const frame = (now) => {
             if (isCleanedUp) return;
-            const elapsed = Math.min(totalMs, now - startTs);
+            const elapsed = Math.max(0, Math.min(totalMs, now - startTs));
             if (elapsed >= totalMs) {
                 moveAnimRafId = null;
                 moveAnimState = null;
@@ -1273,7 +1274,7 @@ export function initMarble(container, sceneParams = null) {
 
         const frame = (now) => {
             if (isCleanedUp) return;
-            const elapsed = Math.min(totalMs, now - startTs);
+            const elapsed = Math.max(0, Math.min(totalMs, now - startTs));
             if (elapsed >= totalMs) {
                 moveAnimRafId = null;
                 moveAnimState = null;
@@ -1350,7 +1351,7 @@ export function initMarble(container, sceneParams = null) {
 
         const frame = (now) => {
             if (isCleanedUp) return;
-            const elapsed = Math.min(totalMs, now - startTs);
+            const elapsed = Math.max(0, Math.min(totalMs, now - startTs));
             if (elapsed >= totalMs) {
                 moveAnimRafId = null;
                 moveAnimState = null;
@@ -1367,15 +1368,15 @@ export function initMarble(container, sceneParams = null) {
             let scaleY = 1;
             let showGlow = false;
 
-            if (elapsed < tTravel) {
-                const rawU = elapsed / tTravel;
+            if (elapsed < tTravel && waypoints.length >= 2) {
+                const rawU = Math.max(0, Math.min(1, elapsed / Math.max(1, tTravel)));
                 const travelU = rawU * rawU * rawU * (rawU * (rawU * 6 - 15) + 10);
                 const speedNorm = Math.pow(Math.sin(Math.PI * rawU), 1.4);
-                const fIdx = travelU * (waypoints.length - 1);
-                const lo = Math.min(waypoints.length - 2, Math.floor(fIdx));
-                const frac = fIdx - lo;
-                const pA = waypoints[lo];
-                const pB = waypoints[lo + 1];
+                const fIdx = Math.max(0, travelU * (waypoints.length - 1));
+                const lo = Math.max(0, Math.min(waypoints.length - 2, Math.floor(fIdx)));
+                const frac = Math.max(0, Math.min(1, fIdx - lo));
+                const pA = waypoints[lo] || destTile;
+                const pB = waypoints[lo + 1] || destTile;
 
                 px = pA.x + (pB.x - pA.x) * frac;
                 py = pA.y + (pB.y - pA.y) * frac;
@@ -1444,7 +1445,7 @@ export function initMarble(container, sceneParams = null) {
 
         const frame = (now) => {
             if (isCleanedUp) return;
-            const elapsed = Math.min(totalMs, now - startTs);
+            const elapsed = Math.max(0, Math.min(totalMs, now - startTs));
             if (elapsed >= totalMs) {
                 moveAnimRafId = null;
                 moveAnimState = null;
@@ -2861,6 +2862,16 @@ export function initMarble(container, sceneParams = null) {
         }
     };
 
+    const syncDiceOverlayPosition = () => {
+        const overlay = document.getElementById('dice-overlay');
+        if (!overlay || overlay.style.display === 'none') return;
+        const pt = boardToStage2D(540, 540);
+        const z = curCamState?.zoom || 1;
+        overlay.style.left = `${pt.x.toFixed(1)}px`;
+        overlay.style.top = `${pt.y.toFixed(1)}px`;
+        overlay.style.transform = `translate(-50%, -50%) scale(${z.toFixed(3)})`;
+    };
+
     const syncDiceOverlay = (diceState) => {
         const overlay = document.getElementById('dice-overlay');
         if (!overlay) return;
@@ -2886,6 +2897,7 @@ export function initMarble(container, sceneParams = null) {
         }
 
         overlay.style.display = 'block';
+        syncDiceOverlayPosition();
         const titleEl = document.getElementById('dice-title');
         if (titleEl) titleEl.innerText = diceState.title || '';
 

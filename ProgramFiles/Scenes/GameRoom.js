@@ -57,70 +57,56 @@ function getAiLabel(slotOrDiff, text, gameId = 'marble') {
     }
 }
 
-function buildModeDetailHtml(modeId, modeCfg, moneyStr, modeMeta) {
+function buildModeDetailHtml(modeId, modeCfg, moneyStr, modeMeta, text = LobbyLang.ko) {
     const maxTurn = Number(modeCfg?.maxTurn) || modeMeta.turns || 20;
     const dayStart = Number(modeCfg?.timeDayStartTurn) || 5;
     const slotDur = Number(modeCfg?.timeSlotDuration) || 5;
     const nightEnd = Math.min(maxTurn, dayStart + (slotDur * 2) - 1);
     const hasTreasure = Boolean(modeCfg?.enableTreasureAndRequiem);
+    const turnUnit = text.TURN_UNIT || '턴';
 
     let ruleLines = [];
     if (modeId === 'speed') {
-        ruleLines = [
-            '"보물 카드"가 등장하지 않습니다.',
-            '빵주정비반장이 공석이 됩니다.',
-            '빵주가 3턴부터 해금되며, 그 전에 도착시 50만 달러를 지불하고 개방할 수 있습니다.',
-            '1회를 완주하거나 3턴까지 왕국을 지을 수 없습니다.'
-        ];
+        ruleLines = [...(text.MODE_DETAIL_RULES_SPEED || LobbyLang.ko.MODE_DETAIL_RULES_SPEED)];
     } else if (modeId === 'basic') {
-        ruleLines = [
-            '"보물 카드"가 등장하지 않습니다.',
-            '빵주가 4턴부터 해금됩니다.',
-            '1회를 완주하거나 4턴까지 왕국을 지을 수 없습니다.'
-        ];
+        ruleLines = [...(text.MODE_DETAIL_RULES_BASIC || LobbyLang.ko.MODE_DETAIL_RULES_BASIC)];
     } else {
-        ruleLines = [
-            '획득한 보물카드는 망가진제단에서 100만 달러로 바꿀 수 있습니다.',
-            '보물카드가 6장이 모이면 세상은 그을음상태가 됩니다.',
-            '그을음상태가 되었을때 제단에 교환된 보물카드가 없다면, 보물카드를 가장 많이 보유하고있거나, 가장 오랫동안 들고있는 플레이어가 윤회를 얻습니다.',
-            '그을음이 발생되면 모든 영토의 매입비와 건물의 건설비가 0.5배로 하락하게 됩니다.',
-            '빛무리가 발생되면 모든 수입이 1.5배(긍정 효과 2배)로 증가합니다.'
-        ];
-        if (modeId === 'ember') {
-            ruleLines.push('제단에 도착하지 않아도 1턴부터 보물 카드가 활성화됩니다.');
+        ruleLines = [...(text.MODE_DETAIL_RULES_TREASURE || LobbyLang.ko.MODE_DETAIL_RULES_TREASURE)];
+        if (modeId === 'ember' && (text.MODE_DETAIL_RULE_EMBER_EXTRA || LobbyLang.ko.MODE_DETAIL_RULE_EMBER_EXTRA)) {
+            ruleLines.push(text.MODE_DETAIL_RULE_EMBER_EXTRA || LobbyLang.ko.MODE_DETAIL_RULE_EMBER_EXTRA);
         }
     }
 
+    const timeRangeLine = (text.MODE_DETAIL_TIME_RANGE || '시간대 : {start}턴 ~ {end}턴')
+        .replace('{start}', String(dayStart))
+        .replace('{end}', String(nightEnd));
     const gimmickLines = hasTreasure
         ? [
-            `시간대 : ${dayStart}턴 ~ ${nightEnd}턴`,
-            '그을음 : 3턴',
-            '빛무리 : 2턴'
+            timeRangeLine,
+            text.MODE_DETAIL_SOOT_TURNS || '그을음 : 3턴',
+            text.MODE_DETAIL_HALO_TURNS || '빛무리 : 2턴'
         ]
-        : [`시간대 : ${dayStart}턴 ~ ${nightEnd}턴`];
+        : [timeRangeLine];
+    const aiGuides = text.MODE_DETAIL_AI_GUIDES || LobbyLang.ko.MODE_DETAIL_AI_GUIDES;
 
     return `
         <div class="parchment-card mode-detail-parchment">
-            <div><strong>• 최대 턴수 :</strong> ${maxTurn}턴 (${escapeHtml(modeMeta.time)})</div>
-            <div><strong>• 초기자금 :</strong> 시작 순서대로 ${escapeHtml(moneyStr)}</div>
+            <div><strong>${escapeHtml(text.MODE_DETAIL_MAX_TURN_LABEL || '• 최대 턴수 :')}</strong> ${maxTurn}${escapeHtml(turnUnit)} (${escapeHtml(modeMeta.time)})</div>
+            <div><strong>${escapeHtml(text.MODE_DETAIL_INIT_MONEY_LABEL || '• 초기자금 :')}</strong> ${escapeHtml(text.MODE_DETAIL_INIT_MONEY_PREFIX || '시작 순서대로')} ${escapeHtml(moneyStr)}</div>
             <div>
-                <div style="font-weight: 900; color: #9E4412;">• 월드 기믹</div>
+                <div style="font-weight: 900; color: #9E4412;">${escapeHtml(text.MODE_DETAIL_WORLD_GIMMICK_LABEL || '• 월드 기믹')}</div>
                 <div style="padding-left: 10px; font-weight: bold; display: flex; flex-direction: column; gap: 2px;">
                     ${gimmickLines.map(line => `<div>${escapeHtml(line)}</div>`).join('')}
                 </div>
             </div>
             <div>
-                <div style="font-weight: 900; color: #6E3D1E;">• 제한요소</div>
+                <div style="font-weight: 900; color: #6E3D1E;">${escapeHtml(text.MODE_DETAIL_RESTRICTIONS_LABEL || '• 제한요소')}</div>
                 <div style="padding-left: 10px; display: flex; flex-direction: column; gap: 3px;">
                     ${ruleLines.map(line => `<div>- ${escapeHtml(line)}</div>`).join('')}
                 </div>
             </div>
             <div style="margin-top: 4px; padding-top: 8px; border-top: 2px dashed rgba(138, 86, 44, 0.3); font-size: 13.5px; color: #724929; font-weight: bold; display: flex; flex-direction: column; gap: 2px;">
-                <div>• AI 난이도는 순한맛이 가장 쉽고, 마그맛이 가장 어렵습니다.</div>
-                <div>• 룰에 익숙하지 않은 분은 순한맛이나 보통맛을 추천합니다.</div>
-                <div>• 적당한 긴장감이 좋으시면 매운맛을 추천합니다.</div>
-                <div>• 도전을 좋아하신다면 핵불맛과 마그맛이 준비되어있습니다.</div>
-                <div>• AI의 플레이 성향은 랜덤으로 배정됩니다.</div>
+                ${aiGuides.map(line => `<div>${escapeHtml(line)}</div>`).join('')}
             </div>
         </div>
     `;
@@ -273,8 +259,9 @@ export function initRoom(container, sceneParams = null) {
                 </button>
             `;
         }).join('');
+        const moneyUnit = text.MONEY_MAN_UNIT || '만';
         const initialMoneyOrderStr = (currentModeCfg.initialMoneyByOrder || [5000000, 5250000, 5500000, 5750000])
-            .map(v => `${Math.round(v / 10000)}만`)
+            .map(v => `${Math.round(v / 10000)}${moneyUnit}`)
             .join(' / ');
 
         const activeCountdown = isOnline
@@ -468,7 +455,7 @@ export function initRoom(container, sceneParams = null) {
                                         <div class="rule-scrim"></div>
                                         <img class="rule-char" src="./Resource/Texture/Char/Char_Erpin_Unos.webp" alt="에르핀 우노스" style="height: 186px;">
                                         <div class="lobby-rule-banner-text">
-                                            <span class="pill-badge" style="width: fit-content; background: #5E72E4; color: #fff; border: 2px solid #C5CEFF;">${lang === 'en' ? 'Alpha' : (lang === 'ja' ? 'アルファ' : '알파')}</span>
+                                            <span class="pill-badge" style="width: fit-content; background: #5E72E4; color: #fff; border: 2px solid #C5CEFF;">${escapeHtml(text.BADGE_ALPHA || '알파')}</span>
                                             <div style="font-size: 24px; font-weight: 900; color: #FFF8EE;">${escapeHtml(gameTitle)}</div>
                                         </div>
                                     </div>
@@ -486,7 +473,7 @@ export function initRoom(container, sceneParams = null) {
                                         <div style="font-size: 15px; font-weight: bold; color: #FDEAC8; margin-bottom: 8px;">${escapeHtml(text.MODE_SELECT_LABEL || '게임 모드 선택')}</div>
                                         <div class="mode-btn-row">${modeButtonsHtml}</div>
                                     </div>
-                                    ${buildModeDetailHtml(currentMode, currentModeCfg, initialMoneyOrderStr, selectedModeMeta)}
+                                    ${buildModeDetailHtml(currentMode, currentModeCfg, initialMoneyOrderStr, selectedModeMeta, text)}
                                 `}
                             </div>
 
@@ -728,7 +715,7 @@ export function initRoom(container, sceneParams = null) {
             if (!isOnline && isMyHost && localCountdownTimer !== null) {
                 clearLocalCountdown();
                 render();
-                showLobbyToast(container, '방장이 게임 시작을 취소했습니다.');
+                showLobbyToast(container, text.TOAST_HOST_CANCELED_START || '방장이 게임 시작을 취소했습니다.');
                 return;
             }
             if (!isMyHost && isCountdown) {

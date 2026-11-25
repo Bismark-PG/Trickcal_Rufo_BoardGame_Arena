@@ -605,6 +605,7 @@ export class MarbleGameEngine {
             onRespond: handlers.onRespond,
             onCancel: handlers.onCancel
         };
+        this.emitState();
     }
 
     _createPlayersFromRoom(room) {
@@ -2671,7 +2672,24 @@ export class MarbleGameEngine {
                     this.emitState();
                 }
             } else {
-                finishRollProcess(d1 + d2 + d3);
+                // 주사위 착지 눈금과 합계를 보드 중앙에 잠깐(0.7초) 보여준 뒤 말 이동 시작
+                this.diceState = {
+                    visible: true,
+                    rollSeq,
+                    title: `${player.name}${mText.DICE_THROW_TITLE_SUFFIX || '의 주사위 던지기!'}`,
+                    d1,
+                    d2,
+                    d3,
+                    diceCount: baseDiceCount,
+                    useRufo,
+                    useErpin: Boolean(useErpin),
+                    phase: 'LANDED'
+                };
+                this.emitState();
+                this.schedule(() => {
+                    if (this.destroyed || this.isGameOver) return;
+                    finishRollProcess(d1 + d2 + d3);
+                }, 700);
             }
         }, 800);
     }

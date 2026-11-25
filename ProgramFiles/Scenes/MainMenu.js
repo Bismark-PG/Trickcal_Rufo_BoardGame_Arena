@@ -1,12 +1,11 @@
 import { changeScene } from '../Main.js';
-import { shouldBypassResourceGuard } from '../System/System.js';
 import { LangState } from '../System/LanguageManager.js';
 import {
     MenuLang,
     MAIN_MENU_CATALOG,
     pickNextRufoReaction
 } from '../System/Index/MainMenuIndex.js';
-import { getAllRegisteredGames } from '../System/GameRegistry.js';
+import { getAllRegisteredGames, isGameLobbyOpen } from '../System/GameRegistry.js';
 import { RoomManager } from '../Lobby/RoomManager.js';
 import { openQuickJoinModal } from '../Lobby/QuickJoinUI.js';
 import {
@@ -58,7 +57,9 @@ export function initMenu(container) {
         const list = getFilteredCatalog();
         const selected = list.find(g => g.id === selectedGameId) || list[0] || getSelectedCatalogGame();
         const rufo = customRufoReaction || { img: selected.rufoChar, quote: selected.rufoQuote };
-        const ctaClass = selected.statusType === 'dev' ? 'locked-style' : (selected.statusType === 'soon' ? 'soon-style' : '');
+        const selectedMeta = games.find(g => g.id === selected.id);
+        const isPlayableSelected = isGameLobbyOpen(selectedMeta);
+        const ctaClass = !isPlayableSelected ? (selected.statusType === 'soon' ? 'soon-style' : 'locked-style') : '';
         const currentNick = getActiveNick();
 
         const dockListHtml = list.map(g => {
@@ -256,17 +257,13 @@ export function initMenu(container) {
                 const gameId = selected.id;
                 const meta = games.find(g => g.id === gameId);
                 if (!meta) {
-                    showLobbyToast(container, text.UNOS_EXTERNAL_BLOCK_MSG || '이 게임은 지금 생각중인것이다! 다음에 오는 것이다!', 2600);
-                    return;
-                }
-                if (gameId === 'unos' && !shouldBypassResourceGuard(typeof window !== 'undefined' ? window.location : null)) {
                     openNoticeModal(text.UNOS_EXTERNAL_BLOCK_MSG || '이 게임은 지금 생각중인것이다! 다음에 오는 것이다!');
                     return;
                 }
-                if (meta.lobbyEnabled || meta.status === 'active') {
+                if (isGameLobbyOpen(meta)) {
                     changeScene(meta.sceneMain);
                 } else {
-                    showLobbyToast(container, text.UNOS_PREPARING_MSG);
+                    openNoticeModal(text.UNOS_PREPARING_MSG || text.UNOS_EXTERNAL_BLOCK_MSG);
                 }
             };
         }

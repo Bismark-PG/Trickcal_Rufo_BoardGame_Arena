@@ -3,6 +3,7 @@
 
 import {
     getGameMeta,
+    isGameLobbyOpen,
     pickRandomBotName,
     AI_DIFFICULTIES,
     normalizeAiDifficulty,
@@ -353,7 +354,7 @@ export const RoomManager = {
         this.seededGames.add(gameId);
 
         const meta = getGameMeta(gameId);
-        if (!meta || (!meta.lobbyEnabled && meta.status !== 'active')) return;
+        if (!isGameLobbyOpen(meta)) return;
 
         const lang = LangState.current;
         const samples = gameId === 'unos'

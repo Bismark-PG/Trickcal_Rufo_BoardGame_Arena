@@ -98,11 +98,31 @@ export function getAllRegisteredGames() {
 }
 
 /**
+ * 게임 로비 입장 및 방 생성 허용 여부 판별 (단일 진실 원천)
+ * - 레지스트리에 등록된 게임은 표시 태그(알파/베타/릴리즈 등)와 무관하게 기본 허용.
+ * - 명시적 차단(lobbyEnabled: false 또는 status: 'preparing' | 'disabled')이거나
+ *   임시 테스트 기간(testWindow: { startAt, endAt }) 외일 때만 로비를 비활성화.
+ */
+export function isGameLobbyOpen(metaOrId, nowMs = Date.now()) {
+    const meta = typeof metaOrId === 'string' ? GAME_REGISTRY[metaOrId] : metaOrId;
+    if (!meta) return false;
+    if (meta.lobbyEnabled === false) return false;
+    if (meta.status === 'preparing' || meta.status === 'disabled') return false;
+    if (meta.testWindow && typeof meta.testWindow === 'object') {
+        const startMs = meta.testWindow.startAt ? Date.parse(meta.testWindow.startAt) : NaN;
+        const endMs = meta.testWindow.endAt ? Date.parse(meta.testWindow.endAt) : NaN;
+        if (Number.isFinite(startMs) && nowMs < startMs) return false;
+        if (Number.isFinite(endMs) && nowMs > endMs) return false;
+    }
+    return true;
+}
+
+/**
  * 아레나 메인 최초 접속 시 선로딩할 대상 게임 목록 반환 (싱글플레이 등 preloadOnBoot: false 제외)
  */
 export function getBootPreloadGames() {
     return Object.values(GAME_REGISTRY).filter(
-        (g) => g.preloadOnBoot !== false && (g.lobbyEnabled || g.status === 'active')
+        (g) => g.preloadOnBoot !== false && isGameLobbyOpen(g)
     );
 }
 

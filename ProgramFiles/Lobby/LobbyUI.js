@@ -263,8 +263,8 @@ export function renderGameMainPage(container, config) {
         const bannerBg = isUnos ? './Resource/Texture/BG/BG_Broken_Altar_Special.webp' : './Resource/Texture/BG/BG_Throne_room.webp';
         const bannerChar = isUnos ? './Resource/Texture/Char/Char_Erpin_Unos.webp' : './Resource/Texture/Char/Char_Erpin_Marble.webp';
         const bannerVerText = isUnos
-            ? (lang === 'en' ? 'Alpha' : (lang === 'ja' ? 'アルファ' : '알파'))
-            : (lang === 'en' ? 'Version 1.0' : (lang === 'ja' ? 'バージョン 1.0' : '버전 1.0'));
+            ? (text.BADGE_ALPHA || '알파')
+            : (text.BADGE_VERSION_1 || '버전 1.0');
 
         const { pillStyle: netPillStyle, pillText: netPillText } = getNetBadgeState(text);
         const roomRowsHtml = buildRoomRowsHtml(rooms, text);

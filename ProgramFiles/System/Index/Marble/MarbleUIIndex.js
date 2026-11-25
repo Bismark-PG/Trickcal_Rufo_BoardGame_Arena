@@ -115,7 +115,17 @@ export const MarbleLang = {
         TURN_ORDER_ROLLED_TAG: "완료",
         TURN_ORDER_WAITING_TAG: "대기중",
         TURN_ORDER_AUTO_ROLL_PREFIX: "자동 굴림까지",
-        TURN_ORDER_AUTO_START_PREFIX: "자동 시작까지"
+        TURN_ORDER_AUTO_START_PREFIX: "자동 시작까지",
+
+        // 인게임 HUD / 모달 공용 버튼 및 라벨
+        HUD_LOG_EMPTY: "게임이 시작되었습니다.",
+        HUD_LOG_TITLE: "📜 게임로그",
+        HUD_LOG_COLLAPSE: "축소 ▼",
+        BTN_EXIT_MATCH: "🚪 나가기",
+        BTN_EXIT_MATCH_CONFIRM: "🚪 정말 나가기?",
+        BTN_USE_CARD: "사용하기",
+        BTN_PORTAL_YES: "예 (이동)",
+        BTN_PORTAL_NO: "아니요"
     },
     
     en: { /* 생략 - 추후 로컬라이징 적용 */ },

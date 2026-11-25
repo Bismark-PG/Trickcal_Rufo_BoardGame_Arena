@@ -242,7 +242,46 @@ export const LobbyLang = {
         BUG_SENT_OK: "✅ 버그 제보가 접수되었습니다!",
         SUGGEST_MODAL_TITLE: "💡 유저 건의",
         SUGGEST_MODAL_DESC: "아레나 발전을 위한 아이디어나 개선 의견을 자유롭게 보내주세요.",
-        SUGGEST_SENT_OK: "✅ 소중한 건의가 전달되었습니다!"
+        SUGGEST_SENT_OK: "✅ 소중한 건의가 전달되었습니다!",
+        BADGE_ALPHA: "알파",
+        BADGE_VERSION_1: "버전 1.0",
+        TOAST_HOST_CANCELED_START: "방장이 게임 시작을 취소했습니다.",
+        TURN_UNIT: "턴",
+        MONEY_MAN_UNIT: "만",
+        MODE_DETAIL_MAX_TURN_LABEL: "• 최대 턴수 :",
+        MODE_DETAIL_INIT_MONEY_LABEL: "• 초기자금 :",
+        MODE_DETAIL_INIT_MONEY_PREFIX: "시작 순서대로",
+        MODE_DETAIL_WORLD_GIMMICK_LABEL: "• 월드 기믹",
+        MODE_DETAIL_RESTRICTIONS_LABEL: "• 제한요소",
+        MODE_DETAIL_TIME_RANGE: "시간대 : {start}턴 ~ {end}턴",
+        MODE_DETAIL_SOOT_TURNS: "그을음 : 3턴",
+        MODE_DETAIL_HALO_TURNS: "빛무리 : 2턴",
+        MODE_DETAIL_RULES_SPEED: [
+            "\"보물 카드\"가 등장하지 않습니다.",
+            "빵주정비반장이 공석이 됩니다.",
+            "빵주가 3턴부터 해금되며, 그 전에 도착시 50만 달러를 지불하고 개방할 수 있습니다.",
+            "1회를 완주하거나 3턴까지 왕국을 지을 수 없습니다."
+        ],
+        MODE_DETAIL_RULES_BASIC: [
+            "\"보물 카드\"가 등장하지 않습니다.",
+            "빵주가 4턴부터 해금됩니다.",
+            "1회를 완주하거나 4턴까지 왕국을 지을 수 없습니다."
+        ],
+        MODE_DETAIL_RULES_TREASURE: [
+            "획득한 보물카드는 망가진제단에서 100만 달러로 바꿀 수 있습니다.",
+            "보물카드가 6장이 모이면 세상은 그을음상태가 됩니다.",
+            "그을음상태가 되었을때 제단에 교환된 보물카드가 없다면, 보물카드를 가장 많이 보유하고있거나, 가장 오랫동안 들고있는 플레이어가 윤회를 얻습니다.",
+            "그을음이 발생되면 모든 영토의 매입비와 건물의 건설비가 0.5배로 하락하게 됩니다.",
+            "빛무리가 발생되면 모든 수입이 1.5배(긍정 효과 2배)로 증가합니다."
+        ],
+        MODE_DETAIL_RULE_EMBER_EXTRA: "제단에 도착하지 않아도 1턴부터 보물 카드가 활성화됩니다.",
+        MODE_DETAIL_AI_GUIDES: [
+            "• AI 난이도는 순한맛이 가장 쉽고, 마그맛이 가장 어렵습니다.",
+            "• 룰에 익숙하지 않은 분은 순한맛이나 보통맛을 추천합니다.",
+            "• 적당한 긴장감이 좋으시면 매운맛을 추천합니다.",
+            "• 도전을 좋아하신다면 핵불맛과 마그맛이 준비되어있습니다.",
+            "• AI의 플레이 성향은 랜덤으로 배정됩니다."
+        ]
     },
     en: {
         BACK_TO_ARENA: "← Back to Arena",
@@ -470,7 +509,46 @@ export const LobbyLang = {
         BUG_SENT_OK: "✅ Bug report submitted! Thank you!",
         SUGGEST_MODAL_TITLE: "💡 User Suggestion",
         SUGGEST_MODAL_DESC: "Share your ideas and suggestions to make the Arena better.",
-        SUGGEST_SENT_OK: "✅ Your suggestion has been delivered! Thank you!"
+        SUGGEST_SENT_OK: "✅ Your suggestion has been delivered! Thank you!",
+        BADGE_ALPHA: "Alpha",
+        BADGE_VERSION_1: "Version 1.0",
+        TOAST_HOST_CANCELED_START: "The host canceled the game start.",
+        TURN_UNIT: " Turns",
+        MONEY_MAN_UNIT: "0k",
+        MODE_DETAIL_MAX_TURN_LABEL: "• Max Turns:",
+        MODE_DETAIL_INIT_MONEY_LABEL: "• Starting Funds:",
+        MODE_DETAIL_INIT_MONEY_PREFIX: "By turn order",
+        MODE_DETAIL_WORLD_GIMMICK_LABEL: "• World Gimmicks",
+        MODE_DETAIL_RESTRICTIONS_LABEL: "• Restrictions",
+        MODE_DETAIL_TIME_RANGE: "Day/Night: Turn {start} ~ Turn {end}",
+        MODE_DETAIL_SOOT_TURNS: "Soot: 3 Turns",
+        MODE_DETAIL_HALO_TURNS: "Halo: 2 Turns",
+        MODE_DETAIL_RULES_SPEED: [
+            "\"Treasure Cards\" do not appear.",
+            "The Bbangju Chief Engineer seat remains vacant.",
+            "Bbangju unlocks on Turn 3; landing earlier lets you pay 500k to open it early.",
+            "Kingdoms cannot be built until 1 lap is completed or Turn 3."
+        ],
+        MODE_DETAIL_RULES_BASIC: [
+            "\"Treasure Cards\" do not appear.",
+            "Bbangju unlocks on Turn 4.",
+            "Kingdoms cannot be built until 1 lap is completed or Turn 4."
+        ],
+        MODE_DETAIL_RULES_TREASURE: [
+            "Treasure Cards can be traded at the Broken Altar for 1,000k.",
+            "When 6 Treasure Cards are collected, the world enters the Soot state.",
+            "If no Treasure Cards were traded when Soot begins, the player holding the most (or longest) gains Reincarnation.",
+            "During Soot, all land purchase and construction costs drop by 0.5x.",
+            "During Halo, all income increases by 1.5x (positive effects 2x)."
+        ],
+        MODE_DETAIL_RULE_EMBER_EXTRA: "Treasure Cards are active from Turn 1 even without visiting the Altar.",
+        MODE_DETAIL_AI_GUIDES: [
+            "• Mild is the easiest AI difficulty and Magma is the hardest.",
+            "• Mild or Normal is recommended if you are new to the rules.",
+            "• Spicy is recommended for a balanced challenge.",
+            "• Nuclear and Magma await players seeking a tough challenge.",
+            "• AI playstyles are assigned randomly."
+        ]
     },
     ja: {
         BACK_TO_ARENA: "← アリーナへ戻る",
@@ -698,6 +776,45 @@ export const LobbyLang = {
         BUG_SENT_OK: "✅ バグ報告を受け付けました！",
         SUGGEST_MODAL_TITLE: "💡 ユーザー要望",
         SUGGEST_MODAL_DESC: "アリーナ改善のためのアイデアやご要望をお気軽にお送りください。",
-        SUGGEST_SENT_OK: "✅ 貴重なご意見をお送りいただきありがとうございます！"
+        SUGGEST_SENT_OK: "✅ 貴重なご意見をお送りいただきありがとうございます！",
+        BADGE_ALPHA: "アルファ",
+        BADGE_VERSION_1: "バージョン 1.0",
+        TOAST_HOST_CANCELED_START: "ホストがゲーム開始をキャンセルしました。",
+        TURN_UNIT: "ターン",
+        MONEY_MAN_UNIT: "万",
+        MODE_DETAIL_MAX_TURN_LABEL: "• 最大ターン数 :",
+        MODE_DETAIL_INIT_MONEY_LABEL: "• 初期資金 :",
+        MODE_DETAIL_INIT_MONEY_PREFIX: "開始順に",
+        MODE_DETAIL_WORLD_GIMMICK_LABEL: "• ワールドギミック",
+        MODE_DETAIL_RESTRICTIONS_LABEL: "• 制限事項",
+        MODE_DETAIL_TIME_RANGE: "時間帯 : {start}ターン ~ {end}ターン",
+        MODE_DETAIL_SOOT_TURNS: "煤状態 : 3ターン",
+        MODE_DETAIL_HALO_TURNS: "光輪 : 2ターン",
+        MODE_DETAIL_RULES_SPEED: [
+            "「宝物カード」は登場しません。",
+            "パンジュ整備班長は空席になります。",
+            "パンジュは3ターン目から解放され、それ以前でも50万を支払って開放できます。",
+            "1周完走または3ターン目まで王国を建設できません。"
+        ],
+        MODE_DETAIL_RULES_BASIC: [
+            "「宝物カード」は登場しません。",
+            "パンジュは4ターン目から解放されます。",
+            "1周完走または4ターン目まで王国を建設できません。"
+        ],
+        MODE_DETAIL_RULES_TREASURE: [
+            "獲得した宝物カードは壊れた祭壇で100万と交換できます。",
+            "宝物カードが6枚集まると世界は煤状態になります。",
+            "煤状態になった時点で祭壇交換がない場合、最多または最長所持のプレイヤーが輪廻を獲得します。",
+            "煤状態の間、すべての領地購入費と建設費が0.5倍になります。",
+            "光輪が発生するとすべての収入が1.5倍（ポジティブ効果2倍）になります。"
+        ],
+        MODE_DETAIL_RULE_EMBER_EXTRA: "祭壇に到達しなくても1ターン目から宝物カードが有効になります。",
+        MODE_DETAIL_AI_GUIDES: [
+            "• AI難易度はマイルドが最も易しく、マグマが最も高難度です。",
+            "• ルールに慣れていない方はマイルドまたはノーマルをおすすめします。",
+            "• 適度な緊張感を楽しみたい方にはスパイシーをおすすめします。",
+            "• 挑戦を楽しみたい方には激辛・マグマをご用意しています。",
+            "• AIのプレイ傾向はランダムで決定されます。"
+        ]
     }
 };

@@ -582,7 +582,9 @@ export const BoardGimmickHandlers = {
             ]);
         } else if (ctx.tile.owner && ctx.tile.owner !== ctx.player && !ctx.player.isAi()) {
             if (ctx.player.money < GAME_CONSTANTS.THEATER_TAKE) {
-                ctx.proceedEndTurn();
+                RuntimePopup.showToast(text.NOT_ENOUGH_MONEY, 2600, ctx.player.id);
+                ctx.refreshUI();
+                scheduleGameTask(ctx.proceedEndTurn, 1200);
                 return;
             }
             ctx.turnTimer.start(thinkTime);
@@ -1233,8 +1235,18 @@ export const BoardGimmickHandlers = {
             );
         } else if (ctx.tile.owner && ctx.tile.owner !== ctx.player) {
             ctx.handleTollPayment(ctx.player, ctx.tile, () => {
-                if (ctx.player.isBankrupt || ctx.player.money < GAME_CONSTANTS.DAYA_TAKE) {
+                if (ctx.player.isBankrupt) {
                     ctx.proceedEndTurn();
+                    return;
+                }
+                if (ctx.player.money < GAME_CONSTANTS.DAYA_TAKE) {
+                    if (!ctx.player.isAi()) {
+                        RuntimePopup.showToast(text.NOT_ENOUGH_MONEY, 2600, ctx.player.id);
+                        ctx.refreshUI();
+                        scheduleGameTask(ctx.proceedEndTurn, 1200);
+                    } else {
+                        ctx.proceedEndTurn();
+                    }
                     return;
                 }
                 if (ctx.player.isAi()) {
@@ -1282,6 +1294,7 @@ export const BoardGimmickHandlers = {
                         { text: '거절할게요', color: '#e74c3c', action: ctx.proceedEndTurn }
                     ]
                 );
+                ctx.refreshUI();
             });
         } else ctx.proceedEndTurn();
     },

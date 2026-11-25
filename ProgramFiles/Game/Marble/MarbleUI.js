@@ -143,9 +143,10 @@ function buildPlayerBadgesHtml(player, isCompact = false, worldState = null) {
 }
 
 export function renderGameLogRowsHtml(logs = []) {
+    const text = pickLangDict(MarbleLang, LangState.current);
     const safeLogs = Array.isArray(logs) ? logs : [];
     if (safeLogs.length === 0) {
-        return `<div class="hud-log-row" style="color:#724929;">게임이 시작되었습니다.</div>`;
+        return `<div class="hud-log-row" style="color:#724929;">${escapeHtml(text.HUD_LOG_EMPTY || '게임이 시작되었습니다.')}</div>`;
     }
     return safeLogs.map((entry) => {
         if (typeof entry === 'string') {
@@ -171,14 +172,14 @@ export function createPlayerUI(player, worldState = null, logOptions = null) {
         ? `
             <div class="hud-log-panel">
                 <div class="hud-log-header">
-                    <span>📜 게임로그</span>
-                    <button type="button" id="btn-hud-log-collapse" class="hud-log-collapse-btn">축소 ▼</button>
+                    <span>${escapeHtml(text.HUD_LOG_TITLE || '📜 게임로그')}</span>
+                    <button type="button" id="btn-hud-log-collapse" class="hud-log-collapse-btn">${escapeHtml(text.HUD_LOG_COLLAPSE || '축소 ▼')}</button>
                 </div>
                 <div id="hud-log-feed" class="hud-log-body td-scroll">${logRowsHtml}</div>
             </div>
         `
         : `
-            <button type="button" id="btn-hud-log-open" class="td-btn td-btn-wood" style="padding: 9px 18px; font-size: 16px; border-width: 2.5px;">📜 게임로그</button>
+            <button type="button" id="btn-hud-log-open" class="td-btn td-btn-wood" style="padding: 9px 18px; font-size: 16px; border-width: 2.5px;">${escapeHtml(text.HUD_LOG_TITLE || '📜 게임로그')}</button>
         `;
 
     return `
@@ -315,7 +316,9 @@ export function createDiceButton(player, canRoll = true, hasUsableCards = false,
     const cText = pickLangDict(CardUILang, LangState.current);
 
     const rollBtnCursor = canRoll ? 'pointer' : 'not-allowed';
-    const exitLabel = exitPending ? '🚪 정말 나가기?' : '🚪 나가기';
+    const exitLabel = exitPending
+        ? (text.BTN_EXIT_MATCH_CONFIRM || '🚪 정말 나가기?')
+        : (text.BTN_EXIT_MATCH || '🚪 나가기');
 
     return `
         <div class="hud-action-dock" style="position: absolute; bottom: 34px; right: 34px; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; z-index: 8;">
@@ -483,7 +486,7 @@ export function createPopupOverlay() {
                 <p id="hand-detail-desc" style="margin: 0 0 14px 0; font-size: 17px; line-height: 1.55; color: #4E2812; background: rgba(255,255,255,0.65); border: 2px solid #D8AF7A; border-radius: 12px; padding: 12px 14px; white-space: pre-line;"></p>
                 <div id="hand-detail-status" style="margin: 0 0 14px 0; font-size: 14px; font-weight: 800; min-height: 20px;"></div>
                 <div id="hand-detail-actions" style="display: none; justify-content: flex-end; gap: 10px;">
-                    <button id="hand-detail-use-btn" type="button" class="td-btn td-btn-green" style="font-family: inherit; width: 100%; padding: 12px; font-size: 19px;">사용하기</button>
+                    <button id="hand-detail-use-btn" type="button" class="td-btn td-btn-green" style="font-family: inherit; width: 100%; padding: 12px; font-size: 19px;">${escapeHtml(text.BTN_USE_CARD || '사용하기')}</button>
                 </div>
             </div>
         </div>
@@ -509,8 +512,8 @@ export function createPopupOverlay() {
                     <div id="territory-detail-portal-confirm" style="display: none; margin-top: 16px; padding-top: 14px; border-top: 2px dashed #C9965B;">
                         <p id="territory-detail-portal-question" style="margin: 0 0 12px 0; font-size: 19px; font-weight: 900; color: #7C3F0E; text-align: center;"></p>
                         <div style="display: flex; gap: 12px;">
-                            <button id="territory-detail-portal-yes" type="button" class="td-btn td-btn-green" style="font-family: inherit; flex: 1; padding: 12px; font-size: 19px;">예 (이동)</button>
-                            <button id="territory-detail-portal-no" type="button" class="td-btn td-btn-wood" style="font-family: inherit; flex: 1; padding: 12px; font-size: 19px;">아니요</button>
+                            <button id="territory-detail-portal-yes" type="button" class="td-btn td-btn-green" style="font-family: inherit; flex: 1; padding: 12px; font-size: 19px;">${escapeHtml(text.BTN_PORTAL_YES || '예 (이동)')}</button>
+                            <button id="territory-detail-portal-no" type="button" class="td-btn td-btn-wood" style="font-family: inherit; flex: 1; padding: 12px; font-size: 19px;">${escapeHtml(text.BTN_PORTAL_NO || '아니요')}</button>
                         </div>
                     </div>
                 </div>

@@ -529,19 +529,21 @@ export class ErrorTrackerManager {
 
         const modal = document.createElement('div');
         modal.id = 'modal-arena-error-report';
-        modal.style.cssText = 'position: absolute; inset: 0; background: rgba(0, 0, 0, 0.68); display: flex; align-items: center; justify-content: center; z-index: 12000; padding: 24px;';
+        modal.style.cssText = 'position: absolute; inset: 0; background: rgba(34, 16, 6, 0.70); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 12000; padding: 24px; box-sizing: border-box;';
         modal.innerHTML = `
-            <div style="width: 620px; max-width: 92vw; background: #165b7a; border: 4px solid #e74c3c; border-radius: 24px; padding: 34px 38px; color: #fff; box-shadow: 0 22px 52px rgba(0,0,0,0.55); font-family: inherit;">
-                <h2 style="margin: 0 0 14px 0; font-size: 30px; color: #ff7675;">🚨 ${escapeModalHtml(title)}</h2>
-                <p style="margin: 0 0 18px 0; font-size: 18px; line-height: 1.6; color: #ecf0f1; white-space: pre-line;">${escapeModalHtml(desc)}</p>
-                <div style="background: rgba(0, 0, 0, 0.28); border-radius: 14px; padding: 16px 18px; margin-bottom: 20px; font-size: 16px; line-height: 1.55;">
-                    <div style="color: #f1c40f; font-weight: bold; margin-bottom: 6px;">${escapeModalHtml(codeLabel)}: <code>${escapeModalHtml(report.errorCode)}</code></div>
-                    <div style="color: #dceefb; word-break: break-word;">${escapeModalHtml(report.summary)}</div>
-                </div>
-                <div id="err-report-status" style="min-height: 24px; margin-bottom: 14px; font-size: 16px; font-weight: bold; color: #f9e79f; text-align: center;"></div>
-                <div style="display: flex; justify-content: flex-end; gap: 12px;">
-                    <button id="btn-err-report-close" type="button" style="font-family: inherit; padding: 12px 24px; font-size: 18px; font-weight: bold; background: #7f8c8d; color: #fff; border: none; border-radius: 12px; cursor: pointer;">${escapeModalHtml(closeLabel)}</button>
-                    <button id="btn-err-report-send" type="button" style="font-family: inherit; padding: 12px 28px; font-size: 18px; font-weight: bold; background: #e74c3c; color: #fff; border: none; border-radius: 12px; cursor: pointer;">${escapeModalHtml(sendLabel)}</button>
+            <div style="width: 650px; max-width: 92vw; background: linear-gradient(180deg, #8F542B 0%, #6E3D1E 100%); border: 4px solid #4E2812; border-radius: 26px; padding: 12px; box-shadow: 0 22px 54px rgba(32, 14, 5, 0.62); font-family: inherit; box-sizing: border-box;">
+                <div style="background: linear-gradient(180deg, #FFF9EB 0%, #F7E7C4 100%); border: 3px solid #C9965B; border-radius: 18px; padding: 28px 32px; color: #3D2010; box-shadow: inset 0 2px 8px rgba(105, 57, 29, 0.12); box-sizing: border-box;">
+                    <h2 style="margin: 0 0 12px 0; font-size: 28px; font-weight: 900; color: #B84214;">🚨 ${escapeModalHtml(title)}</h2>
+                    <p style="margin: 0 0 18px 0; font-size: 17px; line-height: 1.6; color: #4E2812; font-weight: 700; white-space: pre-line; word-break: keep-all;">${escapeModalHtml(desc)}</p>
+                    <div style="background: rgba(255, 255, 255, 0.72); border: 2px dashed #CFA067; border-radius: 14px; padding: 14px 18px; margin-bottom: 18px; font-size: 15px; line-height: 1.55;">
+                        <div style="color: #8A4A18; font-weight: 900; margin-bottom: 6px;">${escapeModalHtml(codeLabel)}: <code style="background: #FFE3DD; color: #9E2710; border: 1px solid #E5A092; padding: 2px 8px; border-radius: 8px; font-weight: 900;">${escapeModalHtml(report.errorCode)}</code></div>
+                        <div style="color: #5D361A; font-weight: 700; word-break: break-word;">${escapeModalHtml(report.summary)}</div>
+                    </div>
+                    <div id="err-report-status" style="min-height: 24px; margin-bottom: 14px; font-size: 15px; font-weight: 900; color: #8A562C; text-align: center;"></div>
+                    <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                        <button id="btn-err-report-close" type="button" style="font-family: inherit; padding: 11px 22px; font-size: 17px; font-weight: 900; background: linear-gradient(180deg, #8F542B 0%, #6E3D1E 100%); color: #FFF8EE; border: 2px solid #4E2812; border-radius: 14px; cursor: pointer; box-shadow: 0 4px 10px rgba(46, 22, 8, 0.25);">${escapeModalHtml(closeLabel)}</button>
+                        <button id="btn-err-report-send" type="button" style="font-family: inherit; padding: 11px 26px; font-size: 17px; font-weight: 900; background: linear-gradient(135deg, #F38221, #D95318); color: #FFFFFF; border: 2px solid #FFE4AC; border-radius: 14px; cursor: pointer; box-shadow: 0 4px 12px rgba(217, 83, 24, 0.35);">${escapeModalHtml(sendLabel)}</button>
+                    </div>
                 </div>
             </div>
         `;
