@@ -391,7 +391,15 @@ export class ErrorTrackerManager {
                     if (tag === 'IMG') {
                         target.style.opacity = '0.25';
                     }
-                    const isCritical = tag === 'SCRIPT' || target.dataset?.critical === 'true';
+                    const isSameOriginScript = (() => {
+                        if (tag !== 'SCRIPT' || !failedUrl || typeof window === 'undefined') return false;
+                        try {
+                            return new URL(failedUrl, window.location.href).origin === window.location.origin;
+                        } catch {
+                            return false;
+                        }
+                    })();
+                    const isCritical = isSameOriginScript || target.dataset?.critical === 'true';
                     if (isCritical) {
                         this.triggerRecovery(ERROR_CODES.ERR_RESOURCE_LOAD_FAIL, {
                             summary: '필수 실행 리소스 로드에 실패하여 안전 화면으로 복구했습니다.',
